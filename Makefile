@@ -54,8 +54,8 @@ DEFINES += -Wno-write-strings -fpermissive
 CXXFLAGS += -D__STDC_CONSTANT_MACROS
 
 ILCDIR   =ilclient
-VCINCDIR =/opt/vc/include
-VCLIBDIR =/opt/vc/lib
+VCINCDIR =$(SDKSTAGE)/opt/vc/include
+VCLIBDIR =$(SDKSTAGE)/opt/vc/lib
 
 INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads -I$(VCINCDIR)/interface/vmcs_host/linux
 
@@ -65,7 +65,7 @@ LDFLAGS += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
-OBJS = $(PLUGIN).o setup.o audio.o omxdevice.o ovgosd.o
+OBJS = $(PLUGIN).o setup.o omx.o audio.o omxdevice.o ovgosd.o
 
 ### The main target:
 

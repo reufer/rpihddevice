@@ -15,4 +15,4 @@ Description:
 Requirements:
 
   - valid MPEG2 licence
-  - libmpg123
+  - ffmpeg (tested with 1.0.7)

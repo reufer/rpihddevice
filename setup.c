@@ -44,8 +44,10 @@ public:
 		m_newAudioPort = *m_audioPort;
 		m_newPassthrough = *m_passthrough;
 
-		Add(new cMenuEditStraItem(tr("Audio Port"), &m_newAudioPort, 2, audioport));
-		Add(new cMenuEditBoolItem(tr("Digital Audio Pass-Through"), &m_newPassthrough));
+		Add(new cMenuEditStraItem(
+				tr("Audio Port"), &m_newAudioPort, 2, audioport));
+		Add(new cMenuEditBoolItem(
+				tr("Digital Audio Pass-Through"), &m_newPassthrough));
 	}
 
 protected:
@@ -108,14 +110,20 @@ bool cRpiSetup::HwInit(void)
 	return true;
 }
 
-bool cRpiSetup::IsAudioFormatSupported(cAudioDecoder::eCodec codec, int channels, int samplingRate)
+bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
+		int channels, int samplingRate)
 {
+	// AAC and DTS pass-through currently not supported
+	if (codec == cAudioCodec::eAAC ||
+		codec == cAudioCodec::eDTS)
+		return false;
+
 	if (vc_tv_hdmi_audio_supported(
-			codec == cAudioDecoder::eMPG  ? EDID_AudioFormat_eMPEG1 :
-			codec == cAudioDecoder::eAC3  ? EDID_AudioFormat_eAC3   :
-			codec == cAudioDecoder::eEAC3 ? EDID_AudioFormat_eEAC3  :
-			codec == cAudioDecoder::eAAC  ? EDID_AudioFormat_eAAC   :
-			codec == cAudioDecoder::eDTS  ? EDID_AudioFormat_eDTS   :
+			codec == cAudioCodec::eMPG  ? EDID_AudioFormat_eMPEG1 :
+			codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
+			codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
+			codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
+			codec == cAudioCodec::eDTS  ? EDID_AudioFormat_eDTS   :
 					EDID_AudioFormat_ePCM, channels,
 			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
 			samplingRate ==  44000 ? EDID_AudioSampleRate_e44KHz  :
@@ -123,7 +131,8 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioDecoder::eCodec codec, int channels
 			samplingRate ==  96000 ? EDID_AudioSampleRate_e96KHz  :
 			samplingRate == 176000 ? EDID_AudioSampleRate_e176KHz :
 			samplingRate == 192000 ? EDID_AudioSampleRate_e192KHz :
-					EDID_AudioSampleRate_e48KHz, EDID_AudioSampleSize_16bit) == 0)
+					EDID_AudioSampleRate_e48KHz,
+					EDID_AudioSampleSize_16bit) == 0)
 		return true;
 
 	return false;

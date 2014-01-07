@@ -10,6 +10,8 @@
 #include <vdr/device.h>
 #include <vdr/thread.h>
 
+#include "types.h"
+
 class cOmx;
 class cAudioDecoder;
 
@@ -19,22 +21,12 @@ class cOmxDevice : cDevice
 public:
 
 	enum eState {
-		eStop,
-		eStarting,
-		ePlay
+		eNone,
+		eStartingVideo,
+		eAudioOnly,
+		eVideoOnly,
+		eAudioVideo
 	};
-
-	enum eVideoCodec {
-		eMPEG2,
-		eH264,
-		eUnknown
-	};
-
-	static const char* VideoCodecStr(eVideoCodec codec)
-	{
-		return  (codec == eMPEG2) ? "MPEG2" :
-				(codec == eH264)  ? "H264"  : "unknown";
-	}
 
 	cOmxDevice(void (*onPrimaryDevice)(void));
 	virtual ~cOmxDevice();
@@ -74,17 +66,26 @@ private:
 
 	void (*m_onPrimaryDevice)(void);
 
-	virtual eVideoCodec GetVideoCodec(const uchar *data, int length);
+	virtual cVideoCodec::eCodec ParseVideoCodec(const uchar *data, int length);
+	virtual void SetState(eState state);
+	virtual inline eState State() { return m_state; }
+
+	inline bool HasVideo() {
+		return 	m_state == eStartingVideo ||
+				m_state == eVideoOnly ||
+				m_state == eAudioVideo;
+	};
+
+	inline bool HasAudio() {
+		return 	m_state == eAudioOnly ||
+				m_state == eAudioVideo;
+	};
 
 	cOmx			*m_omx;
 	cAudioDecoder	*m_audio;
 	cMutex			*m_mutex;
 
 	eState	 m_state;
-
-	bool	 m_audioCodecReady;
-	bool	 m_videoCodecReady;
-
 	uchar	 m_audioId;
 };
 

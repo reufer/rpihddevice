@@ -1,6 +1,20 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2013-11-17: Version 0.0.5
+-------------------------
+- new:
+  - improved audio format detection (taken from softhddevice)
+  - separate thread for audio decoding
+- fixed:
+  - jump forward/backward in recordings
+  - several minor bugfixes
+- missing:
+  - still picture
+  - trick modes
+  - deinterlacer
+  - video format/output options
+
 2013-10-14: Version 0.0.4
 -------------------------
 - new:
@@ -11,7 +25,7 @@ VDR Plugin 'rpihddevice' Revision History
   - removed drawing of black box in front of console which lead to malfunction
     due to memory bandwidth problem. console blank out will be handled with
     video format/output options in future versions.
-- missing
+- missing:
   - trick modes
   - deinterlacer
   - video format/output options
@@ -26,7 +40,7 @@ VDR Plugin 'rpihddevice' Revision History
   - replay start/stop/pause
   - improved H264 detection
   - blank out console
-- missing
+- missing:
   - trick modes
   - other audio formats
   - much more...

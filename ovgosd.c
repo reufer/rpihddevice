@@ -279,7 +279,6 @@ void cOvgOsd::Flush(void)
 					pm->ViewPort().Width() * sizeof(tColor), pm->Data());
 			delete pm;
 		}
-
 		return;
 	}
 

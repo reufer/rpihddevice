@@ -7,10 +7,8 @@
 #ifndef SETUP_H
 #define SETUP_H
 
-#include "audio.h"
-#include "omxdevice.h"
-
-class cMenuSetupPage;
+#include "omx.h"
+#include "types.h"
 
 class cRpiSetup
 {
@@ -19,16 +17,20 @@ public:
 
 	static bool HwInit(void);
 
-	static cAudioDecoder::ePort GetAudioPort(void) {
-		return (GetInstance()->m_audioPort) ? cAudioDecoder::eHDMI : cAudioDecoder::eLocal; }
-	static bool IsAudioPassthrough(void) { return GetInstance()->m_passthrough; }
+	static cAudioPort::ePort GetAudioPort(void) {
+		return (GetInstance()->m_audioPort) ? cAudioPort::eHDMI : cAudioPort::eLocal; }
+
+	static bool IsAudioPassthrough(void) {
+		return GetInstance()->m_passthrough; }
+
 	static bool HasAudioSetupChanged(void);
 
-	static bool IsAudioFormatSupported(cAudioDecoder::eCodec codec, int channels, int samplingRate);
+	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,
+			int channels, int samplingRate);
 
-	static bool IsVideoCodecSupported(cOmxDevice::eVideoCodec codec) {
-		return codec == cOmxDevice::eMPEG2 ? GetInstance()->m_mpeg2Enabled :
-				codec == cOmxDevice::eH264 ? true : false;
+	static bool IsVideoCodecSupported(cVideoCodec::eCodec codec) {
+		return codec == cVideoCodec::eMPEG2 ? GetInstance()->m_mpeg2Enabled :
+			   codec == cVideoCodec::eH264 ? true : false;
 	}
 
 	static int GetDisplaySize(int &width, int &height, double &aspect);
@@ -36,7 +38,7 @@ public:
 	static cRpiSetup* GetInstance(void);
 	static void DropInstance(void);
 
-	cMenuSetupPage* GetSetupPage(void);
+	class cMenuSetupPage* GetSetupPage(void);
 	bool Parse(const char *name, const char *value);
 
 private:

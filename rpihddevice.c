@@ -10,8 +10,9 @@
 #include "ovgosd.h"
 #include "omxdevice.h"
 #include "setup.h"
+#include "types.h"
 
-static const char *VERSION        = "0.0.4";
+static const char *VERSION        = "0.0.5";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice
@@ -79,7 +80,8 @@ bool cPluginRpiHdDevice::Initialize(void)
 	if (!cRpiSetup::HwInit())
 		return false;
 
-	if (!cRpiSetup::IsVideoCodecSupported(cOmxDevice::eMPEG2))
+	// test whether MPEG2 license is available
+	if (!cRpiSetup::IsVideoCodecSupported(cVideoCodec::eMPEG2))
 		esyslog("rpihddevice: WARNING: MPEG2 video decoder not enabled!");
 
 	m_device = new cOmxDevice(&OnPrimaryDevice);
@@ -111,4 +113,4 @@ bool cPluginRpiHdDevice::SetupParse(const char *Name, const char *Value)
 	return cRpiSetup::GetInstance()->Parse(Name, Value);
 }
 
-VDRPLUGINCREATOR(cPluginRpiHdDevice); // Don't touch this!
+VDRPLUGINCREATOR(cPluginRpiHdDevice); // Don't touch this! okay.

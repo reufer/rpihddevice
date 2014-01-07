@@ -12,56 +12,38 @@ extern "C"
 #include <libavcodec/avcodec.h>
 }
 
-class cMutex;
+#include <vdr/thread.h>
 
-class cAudioDecoder
+#include "types.h"
+#include "omx.h"
+
+class cAudioParser;
+
+class cAudioDecoder : public cThread
 {
 
 public:
 
-	enum eCodec {
-		ePCM,
-		eMPG,
-		eAC3,
-		eEAC3,
-		eAAC,
-		eDTS,
-		eNumCodecs
-	};
-
-	enum ePort {
-		eLocal,
-		eHDMI
-	};
-
-	static const char* CodecStr(eCodec codec)
-	{
-		return  (codec == ePCM)  ? "PCM"   :
-				(codec == eMPG)  ? "MPG"   :
-				(codec == eAC3)  ? "AC3"   :
-				(codec == eEAC3) ? "E-AC3" :
-				(codec == eAAC)  ? "AAC"   :
-				(codec == eDTS)  ? "DTS"   : "unknown";
-	}
-
-    cAudioDecoder();
+    cAudioDecoder(cOmx *omx);
 	virtual ~cAudioDecoder();
 
 	virtual int Init(void);
 	virtual int DeInit(void);
 
-	virtual bool SetupAudioCodec(const unsigned char *data, int length);
+	virtual bool WriteData(const unsigned char *buf, unsigned int length, uint64_t pts = 0);
 
-	virtual eCodec GetCodec(void) { return m_codec; }
-	virtual eCodec GetOutputFormat(void) { return m_outputFormat; }
-	virtual ePort GetOutputPort(void) { return m_outputPort; }
-	virtual int GetChannels(void) { return m_channels; }
-	virtual int GetSamplingrate(void) { return m_samplingRate; }
+	virtual bool Poll(void);
+	virtual void Reset(void);
 
-	virtual unsigned int DecodeAudio(const unsigned char *data, int length,
-			unsigned char *outbuf, int bufsize);
+protected:
 
-private:
+	virtual void Action(void);
+
+	virtual unsigned int DecodeFrame();
+	virtual unsigned int ReadFrame(unsigned char *buf, unsigned int bufsize);
+
+	virtual bool ProbeCodec(void);
+	void SetCodec(cAudioCodec::eCodec codec);
 
 	struct Codec
 	{
@@ -69,17 +51,23 @@ private:
 	    AVCodecContext 	*context;
 	};
 
-	Codec	 m_codecs[eNumCodecs];
-	eCodec	 m_codec;
-	eCodec	 m_outputFormat;
-	ePort	 m_outputPort;
-	int		 m_channels;
-	int		 m_samplingRate;
+private:
 
-	bool	 m_passthrough;
+	Codec				 m_codecs[cAudioCodec::eNumCodecs];
+	cAudioCodec::eCodec	 m_codec;
+	cAudioCodec::eCodec	 m_outputFormat;
+	cAudioPort::ePort	 m_outputPort;
+	int					 m_channels;
+	int					 m_samplingRate;
+	bool				 m_passthrough;
+	bool				 m_outputFormatChanged;
+	uint64_t 			 m_pts;
 
-    AVFrame *m_frame;
-    cMutex	*m_mutex;
+    AVFrame 	 		*m_frame;
+    cMutex		 		*m_mutex;
+    cCondWait	 		*m_newData;
+    cAudioParser 		*m_parser;
+	cOmx		 		*m_omx;
 };
 
 #endif
