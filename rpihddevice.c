@@ -10,9 +10,7 @@
 #include "ovgosd.h"
 #include "omxdevice.h"
 
-#include "bcm_host.h"
-
-static const char *VERSION        = "0.0.1";
+static const char *VERSION        = "0.0.2";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice
@@ -65,8 +63,6 @@ public:
 cPluginRpiHdDevice::cPluginRpiHdDevice(void) : 
 	m_device(0)
 {
-	bcm_host_init();
-
 	m_device = new cOmxDevice(&cPluginRpiHdDevice::OnPrimaryDevice);
 	//new cDummyDevice();
 }

@@ -1,9 +1,23 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
-2013-09-27: Version 0.0.1
+2013-09-29: Version 0.0.2
+-------------------------
+- new:
+  - volume control
+  - H264 support
+- fixed:
+  - added missing includes to Makefile
+  - PTS/OMX_TICKS conversion
+- missing:
+  - audio only play mode
+  - buffer handling for proper replay support
+  - other audio formats
+  - much more...
 
-Initial prototype
+2013-09-27: Version 0.0.1
+-------------------------
+initial prototype
 - limitations:
   - video codec hard coded to MPEG2, output on HDMI
   - audio codec hard coded to MP3, output on phone jack
@@ -14,4 +28,3 @@ Initial prototype
   - dynamic switching between MPEG2 and H264 video codec
   - trick speeds
   - much more...
-

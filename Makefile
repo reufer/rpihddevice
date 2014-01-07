@@ -51,16 +51,15 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 DEFINES += -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM
 DEFINES += -Wno-write-strings -fpermissive
 
-INCLUDES += -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads
+ILCDIR   =ilclient
+VCINCDIR =/opt/vc/include
+VCLIBDIR =/opt/vc/lib
 
-ILCDIR   = ilclient
-VCLIBDIR = /opt/vc/lib
+INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads -I$(VCINCDIR)/interface/vmcs_host/linux
 
 LDFLAGS += -L$(VCLIBDIR) -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt -lmpg123
 LDFLAGS += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
  
-# -I/opt/vc/src/hello_pi/libs/vgfont
-
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
