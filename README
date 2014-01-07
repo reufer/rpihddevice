@@ -1,0 +1,18 @@
+This is a "plugin" for the Video Disk Recorder (VDR).
+
+Written by:                  Thomas Reufer <thomas@reufer.ch>
+
+Project's homepage:          t.b.d.
+
+Latest version available at: t.b.d.
+
+See the file COPYING for license information.
+
+Description:
+
+  Output device for Raspberry Pi.
+
+Requirements:
+
+  - valid MPEG2 licence
+  - libmpg123

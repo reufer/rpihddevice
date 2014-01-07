@@ -1,0 +1,17 @@
+VDR Plugin 'rpihddevice' Revision History
+-----------------------------------------
+
+2013-09-27: Version 0.0.1
+
+Initial prototype
+- limitations:
+  - video codec hard coded to MPEG2, output on HDMI
+  - audio codec hard coded to MP3, output on phone jack
+- tested:
+  - OSD
+  - SDTV live view and replay
+- missing:
+  - dynamic switching between MPEG2 and H264 video codec
+  - trick speeds
+  - much more...
+
