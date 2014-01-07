@@ -1,6 +1,22 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2013-12-15: Version 0.0.6
+-------------------------
+- new:
+  - still picture
+  - trick speeds
+- fixed:
+  - reworked audio detection and decoding, fixed several issues
+  - reworked stream starting behavior, fixed audio-/video-only play back
+  - fixed several issues with unsupported video codec (e.g. without MPEG2 key)
+  - improved fast forward/reverse mode
+  - several minor bugfixes
+- missing:
+  - deinterlacer
+  - image grabbing
+  - video format/output options
+
 2013-11-17: Version 0.0.5
 -------------------------
 - new:

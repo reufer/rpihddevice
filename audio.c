@@ -13,6 +13,8 @@
 
 #include <string.h>
 
+#define AVPKT_BUFFER_SIZE (64 * 1024) /* 1 PES packet */
+
 class cAudioParser
 {
 
@@ -21,13 +23,40 @@ public:
 	cAudioParser() { }
 	~cAudioParser() { }
 
-	inline AVPacket*      Packet(void) { return &m_packet;             }
-	inline unsigned int   Size(void)   { return m_packet.stream_index; }
-	inline unsigned char *Data(void)   { return m_packet.data;         }
+	AVPacket* Packet(void)
+	{
+		return &m_packet;
+	}
+
+	cAudioCodec::eCodec GetCodec(void)
+	{
+		if (!m_parsed)
+			Parse();
+		return m_codec;
+	}
+
+	unsigned int GetChannels(void)
+	{
+		if (!m_parsed)
+			Parse();
+		return m_channels;
+	}
+
+	bool Empty(void)
+	{
+		if (!m_parsed)
+			Parse();
+		return m_packet.size == 0;
+	}
 
 	int Init(void)
 	{
-		return av_new_packet(&m_packet, 64 * 1024 /* 1 PES packet */);
+		if (!av_new_packet(&m_packet, AVPKT_BUFFER_SIZE))
+		{
+			Reset();
+			return 0;
+		}
+		return -1;
 	}
 
 	int DeInit(void)
@@ -38,42 +67,66 @@ public:
 
 	void Reset(void)
 	{
-		m_packet.stream_index = 0;
+		m_codec = cAudioCodec::eInvalid;
+		m_channels = 0;
+		m_packet.size = 0;
+		m_size = 0;
+		m_parsed = false;
 		memset(m_packet.data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 	}
 
 	bool Append(const unsigned char *data, unsigned int length)
 	{
-		if (m_packet.stream_index + length + FF_INPUT_BUFFER_PADDING_SIZE > m_packet.size)
+		if (m_size + length + FF_INPUT_BUFFER_PADDING_SIZE > AVPKT_BUFFER_SIZE)
 			return false;
 
-		memcpy(m_packet.data + m_packet.stream_index, data, length);
-		m_packet.stream_index += length;
-		memset(m_packet.data + m_packet.stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+		memcpy(m_packet.data + m_size, data, length);
+		m_size += length;
+		memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+		m_parsed = false;
 		return true;
 	}
 
 	void Shrink(unsigned int length)
 	{
-		if (length < m_packet.stream_index)
+		if (length < m_size)
 		{
-			memmove(m_packet.data, m_packet.data + length, m_packet.stream_index - length);
-			m_packet.stream_index -= length;
-			memset(m_packet.data + m_packet.stream_index, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			memmove(m_packet.data, m_packet.data + length, m_size - length);
+			m_size -= length;
+			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+			m_parsed = false;
 		}
 		else
 			Reset();
 	}
 	
-	cAudioCodec::eCodec Parse(unsigned int &offset)
+private:
+
+	// Check format of first audio packet in buffer. If format has been
+	// guessed, but packet is not yet complete, codec is set with a length
+	// of 0. Once the buffer contains either the exact amount of expected
+	// data or another valid packet start after the first frame, packet
+	// size is set to the first frame length.
+	// Valid packets are always moved to the buffer start, if no valid
+	// audio frame has been found, packet gets cleared.
+	//
+	// To do:
+	// - parse sampling rate to allow non-48kHz audio
+	// - consider codec change for next frame check
+
+	void Parse()
 	{
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
-		
-		while (Size() - offset >= 5)
+		int channels = 0;
+		int offset = 0;
+		int frameSize = 0;
+
+		while (m_size - offset >= 3)
 		{
-			const uint8_t *p = Data() + offset;
-			int n = Size() - offset;
-			int r = 0;
+			const uint8_t *p = m_packet.data + offset;
+			int n = m_size - offset;
 
 			// 4 bytes 0xFFExxxxx MPEG audio
 			// 3 bytes 0x56Exxx AAC LATM audio
@@ -84,49 +137,73 @@ public:
 
 			if (FastMpegCheck(p))
 			{
-				r = MpegCheck(p, n);
-				codec = cAudioCodec::eMPG;
+				if (MpegCheck(p, n, frameSize))
+				{
+					codec = cAudioCodec::eMPG;
+					channels = 2;
+				}
+				break;
 			}
 			else if (FastAc3Check(p))
 			{
-				r = Ac3Check(p, n);
-				codec = cAudioCodec::eAC3;
-
-				if (r > 0 && p[5] > (10 << 3))
-					codec = cAudioCodec::eEAC3;
+				if (Ac3Check(p, n, frameSize, channels))
+				{
+					codec = cAudioCodec::eAC3;
+					if (n > 5 && p[5] > (10 << 3))
+						codec = cAudioCodec::eEAC3;
+				}
+				break;
 			}
 			else if (FastLatmCheck(p))
 			{
-				r = LatmCheck(p, n);
-				codec = cAudioCodec::eAAC;
+				if (LatmCheck(p, n, frameSize))
+				{
+					codec = cAudioCodec::eAAC;
+					channels = 2;
+				}
+				break;
 			}
 			else if (FastAdtsCheck(p))
 			{
-				r = AdtsCheck(p, n);
-				codec = cAudioCodec::eDTS;
-			}
-
-			if (r < 0)	// need more bytes
+				if (AdtsCheck(p, n, frameSize, channels))
+					codec = cAudioCodec::eADTS;
 				break;
-
-			if (r > 0)
-				return codec;
+			}
 
 			++offset;
 		}
-		return cAudioCodec::eInvalid;
+
+		if (codec != cAudioCodec::eInvalid)
+		{
+			if (offset)
+			{
+				dsyslog("rpihddevice: audio packet shrinked by %d bytes", offset);
+				Shrink(offset);
+			}
+
+			m_codec = codec;
+			m_channels = channels;
+			m_packet.size = frameSize;
+		}
+		else
+			Reset();
+
+		m_parsed = true;
 	}
 
-private:
-
-	AVPacket m_packet;
+	AVPacket 			m_packet;
+	cAudioCodec::eCodec m_codec;
+	unsigned int		m_channels;
+	unsigned int		m_size;
+	bool				m_parsed;
 
 	/* ------------------------------------------------------------------------- */
 	/*     audio codec parser helper functions, taken from vdr-softhddevice      */
 	/* ------------------------------------------------------------------------- */
 
 	static const uint16_t BitRateTable[2][3][16];
-	static const uint16_t SampleRateTable[4];
+	static const uint16_t MpegSampleRateTable[4];
+	static const uint16_t Ac3SampleRateTable[4];
 	static const uint16_t Ac3FrameSizeTable[38][3];
 
 	///
@@ -155,13 +232,6 @@ private:
 	///
 	///	0xFFEx already checked.
 	///
-	///	@param data	incomplete PES packet
-	///	@param size	number of bytes
-	///
-	///	@retval <0	possible MPEG audio, but need more data
-	///	@retval 0	no valid MPEG audio
-	///	@retval >0	valid MPEG audio
-	///
 	///	From: http://www.mpgedit.org/mpgedit/mpeg_format/mpeghdr.htm
 	///
 	///	AAAAAAAA AAABBCCD EEEEFFGH IIJJKLMM
@@ -170,7 +240,7 @@ private:
 	///	o b 2x	MPEG audio version (2.5, reserved, 2, 1)
 	///	o c 2x	Layer (reserved, III, II, I)
 	///	o e 2x	BitRate index
-	///	o f 2x	SampleRate index (4100, 48000, 32000, 0)
+	///	o f 2x	SampleRate index (41000, 48000, 32000, 0)
 	///	o g 1x	Padding bit
 	///	o ..	Doesn't care
 	///
@@ -180,24 +250,27 @@ private:
 	///	Layer II & III:
 	///		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
 	///
-	static int MpegCheck(const uint8_t *data, int size)
+	static bool MpegCheck(const uint8_t *data, int size, int &frame_size)
 	{
-		int frame_size;
+		frame_size = 0;
+		if (size < 3)
+			return true;
+
 		int mpeg2 = !(data[1] & 0x08) && (data[1] & 0x10);
 		int mpeg25 = !(data[1] & 0x08) && !(data[1] & 0x10);
 		int layer = 4 - ((data[1] >> 1) & 0x03);
 		int padding = (data[2] >> 1) & 0x01;
 
-		int sample_rate = SampleRateTable[(data[2] >> 2) & 0x03];
+		int sample_rate = MpegSampleRateTable[(data[2] >> 2) & 0x03];
 		if (!sample_rate)
-			return 0;
+			return false;
 
 		sample_rate >>= mpeg2;		// MPEG 2 half rate
 		sample_rate >>= mpeg25;		// MPEG 2.5 quarter rate
 
 		int bit_rate = BitRateTable[mpeg2 | mpeg25][layer - 1][(data[2] >> 4) & 0x0F];
 		if (!bit_rate)
-			return 0;
+			return false;
 
 		switch (layer)
 		{
@@ -212,14 +285,14 @@ private:
 			frame_size = frame_size + padding;
 			break;
 		}
-		if (frame_size + 4 > size)
-			return -frame_size - 4;
 
-		// check if after this frame a new MPEG frame starts
-		if (cAudioParser::FastMpegCheck(data + frame_size))
-			return frame_size;
+		if (size >= frame_size + 3 && !FastMpegCheck(data + frame_size))
+			return false;
 
-		return 0;
+		if (frame_size > size)
+			frame_size = 0;
+
+		return true;
 	}
 
 	///
@@ -241,22 +314,16 @@ private:
 	///
 	///	0x0B77xxxxxx already checked.
 	///
-	///	@param data	incomplete PES packet
-	///	@param size	number of bytes
-	///
-	///	@retval <0	possible AC-3 audio, but need more data
-	///	@retval 0	no valid AC-3 audio
-	///	@retval >0	valid AC-3 audio
-	///
 	///	o AC-3 Header
-	///	AAAAAAAA AAAAAAAA BBBBBBBB BBBBBBBB CCDDDDDD EEEEEFFF
+	///	AAAAAAAA AAAAAAAA BBBBBBBB BBBBBBBB CCDDDDDD EEEEEFFF GGGxxxxx
 	///
 	///	o a 16x Frame sync, always 0x0B77
 	///	o b 16x CRC 16
-	///	o c 2x	Sample rate
+	///	o c 2x	Sample rate ( 48000, 44100, 32000, reserved )
 	///	o d 6x	Frame size code
 	///	o e 5x	Bit stream ID
 	///	o f 3x	Bit stream mode
+	/// o g 3x  Audio coding mode
 	///
 	///	o E-AC-3 Header
 	///	AAAAAAAA AAAAAAAA BBCCCDDD DDDDDDDD EEFFGGGH IIIII...
@@ -267,43 +334,76 @@ private:
 	///	o d 10x Frame size - 1 in words
 	///	o e 2x	Frame size code
 	///	o f 2x	Frame size code 2
+	/// o g 3x  Channel mode
+	/// 0 h 1x  LFE on
 	///
-	static int Ac3Check(const uint8_t *p, int size)
+	static bool Ac3Check(const uint8_t *p, int size, int &frame_size, int &channels)
 	{
-		int frame_size;
+		frame_size = 0;
+		if (size < 7)
+			return true;
 
-		if (size < 5)				// need 5 bytes to see if AC-3/E-AC-3
-			return -5;
+		int acmod;
+		bool lfe;
+		int sample_rate;			// for future use, E-AC3 t.b.d.
 
-		if (p[5] > (10 << 3))	// E-AC-3
+		if (p[5] > (10 << 3))		// E-AC-3
 		{
 			if ((p[4] & 0xF0) == 0xF0)	// invalid fscod fscod2
-				return 0;
+				return false;
+
+			acmod = (p[4] & 0x0E) >> 1;	// number of channels, LFE excluded
+			lfe = p[4] & 0x01;
 
 			frame_size = ((p[2] & 0x03) << 8) + p[3] + 1;
 			frame_size *= 2;
 		}
 		else						// AC-3
 		{
+			sample_rate = Ac3SampleRateTable[(p[4] >> 6) & 0x03];
+
 			int fscod = p[4] >> 6;
 			if (fscod == 0x03)		// invalid sample rate
-				return 0;
+				return false;
 
 			int frmsizcod = p[4] & 0x3F;
 			if (frmsizcod > 37)		// invalid frame size
-				return 0;
+				return false;
+
+			acmod = p[6] >> 5;		// number of channels, LFE excluded
+
+			int lfe_bptr = 51;		// position of LFE bit in header for 2.0
+			if ((acmod & 0x01) && (acmod != 0x01))
+				lfe_bptr += 2;		// skip center mix level
+			if (acmod & 0x04)
+				lfe_bptr += 2;		// skip surround mix level
+			if (acmod == 0x02)
+				lfe_bptr += 2;		// skip surround mode
+			lfe = (p[lfe_bptr / 8] & (1 << (7 - (lfe_bptr % 8))));
 
 			// invalid is checked above
 			frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
 		}
-		if (frame_size + 5 > size)
-			return -frame_size - 5;
 
-		// check if after this frame a new AC-3 frame starts
-		if (FastAc3Check(p + frame_size))
-			return frame_size;
+		channels =
+			acmod == 0x00 ? 2 : 	// Ch1, Ch2
+			acmod == 0x01 ? 1 : 	// C
+			acmod == 0x02 ? 2 : 	// L, R
+			acmod == 0x03 ? 3 : 	// L, C, R
+			acmod == 0x04 ? 3 : 	// L, R, S
+			acmod == 0x05 ? 4 : 	// L, C, R, S
+			acmod == 0x06 ? 4 : 	// L, R, RL, RR
+			acmod == 0x07 ? 5 : 0;	// L, C, R, RL, RR
 
-		return 0;
+		if (lfe) channels++;
+
+		if (size >= frame_size + 2 && !FastAc3Check(p + frame_size))
+			return false;
+
+		if (frame_size > size)
+			frame_size = 0;
+
+		return true;
 	}
 
 	///
@@ -325,27 +425,23 @@ private:
 	///
 	///	0x56Exxx already checked.
 	///
-	///	@param data	incomplete PES packet
-	///	@param size	number of bytes
-	///
-	///	@retval <0	possible AAC LATM audio, but need more data
-	///	@retval 0	no valid AAC LATM audio
-	///	@retval >0	valid AAC LATM audio
-	///
-	static int LatmCheck(const uint8_t *p, int size)
+	static bool LatmCheck(const uint8_t *p, int size, int &frame_size)
 	{
+		frame_size = 0;
+		if (size < 3)
+			return true;
+
 		// 13 bit frame size without header
-		int frame_size = ((p[1] & 0x1F) << 8) + p[2];
+		frame_size = ((p[1] & 0x1F) << 8) + p[2];
 		frame_size += 3;
 
-		if (frame_size + 2 > size)
-			return -frame_size - 2;
+		if (size >= frame_size + 3 && !FastLatmCheck(p + frame_size))
+			return false;
 
-		// check if after this frame a new AAC LATM frame starts
-		if (FastLatmCheck(p + frame_size))
-			return frame_size;
+		if (frame_size > size)
+			frame_size = 0;
 
-	    return 0;
+		return true;
 	}
 	
 	///
@@ -369,13 +465,6 @@ private:
 	///
 	///	0xFFF already checked.
 	///
-	///	@param data	incomplete PES packet
-	///	@param size	number of bytes
-	///
-	///	@retval <0	possible ADTS audio, but need more data
-	///	@retval 0	no valid ADTS audio
-	///	@retval >0	valid AC-3 audio
-	///
 	///	AAAAAAAA AAAABCCD EEFFFFGH HHIJKLMM MMMMMMMM MMMOOOOO OOOOOOPP
 	///	(QQQQQQQQ QQQQQQQ)
 	///
@@ -385,25 +474,40 @@ private:
 	///	o ..
 	///	o F*4	sampling frequency index (15 is invalid)
 	///	o ..
+	/// o H*3	MPEG-4 channel configuration
+	/// o ...
 	///	o M*13	frame length
 	///
-	static int AdtsCheck(const uint8_t *p, int size)
+	static bool AdtsCheck(const uint8_t *p, int size, int &frame_size, int &channels)
 	{
-	    if (size < 6)
-	    	return -6;
+		frame_size = 0;
+		if (size < 6)
+			return true;
 
-	    int frame_size = (p[3] & 0x03) << 11;
+	    frame_size = (p[3] & 0x03) << 11;
 	    frame_size |= (p[4] & 0xFF) << 3;
 	    frame_size |= (p[5] & 0xE0) >> 5;
 
-	    if (frame_size + 3 > size)
-	    	return -frame_size - 3;
+	    int ch_config = (p[2] & 0x01) << 7;
+	    ch_config |= (p[3] & 0xC0) >> 6;
+	    channels =
+	    	ch_config == 0x00 ? 0 : // defined in AOT specific config
+			ch_config == 0x01 ? 1 : // C
+	    	ch_config == 0x02 ? 2 : // L, R
+	    	ch_config == 0x03 ? 3 : // C, L, R
+	    	ch_config == 0x04 ? 4 : // C, L, R, RC
+	    	ch_config == 0x05 ? 5 : // C, L, R, RL, RR
+	    	ch_config == 0x06 ? 6 : // C, L, R, RL, RR, LFE
+	    	ch_config == 0x07 ? 8 : // C, L, R, SL, SR, RL, RR, LFE
+				0;
 
-	    // check if after this frame a new ADTS frame starts
-	    if (FastAdtsCheck(p + frame_size))
-	    	return frame_size;
+		if (size >= frame_size + 3 && !FastAdtsCheck(p + frame_size))
+			return false;
 
-	    return 0;
+		if (frame_size > size)
+			frame_size = 0;
+
+		return true;
 	}
 };
 
@@ -429,7 +533,12 @@ const uint16_t cAudioParser::BitRateTable[2][3][16] =
 ///
 ///	MPEG sample rate table.
 ///
-const uint16_t cAudioParser::SampleRateTable[4] = { 44100, 48000, 32000, 0 };
+const uint16_t cAudioParser::MpegSampleRateTable[4] = { 44100, 48000, 32000, 0 };
+
+///
+///	AC-3 sample rate table.
+///
+const uint16_t cAudioParser::Ac3SampleRateTable[4] = { 48000, 44100, 32000, 0 };
 
 ///
 ///	Possible AC-3 frame sizes.
@@ -454,17 +563,12 @@ const uint16_t cAudioParser::Ac3FrameSizeTable[38][3] =
 
 cAudioDecoder::cAudioDecoder(cOmx *omx) :
 	cThread(),
-	m_codec(cAudioCodec::eInvalid),
-	m_outputFormat(cAudioCodec::ePCM),
-	m_outputPort(cAudioPort::eLocal),
-	m_channels(0),
-	m_samplingRate(0),
 	m_passthrough(false),
-	m_outputFormatChanged(true),
+	m_reset(false),
+	m_ready(false),
 	m_pts(0),
-	m_frame(0),
 	m_mutex(new cMutex()),
-	m_newData(new cCondWait()),
+	m_wait(new cCondWait()),
 	m_parser(new cAudioParser()),
 	m_omx(omx)
 {
@@ -473,7 +577,7 @@ cAudioDecoder::cAudioDecoder(cOmx *omx) :
 cAudioDecoder::~cAudioDecoder()
 {
 	delete m_parser;
-	delete m_newData;
+	delete m_wait;
 	delete m_mutex;
 }
 
@@ -490,7 +594,7 @@ int cAudioDecoder::Init(void)
 	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(CODEC_ID_AC3);
 	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(CODEC_ID_EAC3);
 	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(CODEC_ID_AAC_LATM);
-	m_codecs[cAudioCodec::eDTS ].codec = avcodec_find_decoder(CODEC_ID_DTS);
+	m_codecs[cAudioCodec::eADTS].codec = avcodec_find_decoder(CODEC_ID_AAC);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -513,14 +617,6 @@ int cAudioDecoder::Init(void)
 		}
 	}
 
-	m_frame = avcodec_alloc_frame();
-	if (!m_frame)
-	{
-		esyslog("rpihddevice: failed to allocate audio frame!");
-		ret = -1;
-	}
-	avcodec_get_frame_defaults(m_frame);
-
 	if (ret < 0)
 		DeInit();
 
@@ -540,41 +636,42 @@ int cAudioDecoder::DeInit(void)
 		av_free(m_codecs[codec].context);
 	}
 
-	av_free(m_frame);
 	m_parser->DeInit();
 	return 0;
 }
 
-bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint64_t pts)
+int cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint64_t pts)
 {
-	m_mutex->Lock();
-
-	bool ret = m_parser->Append(buf, length);
-	if (ret)
+	int ret = 0;
+	if (m_ready)
 	{
-		// set current pts as reference
-		m_pts = pts;
-
-		ProbeCodec();
-		m_newData->Signal();
+		m_mutex->Lock();
+		if (m_parser->Append(buf, length))
+		{
+			m_pts = pts;
+			if (!m_parser->Empty())
+			{
+				m_ready = false;
+				m_wait->Signal();
+			}
+			ret = length;
+		}
+		m_mutex->Unlock();
 	}
-
-	m_mutex->Unlock();
 	return ret;
 }
 
 void cAudioDecoder::Reset(void)
 {
 	m_mutex->Lock();
-	m_parser->Reset();
-	m_codec = cAudioCodec::eInvalid;
-	avcodec_get_frame_defaults(m_frame);
+	m_reset = true;
+	m_wait->Signal();
 	m_mutex->Unlock();
 }
 
 bool cAudioDecoder::Poll(void)
 {
-	return !m_parser->Size() && m_omx->PollAudioBuffers();
+	return m_ready && m_omx->PollAudioBuffers();
 }
 
 void cAudioDecoder::Action(void)
@@ -583,214 +680,232 @@ void cAudioDecoder::Action(void)
 
 	while (Running())
 	{
-		if (m_parser->Size())
+		unsigned int channels = 0;
+		unsigned int outputChannels = 0;
+
+		bool bufferFull = false;
+
+		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
+		OMX_BUFFERHEADERTYPE *buf = 0;
+
+	    AVFrame *frame = avcodec_alloc_frame();
+		if (!frame)
 		{
-			m_mutex->Lock();
-			if (m_outputFormatChanged)
-			{
-				m_outputFormatChanged = false;
-				m_omx->SetupAudioRender(
-					m_outputFormat, m_channels,
-					m_samplingRate, m_outputPort);
-			}
-
-			OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(m_pts);
-			if (buf)
-			{
-				while (DecodeFrame())
-					buf->nFilledLen += ReadFrame(
-							buf->pBuffer + buf->nFilledLen,
-							buf->nAllocLen - buf->nFilledLen);
-
-				if (!m_omx->EmptyAudioBuffer(buf))
-					esyslog("rpihddevice: failed to empty audio buffer!");
-			}
-			else
-			{
-				esyslog("rpihddevice: failed to get audio buffer!");
-				cCondWait::SleepMs(5);
-			}
-			m_mutex->Unlock();
+			esyslog("rpihddevice: failed to allocate audio frame!");
+			return;
 		}
-		else
-			m_newData->Wait(50);
+
+		m_reset = false;
+		m_ready = true;
+
+		while (!m_reset)
+		{
+			// check for data if no decoded samples are pending
+			if (!m_parser->Empty() && !frame->nb_samples)
+			{
+				if (codec != m_parser->GetCodec() ||
+					channels != m_parser->GetChannels())
+				{
+					// to change codec config, we need to empty buffer first
+					if (buf)
+						bufferFull = true;
+					else
+					{
+						codec = m_parser->GetCodec();
+						channels = m_parser->GetChannels();
+
+						outputChannels = channels;
+						SetCodec(codec, outputChannels);
+					}
+				}
+			}
+
+			// if codec has been configured but we don't have a buffer, get one
+			while (codec != cAudioCodec::eInvalid && !buf && !m_reset)
+			{
+				buf = m_omx->GetAudioBuffer(m_pts);
+				if (buf)
+					m_pts = 0;
+				else
+					m_wait->Wait(10);
+			}
+
+			// we have a non-full buffer and data to encode / copy
+			if (buf && !bufferFull && !m_parser->Empty())
+			{
+				int copied = 0;
+				if (m_passthrough)
+				{
+					// for pass-through directly copy AV packet to buffer
+					if (m_parser->Packet()->size <= buf->nAllocLen - buf->nFilledLen)
+					{
+						m_mutex->Lock();
+
+						memcpy(buf->pBuffer + buf->nFilledLen,
+								m_parser->Packet()->data, m_parser->Packet()->size);
+						buf->nFilledLen += m_parser->Packet()->size;
+						m_parser->Shrink(m_parser->Packet()->size);
+
+						m_mutex->Unlock();
+					}
+					else
+						if (m_parser->Packet()->size > buf->nAllocLen)
+						{
+							esyslog("rpihddevice: encoded audio frame too big!");
+							m_reset = true;
+							break;
+						}
+						else
+							bufferFull = true;
+				}
+				else
+				{
+					// decode frame if we do not pass-through
+					m_mutex->Lock();
+
+					int gotFrame = 0;
+					int len = avcodec_decode_audio4(m_codecs[codec].context,
+							frame, &gotFrame, m_parser->Packet());
+
+					if (len > 0)
+						m_parser->Shrink(len);
+
+					m_mutex->Unlock();
+
+					if (len < 0)
+					{
+						esyslog("rpihddevice: failed to decode audio frame!");
+						m_reset = true;
+						break;
+					}
+				}
+			}
+
+			// we have decoded samples we need to copy to buffer
+			if (buf && !bufferFull && frame->nb_samples > 0)
+			{
+				int length = av_samples_get_buffer_size(NULL,
+						outputChannels == 6 ? 8 : outputChannels, frame->nb_samples,
+						m_codecs[codec].context->sample_fmt, 1);
+
+				if (length <= buf->nAllocLen - buf->nFilledLen)
+				{
+					if (outputChannels == 6)
+					{
+						// interleaved copy to fit 5.1 data into 8 channels
+						int32_t* src = (int32_t*)frame->data[0];
+						int32_t* dst = (int32_t*)buf->pBuffer + buf->nFilledLen;
+
+						for (int i = 0; i < frame->nb_samples; i++)
+						{
+							*dst++ = *src++; // LF & RF
+							*dst++ = *src++; // CF & LFE
+							*dst++ = *src++; // LR & RR
+							*dst++ = 0;      // empty channels
+						}
+					}
+					else
+						memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], length);
+
+					buf->nFilledLen += length;
+					frame->nb_samples = 0;
+				}
+				else
+				{
+					if (length > buf->nAllocLen)
+					{
+						esyslog("rpihddevice: decoded audio frame too big!");
+						m_reset = true;
+						break;
+					}
+					else
+						bufferFull = true;
+				}
+			}
+
+			// check if no decoded samples are pending and parser is empty
+			if (!frame->nb_samples && m_parser->Empty())
+			{
+				// if no more data but buffer with data -> end of PES packet
+				if (buf && buf->nFilledLen > 0)
+					bufferFull = true;
+				else
+					if (m_ready)
+						m_wait->Wait(50);
+			}
+
+			// we have a buffer to empty
+			if (buf && bufferFull)
+			{
+				if (m_omx->EmptyAudioBuffer(buf))
+				{
+					bufferFull = false;
+					buf = 0;
+
+					// if parser is empty, get new data
+					if (m_parser->Empty())
+						m_ready = true;
+				}
+				else
+				{
+					esyslog("rpihddevice: failed to empty audio buffer!");
+					m_reset = true;
+					break;
+				}
+			}
+		}
+
+		dsyslog("reset");
+		if (buf && m_omx->EmptyAudioBuffer(buf))
+			buf = 0;
+
+		av_free(frame);
+		m_parser->Reset();
 	}
 	dsyslog("rpihddevice: cAudioDecoder() thread ended");
 }
 
-unsigned int cAudioDecoder::DecodeFrame()
+void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels)
 {
-	unsigned int ret = 0;
-
-	if (m_passthrough)
-		ret = m_parser->Size();
-
-	else if (m_parser->Size())
+	if (codec != cAudioCodec::eInvalid && channels > 0)
 	{
-		int frame = 0;
-		int len = avcodec_decode_audio4(m_codecs[m_codec].context,
-				m_frame, &frame, m_parser->Packet());
+		dsyslog("rpihddevice: set audio codec to %dch %s",
+				channels, cAudioCodec::Str(codec));
 
-		// decoding error or number of channels changed ?
-		if (len < 0 || m_channels != m_codecs[m_codec].context->channels)
-		{
-			m_parser->Reset();
-			m_codec = cAudioCodec::eInvalid;
-		}
-		else
-		{
-			m_parser->Shrink(len);
-			ret = frame ? len : 0;
-		}
-	}
-	return ret;
-}
-
-unsigned int cAudioDecoder::ReadFrame(unsigned char *buf, unsigned int bufsize)
-{
-	unsigned int ret = 0;
-
-	if (m_passthrough)
-	{
-		// for pass-through directly read from AV packet
-		if (m_parser->Size() > bufsize)
-			ret = bufsize;
-		else
-			ret = m_parser->Size();
-
-		memcpy(buf, m_parser->Data(), ret);
-		m_parser->Shrink(ret);
-	}
-	else
-	{
-		if (m_frame->nb_samples > 0)
-		{
-			ret = av_samples_get_buffer_size(NULL,
-					m_channels == 6 ? 8 : m_channels, m_frame->nb_samples,
-					m_codecs[m_codec].context->sample_fmt, 1);
-
-			if (ret > bufsize)
-			{
-				esyslog("rpihddevice: decoded audio frame too big!");
-				ret = 0;
-			}
-			else
-			{
-				if (m_channels == 6)
-				{
-					// interleaved copy to fit 5.1 data into 8 channels
-					int32_t* src = (int32_t*)m_frame->data[0];
-					int32_t* dst = (int32_t*)buf;
-
-					for (int i = 0; i < m_frame->nb_samples; i++)
-					{
-						*dst++ = *src++; // LF & RF
-						*dst++ = *src++; // CF & LFE
-						*dst++ = *src++; // LR & RR
-						*dst++ = 0;      // empty channels
-					}
-				}
-				else
-					memcpy(buf, m_frame->data[0], ret);
-			}
-		}
-	}
-	return ret;
-}
-
-bool cAudioDecoder::ProbeCodec(void)
-{
-	bool ret = false;
-
-	unsigned int offset = 0;
-	cAudioCodec::eCodec codec = m_parser->Parse(offset);
-
-	if (codec != cAudioCodec::eInvalid)
-	{
-		if (offset)
-			m_parser->Shrink(offset);
-
-		// if new codec has been found, decode one packet to determine number of
-		// channels, since they are needed to properly set audio output format
-		if (codec != m_codec || cRpiSetup::HasAudioSetupChanged())
-		{
-			m_codecs[codec].context->flags |= CODEC_FLAG_TRUNCATED;
-			m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
-			m_codecs[codec].context->request_channels = 0;
-
-			int frame = 0;
-			avcodec_get_frame_defaults(m_frame);
-			int len = avcodec_decode_audio4(m_codecs[codec].context, m_frame,
-					&frame, m_parser->Packet());
-
-			if (len > 0 && frame)
-			{
-				SetCodec(codec);
-				ret = true;
-			}
-		}
-	}
-	return ret;
-}
-
-void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec)
-{
-	if (codec != cAudioCodec::eInvalid)
-	{
-		if (m_codec == cAudioCodec::eInvalid)
-			m_outputFormatChanged = true;
-
-		m_codec = codec;
-		m_codecs[m_codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
-		m_codecs[m_codec].context->request_channels = 0;
+		m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
+		m_codecs[codec].context->request_channels = 0;
 
 		m_passthrough = false;
 		cAudioCodec::eCodec outputFormat = cAudioCodec::ePCM;
 		cAudioPort::ePort outputPort = cAudioPort::eLocal;
 
-		int channels = m_codecs[m_codec].context->channels;
-		int samplingRate = m_codecs[m_codec].context->sample_rate;
-
-		dsyslog("rpihddevice: set audio codec to %s with %d channels, %dHz",
-			cAudioCodec::Str(m_codec), channels, samplingRate);
-
 		if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
-			cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM,
-					m_codecs[m_codec].context->channels,
-					m_codecs[m_codec].context->sample_rate))
+			cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, channels, 48000))
 		{
 			outputPort = cAudioPort::eHDMI;
 
 			if (cRpiSetup::IsAudioPassthrough() &&
-				cRpiSetup::IsAudioFormatSupported(m_codec,
-						m_codecs[m_codec].context->channels,
-						m_codecs[m_codec].context->sample_rate))
+				cRpiSetup::IsAudioFormatSupported(codec, channels, 48000))
 			{
 				m_passthrough = true;
-				outputFormat = m_codec;
+				outputFormat = codec;
 			}
 		}
 		else
 		{
-			m_codecs[m_codec].context->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
-			m_codecs[m_codec].context->request_channels = 2;
+			m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
+			m_codecs[codec].context->request_channels = 2;
 			channels = 2;
+
+			// if 2ch PCM audio on HDMI is supported
+			if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
+				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2, 48000))
+				outputPort = cAudioPort::eHDMI;
 		}
 
-		if ((outputFormat != m_outputFormat) ||
-			(outputPort   != m_outputPort  ) ||
-			(channels     != m_channels    ) ||
-			(samplingRate != m_samplingRate))
-		{
-			m_outputFormat = outputFormat;
-			m_outputPort = outputPort;
-			m_channels = channels;
-			m_samplingRate = samplingRate;
-			m_outputFormatChanged = true;
-
-			dsyslog("rpihddevice: set %s audio output format to %s%s",
-					cAudioPort::Str(m_outputPort), cAudioCodec::Str(m_outputFormat),
-					m_passthrough ? " (pass-through)" : "");
-		}
+		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, 48000);
+		dsyslog("rpihddevice: set %s audio output format to %dch %s%s",
+				cAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
+				m_passthrough ? " (pass-through)" : "");
 	}
 }

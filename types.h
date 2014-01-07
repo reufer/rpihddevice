@@ -17,7 +17,7 @@ public:
 		eAC3,
 		eEAC3,
 		eAAC,
-		eDTS,
+		eADTS,
 		eNumCodecs,
 		eInvalid
 	};
@@ -28,7 +28,7 @@ public:
 				(codec == eAC3)  ? "AC3"   :
 				(codec == eEAC3) ? "E-AC3" :
 				(codec == eAAC)  ? "AAC"   :
-				(codec == eDTS)  ? "DTS"   : "unknown";
+				(codec == eADTS) ? "ADTS"  : "unknown";
 	}
 };
 

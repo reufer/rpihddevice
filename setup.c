@@ -115,7 +115,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 {
 	// AAC and DTS pass-through currently not supported
 	if (codec == cAudioCodec::eAAC ||
-		codec == cAudioCodec::eDTS)
+		codec == cAudioCodec::eADTS)
 		return false;
 
 	if (vc_tv_hdmi_audio_supported(
@@ -123,7 +123,6 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 			codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
 			codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
 			codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
-			codec == cAudioCodec::eDTS  ? EDID_AudioFormat_eDTS   :
 					EDID_AudioFormat_ePCM, channels,
 			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
 			samplingRate ==  44000 ? EDID_AudioSampleRate_e44KHz  :

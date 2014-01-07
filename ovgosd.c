@@ -24,8 +24,8 @@ public:
 		m_mutex(0),
 		m_width(0),
 		m_height(0),
-		m_pixmap(0),
 		m_aspect(0),
+		m_pixmap(0),
 		m_d(0),
 		m_x(0),
 		m_y(0),
@@ -270,9 +270,6 @@ void cOvgOsd::Flush(void)
 		LOCK_PIXMAPS;
 
 		while (cPixmapMemory *pm = RenderPixmaps()) {
-			int w = pm->ViewPort().Width();
-			int h = pm->ViewPort().Height();
-			int d = w * sizeof(tColor);
 			m_ovg->DrawPixmap(
 					Left() + pm->ViewPort().X(), Top() + pm->ViewPort().Y(),
 					pm->ViewPort().Width(),	pm->ViewPort().Height(),

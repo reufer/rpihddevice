@@ -12,7 +12,7 @@
 #include "setup.h"
 #include "types.h"
 
-static const char *VERSION        = "0.0.5";
+static const char *VERSION        = "0.0.6";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice
@@ -82,12 +82,12 @@ bool cPluginRpiHdDevice::Initialize(void)
 
 	// test whether MPEG2 license is available
 	if (!cRpiSetup::IsVideoCodecSupported(cVideoCodec::eMPEG2))
-		esyslog("rpihddevice: WARNING: MPEG2 video decoder not enabled!");
+		dsyslog("rpihddevice: MPEG2 video decoder not enabled!");
 
 	m_device = new cOmxDevice(&OnPrimaryDevice);
 
 	if (m_device)
-		return (m_device->Init() == 0);
+		return !m_device->Init();
 
 	return false;
 }

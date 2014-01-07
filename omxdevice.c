@@ -11,6 +11,7 @@
 
 #include <vdr/remux.h>
 #include <vdr/tools.h>
+#include <vdr/skins.h>
 
 #include <string.h>
 
@@ -20,10 +21,15 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_omx(new cOmx()),
 	m_audio(new cAudioDecoder(m_omx)),
 	m_mutex(new cMutex()),
-	m_state(eNone),
-	m_audioId(0)
-{
-}
+	m_videoCodec(cVideoCodec::eInvalid),
+	m_hasVideo(false),
+	m_hasAudio(false),
+	m_skipAudio(false),
+	m_playDirection(0),
+	m_trickRequest(0),
+	m_audioPts(0),
+	m_videoPts(0)
+{ }
 
 cOmxDevice::~cOmxDevice()
 {
@@ -71,14 +77,12 @@ bool cOmxDevice::CanReplay(void) const
 {
 	dsyslog("rpihddevice: CanReplay");
 	// video codec de-initialization done
-	return (m_state == eNone);
+	return true; //(m_state == eNone);
 }
 
 bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 {
-	// in case we were in some trick mode
-	m_omx->SetClockScale(1.0f);
-
+	m_mutex->Lock();
 	dsyslog("rpihddevice: SetPlayMode(%s)",
 		PlayMode == pmNone			 ? "none" 			   :
 		PlayMode == pmAudioVideo	 ? "Audio/Video" 	   :
@@ -86,20 +90,19 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 		PlayMode == pmAudioOnlyBlack ? "Audio only, black" :
 		PlayMode == pmVideoOnly		 ? "Video only" 	   : 
 									   "unsupported");
+
+	// Stop audio / video if play mode is set to pmNone. Start
+	// is triggered once a packet is going to be played, since
+	// we don't know what kind of stream we'll get (audio-only,
+	// video-only or both) after SetPlayMode() - VDR will always
+	// pass pmAudioVideo as argument.
+
 	switch (PlayMode)
 	{
 	case pmNone:
-		m_mutex->Lock();
-		if (HasVideo())
-			m_omx->FlushVideo(true);
-		if (HasAudio())
-		{
-			m_audio->Reset();
-			m_omx->FlushAudio();
-		}
-		m_omx->Stop();
-		SetState(eNone);
-		m_mutex->Unlock();
+		ResetAudioVideo(true);
+		m_omx->StopVideo();
+		m_videoCodec = cVideoCodec::eInvalid;
 		break;
 
 	case pmAudioVideo:
@@ -107,180 +110,276 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmAudioOnlyBlack:
 	case pmVideoOnly:
 		break;
+
+	default:
+		break;
 	}
 
+	m_mutex->Unlock();
 	return true;
+}
+
+void cOmxDevice::StillPicture(const uchar *Data, int Length)
+{
+	if (Data[0] == 0x47)
+		cDevice::StillPicture(Data, Length);
+	else
+	{
+		// to get a picture displayed, PlayVideo() needs to be called
+		// twice for MPEG2 and 6x for H264... ?
+		for (int i = 0; i < (m_videoCodec == cVideoCodec::eMPEG2 ? 2 : 6); i++)
+			PlayVideo(Data, Length, true);
+	}
 }
 
 int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
+	if (m_skipAudio)
+		return Length;
+
+	m_mutex->Lock();
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+
+	if (!m_hasAudio)
+	{
+		m_omx->SetClockReference(cOmx::eClockRefAudio);
+		m_hasAudio = true;
+	}
+
+	// keep track of direction in case of trick speed
+	if (m_trickRequest && pts)
+	{
+		if (m_audioPts)
+			PtsTracker(PtsDiff(m_audioPts, pts));
+
+		m_audioPts = pts;
+	}
+
+	int ret = m_audio->WriteData(Data + PesPayloadOffset(Data),
+			Length - PesPayloadOffset(Data), pts);
+
+	m_mutex->Unlock();
+	return ret;
+}
+
+int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
+{
 	m_mutex->Lock();
 	int ret = Length;
 
-	// if first packet is audio, we assume audio only
-	if (State() == eNone)
-		SetState(eAudioOnly);
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+	cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
 
-	if (State() == eAudioOnly || State() == eAudioVideo)
+	// video restart after Clear() with same codec
+	bool videoRestart = (!m_hasVideo && codec == m_videoCodec &&
+			cRpiSetup::IsVideoCodecSupported(codec));
+
+	// video restart after SetPlayMode() or codec changed
+	if (codec != cVideoCodec::eInvalid && codec != m_videoCodec)
 	{
-		if (m_audio->Poll())
-		{
-			if (m_audioId != Id)
-			{
-				m_audioId = Id;
-				m_audio->Reset();
-			}
+		m_videoCodec = codec;
 
-			//dsyslog("A %llu", PesGetPts(Data));
-			if (!m_audio->WriteData(Data + PesPayloadOffset(Data),
-					PesLength(Data) - PesPayloadOffset(Data),
-					PesHasPts(Data) ? PesGetPts(Data) : 0))
-				esyslog("rpihddevice: failed to write data to audio decoder!");
+		if (m_hasVideo)
+		{
+			m_omx->StopVideo();
+			m_hasVideo = false;
+		}
+
+		if (cRpiSetup::IsVideoCodecSupported(codec))
+		{
+			videoRestart = true;
+			m_omx->SetVideoCodec(codec, cOmx::eArbitraryStreamSection);
+			dsyslog("rpihddevice: set video codec to %s",
+					cVideoCodec::Str(codec));
 		}
 		else
-			ret = 0;
+			Skins.QueueMessage(mtError, tr("video format not supported!"));
 	}
 
-	m_mutex->Unlock();
-	return ret;
-}
-
-int cOmxDevice::PlayVideo(const uchar *Data, int Length)
-{
-	m_mutex->Lock();
-	int ret = Length;
-
-	if (State() == eNone)
-		SetState(eStartingVideo);
-
-	if (State() == eStartingVideo)
+	if (videoRestart)
 	{
-		cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
-		if (codec != cVideoCodec::eInvalid)
+		m_hasVideo = true;
+
+		if (!m_hasAudio)
 		{
-			if (cRpiSetup::IsVideoCodecSupported(codec))
-			{
-				m_omx->SetVideoCodec(codec);
-				SetState(eAudioVideo);
-				dsyslog("rpihddevice: set video codec to %s",
-						cVideoCodec::Str(codec));
-			}
-			else
-			{
-				SetState(eAudioOnly);
-				esyslog("rpihddevice: %s video codec not supported!",
-						cVideoCodec::Str(codec));
-			}
+			m_omx->SetClockReference(cOmx::eClockRefVideo);
+			m_omx->SetCurrentReferenceTime(0);
+			m_omx->SetClockState(cOmx::eClockStateWaitForVideo);
 		}
 	}
 
-	if (State() == eVideoOnly || State() == eAudioVideo)
+	// keep track of direction in case of trick speed
+	if (m_trickRequest && pts)
 	{
-		int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
-		OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
-		if (buf)
+		if (m_videoPts)
+			PtsTracker(PtsDiff(m_videoPts, pts));
+
+		m_videoPts = pts;
+	}
+
+	if (m_hasVideo)
+	{
+		while (Length)
 		{
-			//dsyslog("V %llu", PesGetPts(Data));
 			const uchar *payload = Data + PesPayloadOffset(Data);
-			int length = PesLength(Data) - PesPayloadOffset(Data);
-			if (length <= buf->nAllocLen)
+			unsigned int length = PesLength(Data) - PesPayloadOffset(Data);
+
+			OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
+			if (buf)
 			{
-				memcpy(buf->pBuffer, payload, length);
 				buf->nFilledLen = length;
+				memcpy(buf->pBuffer, payload, length);
+
+				if (singleFrame && Length == PesLength(Data))
+					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+
+				if (!m_omx->EmptyVideoBuffer(buf))
+				{
+					ret = 0;
+					esyslog("rpihddevice: failed to pass buffer to video decoder!");
+					break;
+				}
 			}
 			else
-				esyslog("rpihddevice: video packet too long for video buffer!");
-
-			if (!m_omx->EmptyVideoBuffer(buf))
 			{
 				ret = 0;
-				esyslog("rpihddevice: failed to pass buffer to video decoder!");
+				break;
 			}
+			Length -= PesLength(Data);
+			Data += PesLength(Data);
 		}
 	}
 
 	m_mutex->Unlock();
 	return ret;
-}
-
-void cOmxDevice::SetState(eState state)
-{
-	switch (state)
-	{
-	case eNone:
-		m_omx->SetClockState(cOmx::eClockStateStop);
-		break;
-
-	case eStartingVideo:
-		break;
-
-	case eAudioOnly:
-		m_omx->SetClockState(cOmx::eClockStateWaitForAudio);
-		break;
-
-	case eVideoOnly:
-		m_omx->SetClockState(cOmx::eClockStateWaitForVideo);
-		break;
-
-	case eAudioVideo:
-		m_omx->SetClockState(cOmx::eClockStateWaitForAudioVideo);
-		break;
-	}
-	m_state = state;
 }
 
 int64_t cOmxDevice::GetSTC(void)
 {
-	//dsyslog("S %llu", m_omx->GetSTC());
 	return m_omx->GetSTC();
 }
 
 void cOmxDevice::Play(void)
 {
 	dsyslog("rpihddevice: Play()");
+
+	Clear();
+	return;
+
+	m_mutex->Lock();
+
+	m_skipAudio = false;
 	m_omx->SetClockScale(1.0f);
+	m_omx->SetClockReference(m_hasAudio ?
+			cOmx::eClockRefAudio : cOmx::eClockRefVideo);
+
+	m_mutex->Unlock();
 	cDevice::Play();
 }
 
 void cOmxDevice::Freeze(void)
 {
-	dsyslog("rpihddevice: Freeze()");
+	m_mutex->Lock();
 	m_omx->SetClockScale(0.0f);
+	m_mutex->Unlock();
 	cDevice::Freeze();
 }
 
 void cOmxDevice::TrickSpeed(int Speed)
 {
-	dsyslog("rpihddevice: TrickSpeed(%d)", Speed);
+	m_mutex->Lock();
+	m_audioPts = 0;
+	m_videoPts = 0;
+	m_playDirection = 0;
+
+	// play direction is ambiguous for fast modes, start PTS tracking
+	if (Speed == 1 || Speed == 3 || Speed == 6)
+		m_trickRequest = Speed;
+	else
+		ApplyTrickSpeed(Speed);
+
+	m_mutex->Unlock();
+}
+
+void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool reverse)
+{
+	float scale =
+		// slow forward
+		trickSpeed ==  8 ?  0.125f :
+		trickSpeed ==  4 ?  0.25f  :
+		trickSpeed ==  2 ?  0.5f   :
+
+		// fast for-/backward
+		trickSpeed ==  6 ? (reverse ?  -2.0f :  2.0f) :
+		trickSpeed ==  3 ? (reverse ?  -4.0f :  4.0f) :
+		trickSpeed ==  1 ? (reverse ? -12.0f : 12.0f) :
+
+		// slow backward
+		trickSpeed == 63 ? -0.125f :
+		trickSpeed == 48 ? -0.25f  :
+		trickSpeed == 24 ? -0.5f   : 1.0f;
+
+	m_omx->SetClockScale(scale);
+	m_omx->SetClockReference(cOmx::eClockRefVideo);
+
+	m_trickRequest = 0;
+	m_skipAudio = true;
+
+	dsyslog("rpihddevice: ApplyTrickSpeed(%.3f, %sward)",
+			scale, reverse ? "back" : "for");
+
+}
+
+void cOmxDevice::PtsTracker(int64_t ptsDiff)
+{
+	if (ptsDiff < 0)
+		--m_playDirection;
+	else if (ptsDiff > 0)
+		m_playDirection += 2;
+
+	if (m_playDirection < -2 || m_playDirection > 3)
+		ApplyTrickSpeed(m_trickRequest, m_playDirection < 0);
 }
 
 bool cOmxDevice::Flush(int TimeoutMs)
 {
 	dsyslog("rpihddevice: Flush()");
-
 	return true;
 }
 
 void cOmxDevice::Clear(void)
 {
-	m_mutex->Lock();
 	dsyslog("rpihddevice: Clear()");
+	m_mutex->Lock();
 
+	ResetAudioVideo();
+	m_omx->SetStartTime(0);
+
+	m_mutex->Unlock();
+	cDevice::Clear();
+}
+
+void cOmxDevice::ResetAudioVideo(bool flushVideoRender)
+{
 	m_omx->SetClockScale(1.0f);
-	m_omx->SetMediaTime(0);
+	m_skipAudio = false;
+	m_trickRequest = 0;
+	m_audioPts = 0;
+	m_videoPts = 0;
 
-	if (HasAudio())
+	if (m_hasAudio)
 	{
 		m_audio->Reset();
 		m_omx->FlushAudio();
 	}
 
-	if (HasVideo())
-		m_omx->FlushVideo(false);
+	if (m_hasVideo)
+		m_omx->FlushVideo(flushVideoRender);
 
-	m_mutex->Unlock();
-	cDevice::Clear();
+	m_hasAudio = false;
+	m_hasVideo = false;
 }
+
 
 void cOmxDevice::SetVolumeDevice(int Volume)
 {
@@ -293,7 +392,7 @@ bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 	time.Set();
 	while (!m_omx->PollVideoBuffers() || !m_audio->Poll())
 	{
-		if (time.Elapsed() >= TimeoutMs)
+		if (time.Elapsed() >= (unsigned)TimeoutMs)
 			return false;
 		cCondWait::SleepMs(5);
 	}
@@ -316,6 +415,7 @@ cVideoCodec::eCodec cOmxDevice::ParseVideoCodec(const uchar *data, int length)
 		return cVideoCodec::eInvalid;
 
 	const uchar *p = data + PesPayloadOffset(data);
+
 	for (int i = 0; i < 5; i++)
 	{
 		// find start code prefix - should be right at the beginning of payload
@@ -324,17 +424,23 @@ cVideoCodec::eCodec cOmxDevice::ParseVideoCodec(const uchar *data, int length)
 			if (p[i + 3] == 0xb3)		// sequence header
 				return cVideoCodec::eMPEG2;
 
+			//p[i + 3] = 0xf0
 			else if (p[i + 3] == 0x09)	// slice
 			{
+				// quick hack for converted mkvs
+				if (p[i + 4] == 0xf0)
+					return cVideoCodec::eH264;
+
 				switch (p[i + 4] >> 5)
 				{
 				case 0: case 3: case 5: // I frame
 					return cVideoCodec::eH264;
 
-				case 1: case 4: case 6: // P frame
-				case 2: case 7:         // B frame
+				case 2: case 7:			// B frame
+				case 1: case 4: case 6:	// P frame
 				default:
-					return cVideoCodec::eInvalid;
+//					return cVideoCodec::eInvalid;
+					return cVideoCodec::eH264;
 				}
 			}
 			return cVideoCodec::eInvalid;

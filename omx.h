@@ -44,7 +44,8 @@ public:
 
 	void SetClockState(eClockState clockState);
 	void SetClockScale(float scale);
-	void SetMediaTime(uint64_t pts);
+	void SetStartTime(uint64_t pts);
+	void SetCurrentReferenceTime(uint64_t pts);
 	unsigned int GetMediaTime(void);
 
 	enum eClockReference {
@@ -55,14 +56,25 @@ public:
 	void SetClockReference(eClockReference clockReference);
 	void SetVolume(int vol);
 	void SendEos(void);
-	void Stop(void);
+	void StopVideo(void);
+	void StopAudio(void);
+
+	enum eDataUnitType {
+		eCodedPicture,
+		eArbitraryStreamSection
+	};
+
+	void SetVideoDataUnitType(eDataUnitType dataUnitType);
+	void SetVideoErrorConcealment(bool startWithValidFrame);
+	void SetVideoDecoderExtraBuffers(int extraBuffers);
 
 	void FlushAudio(void);
 	void FlushVideo(bool flushRender = false);
 
-	int SetVideoCodec(cVideoCodec::eCodec codec);
+	int SetVideoCodec(cVideoCodec::eCodec codec,
+			eDataUnitType dataUnit = eArbitraryStreamSection);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
-			int channels, int samplingRate, cAudioPort::ePort audioPort);
+			int channels, cAudioPort::ePort audioPort, int samplingRate = 0);
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
@@ -99,8 +111,8 @@ private:
 
 	cMutex	*m_mutex;
 
-	bool m_setVideoStartTime;
 	bool m_setAudioStartTime;
+	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
 
 	int m_freeAudioBuffers;
@@ -113,9 +125,9 @@ private:
 	void HandleBufferEmpty(COMPONENT_T *comp);
 
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);
-	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, unsigned int data);
-	static void OnEndOfStream(void *instance, COMPONENT_T *comp, unsigned int data);
-	static void OnError(void *instance, COMPONENT_T *comp, unsigned int data);
+	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
+	static void OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data);
+	static void OnError(void *instance, COMPONENT_T *comp, OMX_U32 data);
 
 };
 
