@@ -125,8 +125,19 @@ protected:
 	 	VC_RECT_T srcRect = { 0, 0, m_width << 16, m_height << 16 };
 
 	 	DISPMANX_ELEMENT_HANDLE_T dispmanElement = vc_dispmanx_element_add(
-			dispmanUpdate, dispmanDisplay, 2, &dstRect, 0, &srcRect,
+			dispmanUpdate, dispmanDisplay, 2 /*layer*/, &dstRect, 0, &srcRect,
 			DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
+
+	 	// create black layer in front of console
+		uint32_t pBgImage;
+		uint16_t bgImage = 0x0000; // black
+		DISPMANX_RESOURCE_HANDLE_T bgRsc = vc_dispmanx_resource_create(VC_IMAGE_RGB565, 1, 1, &pBgImage);
+		vc_dispmanx_rect_set(&dstRect, 0, 0, 1, 1);
+		vc_dispmanx_resource_write_data(bgRsc, VC_IMAGE_RGB565, sizeof(bgImage), &bgImage, &dstRect);
+		vc_dispmanx_rect_set(&srcRect, 0, 0, 0, 0);
+		vc_dispmanx_rect_set(&dstRect, 0, 0, 1 << 16, 1 << 16);
+		vc_dispmanx_element_add(dispmanUpdate, dispmanDisplay, -1 /*layer*/, &srcRect,
+				bgRsc, &dstRect, DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
 
 		vc_dispmanx_update_submit_sync(dispmanUpdate);
 

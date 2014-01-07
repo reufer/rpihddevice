@@ -20,23 +20,15 @@ public:
 
 	enum eState {
 		eStop,
+		eStarting,
 		ePlay
-	};
-
-	enum eClockState {
-		eClockStateRunning,
-		eClockStateStopped,
-		eClockStateWaiting
-	};
-
-	enum eMode {
-		eAudioVideo,
-		eAudioOnly,
-		eVideoOnly
 	};
 
 	cOmxDevice(void (*onPrimaryDevice)(void));
 	virtual ~cOmxDevice();
+
+	virtual int Init(void);
+	virtual int DeInit(void);
 
 	virtual bool HasDecoder(void) const { return true; };
 
@@ -50,7 +42,7 @@ public:
 
 	virtual bool Flush(int TimeoutMs = 0);
 
-//	virtual bool HasIBPTrickSpeed(void);
+	virtual bool HasIBPTrickSpeed(void) { return false; }
 	virtual void TrickSpeed(int Speed);
 	virtual void Clear(void);
 	virtual void Play(void);
@@ -59,12 +51,6 @@ public:
 	virtual void SetVolumeDevice(int Volume);
 
 	virtual bool Poll(cPoller &Poller, int TimeoutMs = 0);
-
-	virtual void HandlePortSettingsChanged(unsigned int portId);
-	virtual void HandleEndOfStream(unsigned int portId);
-
-	virtual int OmxInit();
-	virtual int OmxDeInit();
 
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect)
 		{ cOmxDevice::GetDisplaySize(Width, Height, PixelAspect); }
@@ -79,26 +65,17 @@ private:
 
 	void (*m_onPrimaryDevice)(void);
 
-	virtual void Start(eMode mode = eAudioVideo);
-	virtual void Stop(void);
-
-	virtual void SetClockScale(float scale);
-	virtual void SetClockState(eClockState clockState, bool armVideo = true, bool armAudio = true);
-	virtual bool IsClockRunning();
-
 	virtual bool OmxSetVideoCodec(const uchar *data);
 	virtual bool OmxSetAudioCodec(const uchar *data);
 
-	cOmx 	  *m_omx;
-	cAudio 	  *m_audio;
-	cCondWait *m_eosEvent;
-	cMutex	  *m_mutex;
+	cOmx	*m_omx;
+	cAudio	*m_audio;
+	cMutex	*m_mutex;
 
-	eState 	   m_state;
+	eState	 m_state;
 
-	bool m_firstVideoPacket;
-	bool m_firstAudioPacket;
-
+	bool	 m_audioCodecReady;
+	bool	 m_videoCodecReady;
 };
 
 #endif

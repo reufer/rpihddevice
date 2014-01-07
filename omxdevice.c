@@ -24,7 +24,7 @@ extern "C"
 class cOmx
 {
 
-public:
+private:
 
 	static const char* errStr(int err)
 	{
@@ -93,31 +93,279 @@ public:
 		eNumTunnels
 	};
 
-	ILCLIENT_T 	*client;
-	COMPONENT_T	*comp[cOmx::eNumComponents + 1];
-	TUNNEL_T 	 tun[cOmx::eNumTunnels + 1];
+	// to do: make this private!
 
-	static void OmxError(void *omxDevice, COMPONENT_T *comp, unsigned int data)
+	ILCLIENT_T 	*m_client;
+	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
+	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
+
+	cMutex	*m_mutex;
+
+	bool m_firstVideoBuffer;
+	bool m_firstAudioBuffer;
+
+	int m_freeAudioBuffers;
+	int m_freeVideoBuffers;
+
+	void HandleEndOfStream(unsigned int portId)
+	{
+		dsyslog("rpihddevice: HandleEndOfStream(%d)", portId);
+
+		switch (portId)
+		{
+		case 131:
+			break;
+
+		case 11:
+			break;
+
+		case 90:
+			break;
+		}
+	}
+
+	void HandlePortSettingsChanged(unsigned int portId)
+	{
+		dsyslog("rpihddevice: HandlePortSettingsChanged(%d)", portId);
+
+		switch (portId)
+		{
+		case 131:
+			if (ilclient_setup_tunnel(&m_tun[eVideoDecoderToVideoScheduler], 0, 0) != 0)
+				esyslog("rpihddevice: failed to setup up tunnel from video decoder to scheduler!");
+			if (ilclient_change_component_state(m_comp[eVideoScheduler], OMX_StateExecuting) != 0)
+				esyslog("rpihddevice: failed to enable video scheduler!");
+			break;
+
+		case 11:
+			if (ilclient_setup_tunnel(&m_tun[eVideoSchedulerToVideoRender], 0, 1000) != 0)
+				esyslog("rpihddevice: failed to setup up tunnel from scheduler to render!");
+			if (ilclient_change_component_state(m_comp[eVideoRender], OMX_StateExecuting) != 0)
+				esyslog("rpihddevice: failed to enable video render!");
+			break;
+		}
+	}
+
+	void HandleBufferEmpty(COMPONENT_T *comp)
+	{
+		if (comp == m_comp[eVideoDecoder])
+		{
+			m_mutex->Lock();
+			m_freeVideoBuffers++;
+			m_mutex->Unlock();
+		}
+		else if (comp == m_comp[eAudioRender])
+		{
+			m_mutex->Lock();
+			m_freeAudioBuffers++;
+			m_mutex->Unlock();
+		}
+	}
+
+	static void OnBufferEmpty(void *instance, COMPONENT_T *comp)
+	{
+		cOmx* omx = static_cast <cOmx*> (instance);
+		omx->HandleBufferEmpty(comp);
+	}
+
+	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, unsigned int data)
+	{
+		cOmx* omx = static_cast <cOmx*> (instance);
+		omx->HandlePortSettingsChanged(data);
+	}
+
+	static void OnEndOfStream(void *instance, COMPONENT_T *comp, unsigned int data)
+	{
+		cOmx* omx = static_cast <cOmx*> (instance);
+		omx->HandleEndOfStream(data);
+	}
+
+	static void OnError(void *instance, COMPONENT_T *comp, unsigned int data)
 	{
 		if (data != OMX_ErrorSameState)
 			esyslog("rpihddevice: OmxError(%s)", errStr((int)data));
 	}
 
-	static void OmxBufferEmpty(void *omxDevice, COMPONENT_T *comp)
+public:
+
+	cOmx() :
+		m_mutex(new cMutex()),
+		m_firstVideoBuffer(true),
+		m_firstAudioBuffer(true),
+		m_freeAudioBuffers(0),
+		m_freeVideoBuffers(0)
+	{ }
+
+	virtual ~cOmx()
 	{
-//		dsyslog("rpihddevice: OmxBufferEmpty()");
+		delete m_mutex;
 	}
 
-	static void OmxPortSettingsChanged(void *omxDevice, COMPONENT_T *comp, unsigned int data)
+	int Init(void)
 	{
-		cOmxDevice* dev = static_cast <cOmxDevice*> (omxDevice);
-		dev->HandlePortSettingsChanged(data);
+		m_client = ilclient_init();
+		if (m_client == NULL)
+			esyslog("rpihddevice: ilclient_init() failed!");
+
+		if (OMX_Init() != OMX_ErrorNone)
+			esyslog("rpihddevice: OMX_Init() failed!");
+
+		ilclient_set_error_callback(m_client, OnError, this);
+		ilclient_set_empty_buffer_done_callback(m_client, OnBufferEmpty, this);
+		ilclient_set_port_settings_callback(m_client, OnPortSettingsChanged, this);
+		ilclient_set_eos_callback(m_client, OnEndOfStream, this);
+
+		// create video_decode
+		if (ilclient_create_component(m_client, &m_comp[eVideoDecoder],
+			"video_decode",	(ILCLIENT_CREATE_FLAGS_T)
+			(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
+			esyslog("rpihddevice: failed creating video decoder!");
+
+		// create video_render
+		if (ilclient_create_component(m_client, &m_comp[eVideoRender],
+			"video_render",	ILCLIENT_DISABLE_ALL_PORTS) != 0)
+			esyslog("rpihddevice: failed creating video render!");
+
+		//create clock
+		if (ilclient_create_component(m_client, &m_comp[eClock],
+			"clock", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+			esyslog("rpihddevice: failed creating clock!");
+
+		// create audio_render
+		if (ilclient_create_component(m_client, &m_comp[eAudioRender],
+			"audio_render",	(ILCLIENT_CREATE_FLAGS_T)
+			(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
+			esyslog("rpihddevice: failed creating audio render!");
+
+		//create video_scheduler
+		if (ilclient_create_component(m_client, &m_comp[eVideoScheduler],
+			"video_scheduler", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+			esyslog("rpihddevice: failed creating video scheduler!");
+
+		// setup tunnels
+		set_tunnel(&m_tun[eVideoDecoderToVideoScheduler],	m_comp[eVideoDecoder], 131, m_comp[eVideoScheduler], 10);
+		set_tunnel(&m_tun[eVideoSchedulerToVideoRender], m_comp[eVideoScheduler], 11, m_comp[eVideoRender], 90);
+		set_tunnel(&m_tun[eClockToVideoScheduler], m_comp[eClock], 80, m_comp[eVideoScheduler], 12);
+		set_tunnel(&m_tun[eClockToAudioRender], m_comp[eClock], 81, m_comp[eAudioRender], 101);
+
+		// setup clock tunnels first
+		if (ilclient_setup_tunnel(&m_tun[eClockToVideoScheduler], 0, 0) != 0)
+			esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
+
+		if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
+			esyslog("rpihddevice: failed to setup up tunnel from clock to audio render!");
+
+		OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE refclock;
+		memset(&refclock, 0, sizeof(refclock));
+		refclock.nSize = sizeof(refclock);
+		refclock.nVersion.nVersion = OMX_VERSION;
+		refclock.eClock = OMX_TIME_RefClockAudio;
+	//	refclock.eClock = OMX_TIME_RefClockVideo;
+
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeActiveRefClock, &refclock) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed set active clock reference!");
+
+		ilclient_change_component_state(m_comp[eClock], OMX_StateExecuting);
+		ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
+
+		// set up the number and size of buffers for audio render
+		m_freeAudioBuffers = 64;
+		OMX_PARAM_PORTDEFINITIONTYPE param;
+		memset(&param, 0, sizeof(param));
+		param.nSize = sizeof(param);
+		param.nVersion.nVersion = OMX_VERSION;
+		param.nPortIndex = 100;
+		if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to get audio render port parameters!");
+		param.nBufferSize = 65536;
+		param.nBufferCountActual = m_freeAudioBuffers;
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set audio render port parameters!");
+
+		memset(&param, 0, sizeof(param));
+		param.nSize = sizeof(param);
+		param.nVersion.nVersion = OMX_VERSION;
+		param.nPortIndex = 130;
+		if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+				OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to get video decoder port parameters!");
+
+		m_freeVideoBuffers = param.nBufferCountActual;
+		dsyslog("rpihddevice: started with %d video and %d audio buffers",
+				m_freeVideoBuffers, m_freeAudioBuffers);
+
+		// configure audio render
+		OMX_AUDIO_PARAM_PCMMODETYPE pcmMode;
+		memset(&pcmMode, 0, sizeof(pcmMode));
+		pcmMode.nSize = sizeof(pcmMode);
+		pcmMode.nVersion.nVersion = OMX_VERSION;
+		pcmMode.nPortIndex = 100;
+		pcmMode.nChannels = 2;
+		pcmMode.eNumData = OMX_NumericalDataSigned;
+		pcmMode.eEndian = OMX_EndianLittle;
+		pcmMode.bInterleaved = OMX_TRUE;
+		pcmMode.nBitPerSample = 16;
+		pcmMode.nSamplingRate = 48000;
+		pcmMode.ePCMMode = OMX_AUDIO_PCMModeLinear;
+		pcmMode.eChannelMapping[0] = OMX_AUDIO_ChannelLF;
+		pcmMode.eChannelMapping[1] = OMX_AUDIO_ChannelRF;
+
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexParamAudioPcm, &pcmMode) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set audio render parameters!");
+
+		OMX_CONFIG_BRCMAUDIODESTINATIONTYPE audioDest;
+		memset(&audioDest, 0, sizeof(audioDest));
+		audioDest.nSize = sizeof(audioDest);
+		audioDest.nVersion.nVersion = OMX_VERSION;
+		strcpy((char *)audioDest.sName, "local");
+
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexConfigBrcmAudioDestination, &audioDest) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set audio destination!");
+
+/*		// configure video decoder stall callback
+		OMX_CONFIG_BUFFERSTALLTYPE stallConf;
+		memset(&stallConf, 0, sizeof(stallConf));
+		stallConf.nSize = sizeof(stallConf);
+		stallConf.nVersion.nVersion = OMX_VERSION;
+		stallConf.nPortIndex = 131;
+		stallConf.nDelay = 1500 * 1000;
+		if (OMX_SetConfig(m_comp[eVideoDecoder], OMX_IndexConfigBufferStall,
+				&stallConf) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set video decoder stall config!");
+
+		OMX_CONFIG_REQUESTCALLBACKTYPE reqCallback;
+		memset(&reqCallback, 0, sizeof(reqCallback));
+		reqCallback.nSize = sizeof(reqCallback);
+		reqCallback.nVersion.nVersion = OMX_VERSION;
+		reqCallback.nPortIndex = 131;
+		reqCallback.nIndex = OMX_IndexConfigBufferStall;
+		reqCallback.bEnable = OMX_TRUE;
+		if (OMX_SetConfig(m_comp[eVideoDecoder], OMX_IndexConfigRequestCallback,
+				&reqCallback) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set video decoder stall callback!");
+*/
+	//	if (ilclient_enable_port_buffers(comp[eAudioRender], 100, NULL, NULL, NULL) != 0)
+	//		esyslog("rpihddevice: failed to enable port buffer on audio render!");
+
+		return 0;
 	}
 
-	static void OmxEndOfStream(void *omxDevice, COMPONENT_T *comp, unsigned int data)
+	int DeInit(void)
 	{
-		cOmxDevice* dev = static_cast <cOmxDevice*> (omxDevice);
-		dev->HandleEndOfStream(data);
+		ilclient_teardown_tunnels(m_tun);
+		ilclient_state_transition(m_comp, OMX_StateIdle);
+		ilclient_state_transition(m_comp, OMX_StateLoaded);
+		ilclient_cleanup_components(m_comp);
+
+		OMX_Deinit();
+		ilclient_destroy(m_client);
+
+		return 0;
 	}
 
 	static void PtsToTicks(uint64_t pts, OMX_TICKS &ticks)
@@ -137,7 +385,306 @@ public:
 		return pts;
 	}
 
+	int64_t GetSTC(void)
+	{
+		int64_t stc = -1;
+
+		OMX_TIME_CONFIG_TIMESTAMPTYPE timestamp;
+		memset(&timestamp, 0, sizeof(timestamp));
+		timestamp.nSize = sizeof(timestamp);
+		timestamp.nPortIndex = OMX_ALL;
+		timestamp.nVersion.nVersion = OMX_VERSION;
+
+		if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigTimeCurrentMediaTime, &timestamp) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed get current clock reference!");
+		else
+			stc = TicksToPts(timestamp.nTimestamp);
+
+		return stc;
+	}
+
+	bool IsClockRunning(void)
+	{
+		OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
+		memset(&cstate, 0, sizeof(cstate));
+		cstate.nSize = sizeof(cstate);
+		cstate.nVersion.nVersion = OMX_VERSION;
+
+		if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed get clock state!");
+
+		if (cstate.eState == OMX_TIME_ClockStateRunning)
+			return true;
+		else
+			return false;
+	}
+
+	enum eClockState {
+		eClockStateRun,
+		eClockStateStop,
+		eClockStateWaitForVideo,
+		eClockStateWaitForAudio,
+		eClockStateWaitForAudioVideo
+	};
+
+	void SetClockState(eClockState clockState)
+	{
+		dsyslog("rpihddevice: SetClockState(%s)",
+			clockState == eClockStateRun ? "eClockStateRun" :
+			clockState == eClockStateStop ? "eClockStateStop" :
+			clockState == eClockStateWaitForVideo ? "eClockStateWaitForVideo" :
+			clockState == eClockStateWaitForAudio ? "eClockStateWaitForAudio" :
+			clockState == eClockStateWaitForAudioVideo ? "eClockStateWaitForAudioVideo" : "unknown");
+
+		OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
+		memset(&cstate, 0, sizeof(cstate));
+		cstate.nSize = sizeof(cstate);
+		cstate.nVersion.nVersion = OMX_VERSION;
+
+		if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed get clock state!");
+
+		if ((cstate.eState == OMX_TIME_ClockStateRunning) &&
+				(clockState == eClockStateWaitForVideo ||
+				 clockState == eClockStateWaitForAudio ||
+				 clockState == eClockStateWaitForAudioVideo))
+		{
+			// clock already running, need to stop it first
+			cstate.eState = OMX_TIME_ClockStateStopped;
+			if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+					OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
+				esyslog("rpihddevice: failed set clock state!");
+		}
+
+		switch (clockState)
+		{
+		case eClockStateRun:
+			cstate.eState = OMX_TIME_ClockStateRunning;
+			break;
+
+		case eClockStateStop:
+			cstate.eState = OMX_TIME_ClockStateStopped;
+			break;
+
+		case eClockStateWaitForVideo:
+			cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
+			cstate.nWaitMask = OMX_CLOCKPORT0;
+			m_firstVideoBuffer = true;
+			break;
+
+		case eClockStateWaitForAudio:
+			cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
+			cstate.nWaitMask = OMX_CLOCKPORT1;
+			m_firstAudioBuffer = true;
+			break;
+
+		case eClockStateWaitForAudioVideo:
+			cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
+			cstate.nWaitMask = OMX_CLOCKPORT0 | OMX_CLOCKPORT1;
+			m_firstVideoBuffer = true;
+			m_firstAudioBuffer = true;
+			break;
+		}
+
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed set clock state!");
+	}
+
+	void SetClockScale(float scale)
+	{
+		OMX_TIME_CONFIG_SCALETYPE scaleType;
+		memset(&scaleType, 0, sizeof(scaleType));
+		scaleType.nSize = sizeof(scaleType);
+		scaleType.nVersion.nVersion = OMX_VERSION;
+		scaleType.xScale = floor(scale * pow(2, 16));
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set clock scale (%d)!", scaleType.xScale);
+		else
+			dsyslog("rpihddevice: set clock scale to %.2f (%d)", scale, scaleType.xScale);
+	}
+
+	void SetVolume(int vol)
+	{
+		dsyslog("rpihddevice: SetVolumeDevice(%d)", vol);
+
+		OMX_AUDIO_CONFIG_VOLUMETYPE volume;
+		memset(&volume, 0, sizeof(volume));
+		volume.nSize = sizeof(volume);
+		volume.nVersion.nVersion = OMX_VERSION;
+		volume.nPortIndex = 100;
+		volume.bLinear = OMX_TRUE;
+		volume.sVolume.nValue = vol * 100 / 255;
+
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexConfigAudioVolume, &volume) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set volume!");
+	}
+
+	void SendEos(void)
+	{
+#if 0
+		OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 1);
+		if (buf == NULL)
+			return;
+
+		buf->nFilledLen = 0;
+		buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN | OMX_BUFFERFLAG_EOS;
+
+		if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to send empty packet to video decoder!");
+
+		if (!m_eosEvent->Wait(10000))
+			esyslog("rpihddevice: time out waiting for EOS event!");
+#endif
+	}
+
+	void Stop(void)
+	{
+		// put video decoder into idle
+		ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
+
+		// put video scheduler into idle
+		ilclient_flush_tunnels(&m_tun[eVideoDecoderToVideoScheduler], 1);
+		ilclient_disable_tunnel(&m_tun[eVideoDecoderToVideoScheduler]);
+		ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
+		ilclient_disable_tunnel(&m_tun[eClockToVideoScheduler]);
+		ilclient_change_component_state(m_comp[eVideoScheduler], OMX_StateIdle);
+
+		// put video render into idle
+		ilclient_flush_tunnels(&m_tun[eVideoSchedulerToVideoRender], 1);
+		ilclient_disable_tunnel(&m_tun[eVideoSchedulerToVideoRender]);
+		ilclient_change_component_state(m_comp[eVideoRender], OMX_StateIdle);
+
+		// put audio render onto idle
+		ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
+		ilclient_disable_tunnel(&m_tun[eClockToAudioRender]);
+		ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
+
+		// disable port buffers and allow video decoder and audio render to reconfig
+		ilclient_disable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL);
+		ilclient_disable_port_buffers(m_comp[eAudioRender], 100, NULL, NULL, NULL);
+
+		SetClockState(eClockStateStop);
+	}
+
+	int SetVideoCodec(OMX_VIDEO_CODINGTYPE coding)
+	{
+		// configure video decoder
+		OMX_VIDEO_PARAM_PORTFORMATTYPE videoFormat;
+		memset(&videoFormat, 0, sizeof(videoFormat));
+		videoFormat.nSize = sizeof(videoFormat);
+		videoFormat.nVersion.nVersion = OMX_VERSION;
+		videoFormat.nPortIndex = 130;
+		videoFormat.eCompressionFormat = coding;
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+				OMX_IndexParamVideoPortFormat, &videoFormat) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set video decoder parameters!");
+
+		OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE ectype;
+		memset (&ectype, 0, sizeof(ectype));
+		ectype.nSize = sizeof(ectype);
+		ectype.nVersion.nVersion = OMX_VERSION;
+		ectype.bStartWithValidFrame = OMX_FALSE;
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+				OMX_IndexParamBrcmVideoDecodeErrorConcealment, &ectype) != OMX_ErrorNone)
+			esyslog("rpihddevice: failed to set video decode error concealment failed\n");
+
+		if (ilclient_enable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL) != 0)
+			esyslog("rpihddevice: failed to enable port buffer on video decoder!");
+
+		if (ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateExecuting) != 0)
+			esyslog("rpihddevice: failed to set video decoder to executing state!");
+
+		// setup clock tunnels first
+		if (ilclient_setup_tunnel(&m_tun[eClockToVideoScheduler], 0, 0) != 0)
+			esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
+
+		return 0;
+	}
+
+	int SetAudioCodec(OMX_AUDIO_CODINGTYPE coding)
+	{
+		if (ilclient_enable_port_buffers(m_comp[eAudioRender], 100, NULL, NULL, NULL) != 0)
+			esyslog("rpihddevice: failed to enable port buffer on audio render!");
+
+		ilclient_change_component_state(m_comp[eAudioRender], OMX_StateExecuting);
+
+		if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
+			esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
+
+		return 0;
+	}
+
+	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0)
+	{
+		m_mutex->Lock();
+		OMX_BUFFERHEADERTYPE* buf = NULL;
+
+		if (m_freeAudioBuffers > 0)
+		{
+			buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
+
+			if (buf != NULL)
+			{
+				cOmx::PtsToTicks(pts, buf->nTimeStamp);
+				buf->nFlags = m_firstAudioBuffer ? OMX_BUFFERFLAG_STARTTIME : OMX_BUFFERFLAG_TIME_UNKNOWN;
+				m_firstAudioBuffer = false;
+				m_freeAudioBuffers--;
+			}
+		}
+		m_mutex->Unlock();
+		return buf;
+	}
+
+	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0)
+	{
+		m_mutex->Lock();
+		OMX_BUFFERHEADERTYPE* buf = NULL;
+
+		if (m_freeVideoBuffers > 0)
+		{
+			buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
+
+			if (buf != NULL)
+			{
+				cOmx::PtsToTicks(pts, buf->nTimeStamp);
+				buf->nFlags = m_firstVideoBuffer ? OMX_BUFFERFLAG_STARTTIME : OMX_BUFFERFLAG_TIME_UNKNOWN;
+				m_firstVideoBuffer = false;
+				m_freeVideoBuffers--;
+			}
+		}
+		m_mutex->Unlock();
+		return buf;
+	}
+
+	bool VideoBuffersAvailable(void)
+	{
+		return (m_freeVideoBuffers > 0);
+	}
+
+	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
+	{
+		if (!buf)
+			return false;
+
+		return (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eAudioRender]), buf) != OMX_ErrorNone);
+	}
+
+	bool EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
+	{
+		if (!buf)
+			return false;
+
+		return (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf) != OMX_ErrorNone);
+	}
 };
+
+/* ------------------------------------------------------------------------- */
 
 class cAudio
 {
@@ -190,39 +737,49 @@ public:
 	mpg123_handle *m_handle;
 };
 
+/* ------------------------------------------------------------------------- */
+
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
 	m_omx(new cOmx()),
 	m_audio(new cAudio()),
-	m_eosEvent(0),
+	m_mutex(new cMutex()),
 	m_state(eStop),
-	m_firstVideoPacket(false),
-	m_firstAudioPacket(false)
+	m_audioCodecReady(false),
+	m_videoCodecReady(false)
 {
-	bcm_host_init();
-
-	m_eosEvent = new cCondWait();
-	m_mutex = new cMutex();
 }
 
 cOmxDevice::~cOmxDevice()
 {
-	OmxDeInit();
 	delete m_omx;
 	delete m_audio;
 	delete m_mutex;
-	delete m_eosEvent;
+}
+
+int cOmxDevice::Init(void)
+{
+	return m_omx->Init();
+}
+
+int cOmxDevice::DeInit(void)
+{
+	return m_omx->DeInit();
 }
 
 bool cOmxDevice::CanReplay(void) const
 {
+	dsyslog("rpihddevice: CanReplay");
 	// video codec de-initialization done
 	return (m_state == eStop);
 }
 
 bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 {
+	// in case we were in some trick mode
+	m_omx->SetClockScale(1.0f);
+
 	dsyslog("rpihddevice: SetPlayMode(%s)",
 		PlayMode == pmNone			 ? "none" 			   :
 		PlayMode == pmAudioVideo	 ? "Audio/Video" 	   :
@@ -233,20 +790,23 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
-		Stop();
+		m_mutex->Lock();
+		m_state = eStop;
+		m_omx->Stop();
+		m_audioCodecReady = false;
+		m_videoCodecReady = false;
+		m_mutex->Unlock();
 		break;
 
 	case pmAudioVideo:
-		Start(eAudioVideo);
+		m_mutex->Lock();
+		m_state = eStarting;
+		m_mutex->Unlock();
 		break;
 
 	case pmAudioOnly:
 	case pmAudioOnlyBlack:
-		Start(eAudioOnly);
-		break;
-
 	case pmVideoOnly:
-		Start(eVideoOnly);
 		break;
 	}
 
@@ -257,7 +817,12 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
 	m_mutex->Lock();
 
-	if (m_state != ePlay)
+	if (m_state == eStarting)
+	{
+		m_omx->SetClockState(cOmx::eClockStateWaitForAudio);
+		m_state = ePlay;
+	}
+	else if (m_state != ePlay)
 	{
 		m_mutex->Unlock();
 		dsyslog("rpihddevice: PlayAudio() not replaying!");
@@ -266,7 +831,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 
 	if (!PesHasLength(Data))
 	{
-		esyslog("rpihddevice: audio packet dropped!");
+		esyslog("rpihddevice: empty audio packet dropped!");
 		m_mutex->Unlock();
 		return Length;
 	}
@@ -276,14 +841,11 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	const uchar *payload = Data + PesPayloadOffset(Data);
 	int length = PesLength(Data) - PesPayloadOffset(Data);
 
-	// first packet of a new stream needs valid PTS
-	if (m_firstAudioPacket && pts == 0)
-	{
-		m_mutex->Unlock();
-		return Length;
-	}
+	// try to init codec if PTS is valid
+	if (!m_audioCodecReady && pts != 0)
+		m_audioCodecReady = OmxSetAudioCodec(payload);
 
-	if (m_firstAudioPacket && !OmxSetAudioCodec(payload))
+	if (!m_audioCodecReady)
 	{
 		m_mutex->Unlock();
 		return Length;
@@ -299,27 +861,19 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	bool done = false;
 	while (!done)
 	{
-		OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(m_omx->comp[cOmx::eAudioRender], 100, 0);
+		OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(pts);
 		if (buf == NULL)
 		{
-			esyslog("rpihddevice: failed to get audio buffer!");
+			//esyslog("rpihddevice: failed to get audio buffer!");
 			m_mutex->Unlock();
-			return Length;
+			return 0;
 		}
 
-		// decode audio packet
+		// decode and write audio packet
 		buf->nFilledLen = m_audio->readSamples(buf->pBuffer, buf->nAllocLen, done);
-		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-		buf->nFlags = m_firstAudioPacket ? OMX_BUFFERFLAG_STARTTIME : 0; //OMX_BUFFERFLAG_TIME_UNKNOWN;
-		m_firstAudioPacket = false;
 
-//		dsyslog("A: %u.%u - f:%d %lld", buf->nTimeStamp.nHighPart, buf->nTimeStamp.nLowPart, buf->nFlags, pts);
-
-		if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]), buf) != OMX_ErrorNone)
-		{
-			esyslog("rpihddevice: failed to pass buffer to audio render!");
+		if (m_omx->EmptyAudioBuffer(buf))
 			break;
-		}
 	}
 
 	m_mutex->Unlock();
@@ -330,7 +884,12 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length)
 {
 	m_mutex->Lock();
 
-	if (m_state != ePlay)
+	if (m_state == eStarting)
+	{
+		m_omx->SetClockState(cOmx::eClockStateWaitForAudioVideo);
+		m_state = ePlay;
+	}
+	else if (m_state != ePlay)
 	{
 		m_mutex->Unlock();
 		dsyslog("rpihddevice: PlayVideo() not replaying!");
@@ -339,7 +898,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length)
 
 	if (!PesHasLength(Data))
 	{
-		esyslog("rpihddevice: video packet dropped!");
+		esyslog("rpihddevice: empty video packet dropped!");
 		m_mutex->Unlock();
 		return Length;
 	}
@@ -349,30 +908,22 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length)
 	const uchar *payload = Data + PesPayloadOffset(Data);
 	int length = PesLength(Data) - PesPayloadOffset(Data);
 
-	// first packet of a new stream needs valid PTS
-	if (m_firstVideoPacket && pts == 0)
-	{
-		esyslog("rpihddevice: PTS missing for first video packet!");
-		m_mutex->Unlock();
-		return Length;
-	}
+	// try to init codec if PTS is valid
+	if (!m_videoCodecReady && pts != 0)
+		m_videoCodecReady = OmxSetVideoCodec(payload);
 
-	if (m_firstVideoPacket && !OmxSetVideoCodec(payload))
+	if (!m_videoCodecReady)
 	{
 		m_mutex->Unlock();
 		return Length;
 	}
-
-	OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(m_omx->comp[cOmx::eVideoDecoder], 130, 0);
+	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
 	if (buf == NULL)
 	{
-		esyslog("rpihddevice: failed to get video buffer!");
+		//esyslog("rpihddevice: failed to get video buffer!");
 		m_mutex->Unlock();
-		return Length;
+		return 0;
 	}
-
-	cOmx::PtsToTicks(pts, buf->nTimeStamp);
-	buf->nFlags = m_firstVideoPacket ? OMX_BUFFERFLAG_STARTTIME : 0; //OMX_BUFFERFLAG_TIME_UNKNOWN;
 
 	if (length <= buf->nAllocLen)
 	{
@@ -386,11 +937,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length)
 //	dsyslog("rpihddevice: PlayVideo(%u.%u, %02x %02x %02x %02x %02x %02x %02x %02x, %d)", buf->nTimeStamp.nHighPart, buf->nTimeStamp.nLowPart,
 //		buf->pBuffer[0], buf->pBuffer[1], buf->pBuffer[2], buf->pBuffer[3],
 //		buf->pBuffer[4], buf->pBuffer[5], buf->pBuffer[6], buf->pBuffer[7], buf->nFilledLen);
-
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_omx->comp[cOmx::eVideoDecoder]), buf) != OMX_ErrorNone)
+	if (m_omx->EmptyVideoBuffer(buf))
 		esyslog("rpihddevice: failed to pass buffer to video decoder!");
-
-	m_firstVideoPacket = false;
 
 	m_mutex->Unlock();
 	return Length;
@@ -398,35 +946,19 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length)
 
 int64_t cOmxDevice::GetSTC(void)
 {
-	int64_t stc = -1;
-
-	OMX_TIME_CONFIG_TIMESTAMPTYPE timestamp;
-	memset(&timestamp, 0, sizeof(timestamp));
-	timestamp.nSize = sizeof(timestamp);
-	timestamp.nPortIndex = OMX_ALL;
-	timestamp.nVersion.nVersion = OMX_VERSION;
-
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-		OMX_IndexConfigTimeCurrentMediaTime, &timestamp) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed get current clock reference!");
-	else
-		stc = cOmx::TicksToPts(timestamp.nTimestamp);
-
-	dsyslog("-: %d.%d - %llu", timestamp.nTimestamp.nHighPart, timestamp.nTimestamp.nLowPart, stc);
-
-	return stc;
+	return m_omx->GetSTC();
 }
 
 void cOmxDevice::Play(void)
 {
 	dsyslog("rpihddevice: Play()");
-	SetClockScale(1.0f);
+	m_omx->SetClockScale(1.0f);
 }
 
 void cOmxDevice::Freeze(void)
 {
 	dsyslog("rpihddevice: Freeze()");
-	SetClockScale(0.0f);
+	m_omx->SetClockScale(0.0f);
 }
 
 void cOmxDevice::TrickSpeed(int Speed)
@@ -449,26 +981,20 @@ void cOmxDevice::Clear(void)
 
 void cOmxDevice::SetVolumeDevice(int Volume)
 {
-	dsyslog("rpihddevice: SetVolumeDevice(%d)", Volume);
-
-	OMX_AUDIO_CONFIG_VOLUMETYPE volume;
-	memset(&volume, 0, sizeof(volume));
-	volume.nSize = sizeof(volume);
-	volume.nVersion.nVersion = OMX_VERSION;
-	volume.nPortIndex = 100;
-	volume.bLinear = OMX_TRUE;
-	volume.sVolume.nValue = Volume * 100 / 255;
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]),
-			OMX_IndexConfigAudioVolume, &volume) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set volume!");
+	m_omx->SetVolume(Volume);
 }
 
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 {
-	dsyslog("rpihddevice: Poll()");
-
-	return false;
+	cTimeMs time;
+	time.Set();
+	while (!m_omx->VideoBuffersAvailable())
+	{
+		if (time.Elapsed() >= TimeoutMs)
+			return false;
+		cCondWait::SleepMs(5);
+	}
+	return true;
 }
 
 void cOmxDevice::MakePrimaryDevice(bool On)
@@ -478,426 +1004,33 @@ void cOmxDevice::MakePrimaryDevice(bool On)
 	cDevice::MakePrimaryDevice(On);
 }
 
-void cOmxDevice::HandleEndOfStream(unsigned int portId)
-{
-	dsyslog("rpihddevice: HandleEndOfStream(%d)", portId);
-
-	switch (portId)
-	{
-	case 131:
-		break;
-
-	case 11:
-		break;
-
-	case 90:
-		m_eosEvent->Signal();
-		break;
-	}
-}
-
-void cOmxDevice::HandlePortSettingsChanged(unsigned int portId)
-{
-	dsyslog("rpihddevice: HandlePortSettingsChanged(%d)", portId);
-
-	switch (portId)
-	{
-	case 131:
-		if (m_state == ePlay)
-		{
-			if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eVideoDecoderToVideoScheduler], 0, 0) != 0)
-				esyslog("rpihddevice: failed to setup up tunnel from video decoder to video scheduler!");
-			if (ilclient_change_component_state(m_omx->comp[cOmx::eVideoScheduler], OMX_StateExecuting) != 0)
-				esyslog("rpihddevice: failed to enable video scheduler!");
-		}
-		else
-			esyslog("HandlePortSettingsChanged: a");
-		break;
-
-	case 11:
-		if (m_state == ePlay)
-		{
-			if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eVideoSchedulerToVideoRender], 0, 1000) != 0)
-				esyslog("rpihddevice: failed to setup up tunnel from scheduler to render!");
-			if (ilclient_change_component_state(m_omx->comp[cOmx::eVideoRender], OMX_StateExecuting) != 0)
-				esyslog("rpihddevice: failed to enable video render!");
-		}
-		else
-			esyslog("HandlePortSettingsChanged: b");
-		break;
-	}
-}
-
-bool cOmxDevice::IsClockRunning()
-{
-	OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
-	memset(&cstate, 0, sizeof(cstate));
-	cstate.nSize = sizeof(cstate);
-	cstate.nVersion.nVersion = OMX_VERSION;
-
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed get clock state!");
-
-	if (cstate.eState == OMX_TIME_ClockStateRunning)
-		return true;
-	else
-		return false;
-}
-
-void cOmxDevice::SetClockState(eClockState clockState, bool armVideo, bool armAudio)
-{
-	dsyslog("rpihddevice: SetClockState(%s, %s, %s)",
-		clockState == eClockStateRunning ? "eClockStateRunning" :
-		clockState == eClockStateStopped ? "eClockStateStopped" :
-		clockState == eClockStateWaiting ? "eClockStateWaiting" : "unknown",
-		armVideo ? "true" : "false", armAudio ? "true" : "false");
-
-	OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
-	memset(&cstate, 0, sizeof(cstate));
-	cstate.nSize = sizeof(cstate);
-	cstate.nVersion.nVersion = OMX_VERSION;
-
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed get clock state!");
-
-	if ((clockState == eClockStateWaiting) && (cstate.eState == OMX_TIME_ClockStateRunning))
-	{
-		esyslog("rpihddevice: need to disable clock first!");
-		cstate.eState = OMX_TIME_ClockStateStopped;
-		if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-				OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-			esyslog("rpihddevice: failed set clock state!");
-	}
-
-	switch (clockState)
-	{
-	case eClockStateRunning:
-		cstate.eState = OMX_TIME_ClockStateRunning;
-		break;
-
-	case eClockStateStopped:
-		cstate.eState = OMX_TIME_ClockStateStopped;
-		break;
-
-	case eClockStateWaiting:
-		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		cstate.nWaitMask = (armVideo ? OMX_CLOCKPORT0 : 0) | (armAudio ? OMX_CLOCKPORT1 : 0);
-		break;
-	}
-
-	esyslog("rpihddevice: wait mask: %d", cstate.nWaitMask);
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed set clock state!");
-}
-
-void cOmxDevice::SetClockScale(float scale)
-{
-	OMX_TIME_CONFIG_SCALETYPE scaleType;
-	memset(&scaleType, 0, sizeof(scaleType));
-	scaleType.xScale = floor(scale * pow(2, 16));
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-			OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set clock scale (%d)!", scaleType.xScale);
-	else
-		dsyslog("rpihddevice: set clock scale to %.2f (%d)", scale, scaleType.xScale);
-}
-
-int cOmxDevice::OmxInit()
-{
-	dsyslog("OmxInit()");
-
-	m_omx->client = ilclient_init();
-	if (m_omx->client == NULL)
-		esyslog("rpihddevice: ilclient_init() failed!");
-
-	if (OMX_Init() != OMX_ErrorNone)
-		esyslog("rpihddevice: OMX_Init() failed!");
-
-	ilclient_set_error_callback(m_omx->client, cOmx::OmxError, this);
-	ilclient_set_empty_buffer_done_callback(m_omx->client, cOmx::OmxBufferEmpty, this);
-	ilclient_set_port_settings_callback(m_omx->client, cOmx::OmxPortSettingsChanged, this);
-	ilclient_set_eos_callback(m_omx->client, cOmx::OmxEndOfStream, this);
-
-	// create video_decode
-	if (ilclient_create_component(m_omx->client, &m_omx->comp[cOmx::eVideoDecoder],
-		"video_decode",	(ILCLIENT_CREATE_FLAGS_T)
-		(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
-		esyslog("rpihddevice: failed creating video decoder!");
-
-	// create video_render
-	if (ilclient_create_component(m_omx->client, &m_omx->comp[cOmx::eVideoRender],
-		"video_render",	ILCLIENT_DISABLE_ALL_PORTS) != 0)
-		esyslog("rpihddevice: failed creating video render!");
-
-	//create clock
-	if (ilclient_create_component(m_omx->client, &m_omx->comp[cOmx::eClock],
-		"clock", ILCLIENT_DISABLE_ALL_PORTS) != 0)
-		esyslog("rpihddevice: failed creating clock!");
-
-	// create audio_render
-	if (ilclient_create_component(m_omx->client, &m_omx->comp[cOmx::eAudioRender],
-		"audio_render",	(ILCLIENT_CREATE_FLAGS_T)
-		(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
-		esyslog("rpihddevice: failed creating audio render!");
-
-	//create video_scheduler
-	if (ilclient_create_component(m_omx->client, &m_omx->comp[cOmx::eVideoScheduler],
-		"video_scheduler", ILCLIENT_DISABLE_ALL_PORTS) != 0)
-		esyslog("rpihddevice: failed creating video scheduler!");
-
-	// setup tunnels
-	set_tunnel(&m_omx->tun[cOmx::eVideoDecoderToVideoScheduler],
-		m_omx->comp[cOmx::eVideoDecoder], 131, m_omx->comp[cOmx::eVideoScheduler], 10);
-
-	set_tunnel(&m_omx->tun[cOmx::eVideoSchedulerToVideoRender],
-		m_omx->comp[cOmx::eVideoScheduler], 11, m_omx->comp[cOmx::eVideoRender], 90);
-
-	set_tunnel(&m_omx->tun[cOmx::eClockToVideoScheduler],
-		m_omx->comp[cOmx::eClock], 80, m_omx->comp[cOmx::eVideoScheduler], 12);
-
-	set_tunnel(&m_omx->tun[cOmx::eClockToAudioRender],
-		m_omx->comp[cOmx::eClock], 81, m_omx->comp[cOmx::eAudioRender], 101);
-
-	// setup clock tunnels first
-	if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eClockToVideoScheduler], 0, 0) != 0)
-		esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
-
-	if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eClockToAudioRender], 0, 0) != 0)
-		esyslog("rpihddevice: failed to setup up tunnel from clock to audio render!");
-	
-	OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE refclock;
-	memset(&refclock, 0, sizeof(refclock));
-	refclock.nSize = sizeof(refclock);
-	refclock.nVersion.nVersion = OMX_VERSION;
-	refclock.eClock = OMX_TIME_RefClockAudio;
-//	refclock.eClock = OMX_TIME_RefClockVideo;
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eClock]),
-			OMX_IndexConfigTimeActiveRefClock, &refclock) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed set active clock reference!");
-
-	ilclient_change_component_state(m_omx->comp[cOmx::eClock], OMX_StateExecuting);
-	ilclient_change_component_state(m_omx->comp[cOmx::eVideoDecoder], OMX_StateIdle);
-
-	// set up the number and size of buffers for audio render
-	OMX_PARAM_PORTDEFINITIONTYPE param;
-	memset(&param, 0, sizeof(param));
-	param.nSize = sizeof(param);
-	param.nVersion.nVersion = OMX_VERSION;
-	param.nPortIndex = 100;		
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to get audio render port parameters!");
-	param.nBufferSize = 65536;
-	param.nBufferCountActual = 64;
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set audio render port parameters!");
-
-	// configure audio render
-	OMX_AUDIO_PARAM_PCMMODETYPE pcmMode;
-	memset(&pcmMode, 0, sizeof(pcmMode));
-	pcmMode.nSize = sizeof(pcmMode);
-	pcmMode.nVersion.nVersion = OMX_VERSION;
-	pcmMode.nPortIndex = 100;
-	pcmMode.nChannels = 2;
-	pcmMode.eNumData = OMX_NumericalDataSigned;
-	pcmMode.eEndian = OMX_EndianLittle;
-	pcmMode.bInterleaved = OMX_TRUE;
-	pcmMode.nBitPerSample = 16;
-	pcmMode.nSamplingRate = 48000;
-	pcmMode.ePCMMode = OMX_AUDIO_PCMModeLinear;
-	pcmMode.eChannelMapping[0] = OMX_AUDIO_ChannelLF;
-	pcmMode.eChannelMapping[1] = OMX_AUDIO_ChannelRF;
-	
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]),
-			OMX_IndexParamAudioPcm, &pcmMode) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set audio render parameters!");
-
-	OMX_CONFIG_BRCMAUDIODESTINATIONTYPE audioDest;
-	memset(&audioDest, 0, sizeof(audioDest));
-	audioDest.nSize = sizeof(audioDest);
-	audioDest.nVersion.nVersion = OMX_VERSION;
-	strcpy((char *)audioDest.sName, "local");
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_omx->comp[cOmx::eAudioRender]),
-			OMX_IndexConfigBrcmAudioDestination, &audioDest) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set audio destination!");
-
-//	if (ilclient_enable_port_buffers(m_omx->comp[cOmx::eAudioRender], 100, NULL, NULL, NULL) != 0)
-//		esyslog("rpihddevice: failed to enable port buffer on audio render!");
-
-	return 0;
-}
-
-void cOmxDevice::Start(eMode mode)
-{
-	dsyslog("rpihddevice: Start()");
-	m_mutex->Lock();
-
-	m_state = ePlay;
-	m_firstVideoPacket = true;
-	m_firstAudioPacket = true;
-
-	SetClockState(eClockStateWaiting,
-			(mode == eAudioVideo || mode == eVideoOnly),
-			(mode == eAudioVideo || mode == eAudioOnly));
-
-	m_mutex->Unlock();
-	dsyslog("rpihddevice: Start() end");
-}
-
-void cOmxDevice::Stop()
-{
-	dsyslog("rpihddevice: Stop()");
-	m_mutex->Lock();
-
-	m_state = eStop;
-
-	// really necessary?
-	if (false && IsClockRunning())
-	{
-		OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(m_omx->comp[cOmx::eVideoDecoder], 130, 1);
-		if (buf == NULL)
-			return;
-
-		buf->nFilledLen = 0;
-		buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN | OMX_BUFFERFLAG_EOS;
-
-		if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_omx->comp[cOmx::eVideoDecoder]), buf) != OMX_ErrorNone)
-			esyslog("rpihddevice: failed to send empty packet to video decoder!");
-
-		if (!m_eosEvent->Wait(10000))
-			esyslog("rpihddevice: time out waiting for EOS event!");
-	}
-
-	// need to flush the renderer to allow video_decode to disable its input port
-
-	// put video decoder into idle
-	ilclient_change_component_state(m_omx->comp[cOmx::eVideoDecoder], OMX_StateIdle);
-
-	// put video scheduler into idle
-	ilclient_flush_tunnels(&m_omx->tun[cOmx::eVideoDecoderToVideoScheduler], 1);
-	ilclient_disable_tunnel(&m_omx->tun[cOmx::eVideoDecoderToVideoScheduler]);
-	ilclient_flush_tunnels(&m_omx->tun[cOmx::eClockToVideoScheduler], 1);
-	ilclient_disable_tunnel(&m_omx->tun[cOmx::eClockToVideoScheduler]);
-	ilclient_change_component_state(m_omx->comp[cOmx::eVideoScheduler], OMX_StateIdle);
-
-	// put video render into idle
-	ilclient_flush_tunnels(&m_omx->tun[cOmx::eVideoSchedulerToVideoRender], 1);
-	ilclient_disable_tunnel(&m_omx->tun[cOmx::eVideoSchedulerToVideoRender]);
-	ilclient_change_component_state(m_omx->comp[cOmx::eVideoRender], OMX_StateIdle);
-
-	// put audio render onto idle
-	ilclient_flush_tunnels(&m_omx->tun[cOmx::eClockToAudioRender], 1);
-	ilclient_disable_tunnel(&m_omx->tun[cOmx::eClockToAudioRender]);
-	ilclient_change_component_state(m_omx->comp[cOmx::eAudioRender], OMX_StateIdle);
-
-	// disable port buffers and allow video decoder and audio render to reconfig
-	ilclient_disable_port_buffers(m_omx->comp[cOmx::eVideoDecoder], 130, NULL, NULL, NULL);
-	ilclient_disable_port_buffers(m_omx->comp[cOmx::eAudioRender], 100, NULL, NULL, NULL);
-
-	SetClockState(eClockStateStopped);
-
-	m_mutex->Unlock();
-	dsyslog("rpihddevice: Stop() end");
-}
-
 bool cOmxDevice::OmxSetVideoCodec(const uchar *data)
 {
-	// configure video decoder
-	OMX_VIDEO_PARAM_PORTFORMATTYPE videoFormat;
-	memset(&videoFormat, 0, sizeof(videoFormat));
-	videoFormat.nSize = sizeof(videoFormat);
-	videoFormat.nVersion.nVersion = OMX_VERSION;
-	videoFormat.nPortIndex = 130;
+	if (data[0] != 0x00 || data[1] != 0x00)
+		return false;
 
-	if (data[0] == 0x00 && data[1] == 0x00 &&
-		data[2] == 0x01 && data[3] == 0xb3)
+	if (data[2] == 0x01 && data[3] == 0xb3)
 	{
 		dsyslog("rpihddevice: set video codec to MPEG2");
-		videoFormat.eCompressionFormat = OMX_VIDEO_CodingMPEG2;
+		return (m_omx->SetVideoCodec(OMX_VIDEO_CodingMPEG2) == 0);
 	}
 
-	else if (data[0] == 0x00 && data[1] == 0x00 &&
-		data[2] == 0x00 && data[3] == 0x01 && data[4] == 0x09 && data[5] == 0x10)
+	else if ((data[2] == 0x01 && data[3] == 0x09 && data[4] == 0x10) ||
+			(data[2] == 0x00 && data[3] == 0x01 && data[4] == 0x09 && data[5] == 0x10))
 	{
 		dsyslog("rpihddevice: set video codec to H264");
-		videoFormat.eCompressionFormat = OMX_VIDEO_CodingAVC;
-	}
-	else
-	{
-		esyslog("rpihddevice: wrong start sequence: %02x %02x %02x %02x %02x %02x %02x %02x",
-				data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-		return false;
+		return (m_omx->SetVideoCodec(OMX_VIDEO_CodingAVC) == 0);
 	}
 
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_omx->comp[cOmx::eVideoDecoder]),
-			OMX_IndexParamVideoPortFormat, &videoFormat) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set video decoder parameters!");
+	esyslog("rpihddevice: invalid start sequence: %02x %02x %02x %02x %02x %02x %02x %02x",
+			data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
 
-	OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE ectype;
-	memset (&ectype, 0, sizeof(ectype));
-	ectype.nSize = sizeof(ectype);
-	ectype.nVersion.nVersion = OMX_VERSION;
-	ectype.bStartWithValidFrame = OMX_FALSE;
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_omx->comp[cOmx::eVideoDecoder]),
-			OMX_IndexParamBrcmVideoDecodeErrorConcealment, &ectype) != OMX_ErrorNone)
-		esyslog("rpihddevice: failed to set video decode error concealment failed\n");
-
-	if (ilclient_enable_port_buffers(m_omx->comp[cOmx::eVideoDecoder], 130, NULL, NULL, NULL) != 0)
-		esyslog("rpihddevice: failed to enable port buffer on video decoder!");
-
-	if (ilclient_change_component_state(m_omx->comp[cOmx::eVideoDecoder], OMX_StateExecuting) != 0)
-		esyslog("rpihddevice: failed to set video decoder to executing state!");
-
-	// setup clock tunnels first
-	if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eClockToVideoScheduler], 0, 0) != 0)
-		esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
-
-	return true;
+	return false;
 }
 
 bool cOmxDevice::OmxSetAudioCodec(const uchar *data)
 {
-	if (ilclient_enable_port_buffers(m_omx->comp[cOmx::eAudioRender], 100, NULL, NULL, NULL) != 0)
-		esyslog("rpihddevice: failed to enable port buffer on audio render!");
-
-	ilclient_change_component_state(m_omx->comp[cOmx::eAudioRender], OMX_StateExecuting);
-
-	if (ilclient_setup_tunnel(&m_omx->tun[cOmx::eClockToAudioRender], 0, 0) != 0)
-		esyslog("rpihddevice: failed to setup up tunnel from clock to video scheduler!");
-
-	return true;
-}
-
-int cOmxDevice::OmxDeInit()
-{
-	dsyslog("rpihddevice: OmxDeInit()");
-
-	// need to flush the renderer to allow video_decode to disable its input port
-//	ilclient_flush_tunnels(m_omx->tun, 0);
-
-//	ilclient_disable_tunnel(&m_omx->tun[cOmx::eVideoDecoderToVideoScheduler]);
-//	ilclient_disable_tunnel(&m_omx->tun[cOmx::eVideoSchedulerToVideoRender]);
-//	ilclient_disable_tunnel(&m_omx->tun[cOmx::eClockToVideoScheduler]);
-//	ilclient_disable_tunnel(&m_omx->tun[cOmx::eClockToAudioRender]);
-
-	ilclient_teardown_tunnels(m_omx->tun);
-
-	ilclient_state_transition(m_omx->comp, OMX_StateIdle);
-	ilclient_state_transition(m_omx->comp, OMX_StateLoaded);
-
-	ilclient_cleanup_components(m_omx->comp);
-
-	OMX_Deinit();
-	ilclient_destroy(m_omx->client);
-
-	return 0;
+	return (m_omx->SetAudioCodec(OMX_AUDIO_CodingPCM) == 0);
 }
 
 void cOmxDevice::GetDisplaySize(int &width, int &height, double &aspect)
@@ -914,6 +1047,3 @@ void cOmxDevice::GetDisplaySize(int &width, int &height, double &aspect)
 		aspect = 1;
 	}
 }
-
-
-

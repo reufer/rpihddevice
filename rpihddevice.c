@@ -10,7 +10,9 @@
 #include "ovgosd.h"
 #include "omxdevice.h"
 
-static const char *VERSION        = "0.0.2";
+#include "bcm_host.h"
+
+static const char *VERSION        = "0.0.3";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice
@@ -74,8 +76,10 @@ cPluginRpiHdDevice::~cPluginRpiHdDevice()
 
 bool cPluginRpiHdDevice::Initialize(void)
 {
+	bcm_host_init();
+
 	if (m_device)
-		return (m_device->OmxInit() == 0);
+		return (m_device->Init() == 0);
 
 	return true;
 }
@@ -88,7 +92,7 @@ bool cPluginRpiHdDevice::Start(void)
 void cPluginRpiHdDevice::Stop(void)
 {
 	if (m_device)
-		m_device->OmxDeInit();
+		m_device->DeInit();
 }
 
 VDRPLUGINCREATOR(cPluginRpiHdDevice); // Don't touch this!

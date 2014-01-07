@@ -1,6 +1,20 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2013-10-02: Version 0.0.3
+-------------------------
+- new:
+  - tracking number of free buffers and provide Poll() method
+- fixed:
+  - audio only mode
+  - replay start/stop/pause
+  - improved H264 detection
+  - blank out console
+- missing
+  - trick modes
+  - other audio formats
+  - much more...
+  
 2013-09-29: Version 0.0.2
 -------------------------
 - new:
