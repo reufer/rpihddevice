@@ -649,11 +649,8 @@ int cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint
 		if (m_parser->Append(buf, length))
 		{
 			m_pts = pts;
-			if (!m_parser->Empty())
-			{
-				m_ready = false;
-				m_wait->Signal();
-			}
+			m_ready = false;
+			m_wait->Signal();
 			ret = length;
 		}
 		m_mutex->Unlock();
@@ -830,8 +827,10 @@ void cAudioDecoder::Action(void)
 				if (buf && buf->nFilledLen > 0)
 					bufferFull = true;
 				else
-					if (m_ready)
-						m_wait->Wait(50);
+				{
+					m_ready = true;
+					m_wait->Wait(50);
+				}
 			}
 
 			// we have a buffer to empty

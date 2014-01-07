@@ -12,7 +12,7 @@
 #include "setup.h"
 #include "types.h"
 
-static const char *VERSION        = "0.0.6";
+static const char *VERSION        = "0.0.6a";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice

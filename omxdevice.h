@@ -35,11 +35,11 @@ public:
 	virtual int DeInit(void);
 
 	virtual bool HasDecoder(void) const { return true; };
+	virtual bool CanReplay(void)  const { return true; };
 
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect);
 
 	virtual bool SetPlayMode(ePlayMode PlayMode);
-	virtual bool CanReplay(void) const;
 
 	virtual void StillPicture(const uchar *Data, int Length);
 

@@ -161,17 +161,9 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 void cOmx::HandleBufferEmpty(COMPONENT_T *comp)
 {
 	if (comp == m_comp[eVideoDecoder])
-	{
-		m_mutex->Lock();
 		m_freeVideoBuffers++;
-		m_mutex->Unlock();
-	}
 	else if (comp == m_comp[eAudioRender])
-	{
-		m_mutex->Lock();
 		m_freeAudioBuffers++;
-		m_mutex->Unlock();
-	}
 }
 
 void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
@@ -410,8 +402,6 @@ bool cOmx::IsClockRunning(void)
 
 void cOmx::SetClockState(eClockState clockState)
 {
-	m_mutex->Lock();
-
 	dsyslog("rpihddevice: SetClockState(%s)",
 		clockState == eClockStateRun ? "eClockStateRun" :
 		clockState == eClockStateStop ? "eClockStateStop" :
@@ -478,8 +468,6 @@ void cOmx::SetClockState(eClockState clockState)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
 		esyslog("rpihddevice: failed to set clock state!");
-
-	m_mutex->Unlock();
 }
 
 void cOmx::SetClockScale(float scale)
@@ -539,8 +527,6 @@ unsigned int cOmx::GetMediaTime(void)
 
 void cOmx::SetClockReference(eClockReference clockReference)
 {
-	m_mutex->Lock();
-
 	m_clockReference = clockReference;
 
 	OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE refClock;
@@ -554,8 +540,6 @@ void cOmx::SetClockReference(eClockReference clockReference)
 	else
 		dsyslog("rpihddevice: set active clock reference to %s",
 				m_clockReference == eClockRefAudio ? "audio" : "video");
-
-	m_mutex->Unlock();
 }
 
 void cOmx::SetVolume(int vol)

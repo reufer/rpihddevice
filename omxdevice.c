@@ -29,7 +29,8 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_trickRequest(0),
 	m_audioPts(0),
 	m_videoPts(0)
-{ }
+{
+}
 
 cOmxDevice::~cOmxDevice()
 {
@@ -71,13 +72,6 @@ int cOmxDevice::DeInit(void)
 void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 {
 	cRpiSetup::GetDisplaySize(Width, Height, PixelAspect);
-}
-
-bool cOmxDevice::CanReplay(void) const
-{
-	dsyslog("rpihddevice: CanReplay");
-	// video codec de-initialization done
-	return true; //(m_state == eNone);
 }
 
 bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
