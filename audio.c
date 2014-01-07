@@ -42,6 +42,13 @@ public:
 		return m_channels;
 	}
 
+	unsigned int GetSamplingRate(void)
+	{
+		if (!m_parsed)
+			Parse();
+		return m_samplingRate;
+	}
+
 	bool Empty(void)
 	{
 		if (!m_parsed)
@@ -69,6 +76,7 @@ public:
 	{
 		m_codec = cAudioCodec::eInvalid;
 		m_channels = 0;
+		m_samplingRate = 0;
 		m_packet.size = 0;
 		m_size = 0;
 		m_parsed = false;
@@ -122,12 +130,10 @@ private:
 		int channels = 0;
 		int offset = 0;
 		int frameSize = 0;
+		int samplingRate = 0;
 
 		while (m_size - offset >= 3)
 		{
-			const uint8_t *p = m_packet.data + offset;
-			int n = m_size - offset;
-
 			// 4 bytes 0xFFExxxxx MPEG audio
 			// 3 bytes 0x56Exxx AAC LATM audio
 			// 5 bytes 0x0B77xxxxxx AC-3 audio
@@ -135,58 +141,72 @@ private:
 			// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
 			// PCM audio can't be found
 
-			if (FastMpegCheck(p))
+			const uint8_t *p = m_packet.data + offset;
+			int n = m_size - offset;
+
+			switch (FastCheck(p))
 			{
-				if (MpegCheck(p, n, frameSize))
-				{
+			case cAudioCodec::eMPG:
+				if (MpegCheck(p, n, frameSize, channels, samplingRate))
 					codec = cAudioCodec::eMPG;
-					channels = 2;
-				}
 				break;
-			}
-			else if (FastAc3Check(p))
-			{
-				if (Ac3Check(p, n, frameSize, channels))
+
+			case cAudioCodec::eAC3:
+				if (Ac3Check(p, n, frameSize, channels, samplingRate))
 				{
 					codec = cAudioCodec::eAC3;
 					if (n > 5 && p[5] > (10 << 3))
 						codec = cAudioCodec::eEAC3;
 				}
 				break;
-			}
-			else if (FastLatmCheck(p))
-			{
-				if (LatmCheck(p, n, frameSize))
-				{
+
+			case cAudioCodec::eAAC:
+				if (LatmCheck(p, n, frameSize, channels, samplingRate))
 					codec = cAudioCodec::eAAC;
-					channels = 2;
-				}
 				break;
-			}
-			else if (FastAdtsCheck(p))
-			{
-				if (AdtsCheck(p, n, frameSize, channels))
+
+			case cAudioCodec::eADTS:
+				if (AdtsCheck(p, n, frameSize, channels, samplingRate))
 					codec = cAudioCodec::eADTS;
 				break;
+
+			default:
+				break;
+			}
+
+			if (codec != cAudioCodec::eInvalid)
+			{
+				// if there is enough data in buffer, check if predicted next
+				// frame start is valid
+				if (n < frameSize + 3 ||
+						FastCheck(p + frameSize) != cAudioCodec::eInvalid)
+				{
+					// if codec has been detected but buffer does not yet
+					// contains a complete frame, set size to zero to prevent
+					// frame from being decoded
+					if (frameSize > n)
+						frameSize = 0;
+
+					break;
+				}
 			}
 
 			++offset;
 		}
 
+		if (offset)
+		{
+			dsyslog("rpihddevice: audio parser skipped %d of %d bytes", offset, m_size);
+			Shrink(offset);
+		}
+
 		if (codec != cAudioCodec::eInvalid)
 		{
-			if (offset)
-			{
-				dsyslog("rpihddevice: audio packet shrinked by %d bytes", offset);
-				Shrink(offset);
-			}
-
 			m_codec = codec;
 			m_channels = channels;
+			m_samplingRate = samplingRate;
 			m_packet.size = frameSize;
 		}
-		else
-			Reset();
 
 		m_parsed = true;
 	}
@@ -194,17 +214,28 @@ private:
 	AVPacket 			m_packet;
 	cAudioCodec::eCodec m_codec;
 	unsigned int		m_channels;
+	unsigned int		m_samplingRate;
 	unsigned int		m_size;
 	bool				m_parsed;
 
 	/* ------------------------------------------------------------------------- */
-	/*     audio codec parser helper functions, taken from vdr-softhddevice      */
+	/*     audio codec parser helper functions, based on vdr-softhddevice        */
 	/* ------------------------------------------------------------------------- */
 
 	static const uint16_t BitRateTable[2][3][16];
 	static const uint16_t MpegSampleRateTable[4];
+	static const uint32_t Mpeg4SampleRateTable[16];
 	static const uint16_t Ac3SampleRateTable[4];
 	static const uint16_t Ac3FrameSizeTable[38][3];
+
+	static cAudioCodec::eCodec FastCheck(const uint8_t *p)
+	{
+		return 	FastMpegCheck(p)  ? cAudioCodec::eMPG :
+				FastAc3Check (p)  ? cAudioCodec::eAC3 :
+				FastLatmCheck(p)  ? cAudioCodec::eAAC :
+				FastAdtsCheck(p)  ? cAudioCodec::eADTS :
+									cAudioCodec::eInvalid;
+	}
 
 	///
 	///	Fast check for MPEG audio.
@@ -242,6 +273,8 @@ private:
 	///	o e 2x	BitRate index
 	///	o f 2x	SampleRate index (41000, 48000, 32000, 0)
 	///	o g 1x	Padding bit
+	/// o h 1x  Private bit
+	/// o i 2x  Channel mode
 	///	o ..	Doesn't care
 	///
 	///	frame length:
@@ -250,48 +283,45 @@ private:
 	///	Layer II & III:
 	///		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
 	///
-	static bool MpegCheck(const uint8_t *data, int size, int &frame_size)
+	static bool MpegCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
 	{
-		frame_size = 0;
+		frameSize = size;
 		if (size < 3)
 			return true;
 
-		int mpeg2 = !(data[1] & 0x08) && (data[1] & 0x10);
-		int mpeg25 = !(data[1] & 0x08) && !(data[1] & 0x10);
-		int layer = 4 - ((data[1] >> 1) & 0x03);
-		int padding = (data[2] >> 1) & 0x01;
+		int cmode = (p[3] >> 6) & 0x03;
+		int mpeg2 = !(p[1] & 0x08) && (p[1] & 0x10);
+		int mpeg25 = !(p[1] & 0x08) && !(p[1] & 0x10);
+		int layer = 4 - ((p[1] >> 1) & 0x03);
+		int padding = (p[2] >> 1) & 0x01;
 
-		int sample_rate = MpegSampleRateTable[(data[2] >> 2) & 0x03];
-		if (!sample_rate)
+		// channel mode = [ stereo, joint stereo, dual channel, mono]
+		channels = cmode == 0x03 ? 1 : 2;
+
+		samplingRate = MpegSampleRateTable[(p[2] >> 2) & 0x03];
+		if (!samplingRate)
 			return false;
 
-		sample_rate >>= mpeg2;		// MPEG 2 half rate
-		sample_rate >>= mpeg25;		// MPEG 2.5 quarter rate
+		samplingRate >>= mpeg2;		// MPEG 2 half rate
+		samplingRate >>= mpeg25;	// MPEG 2.5 quarter rate
 
-		int bit_rate = BitRateTable[mpeg2 | mpeg25][layer - 1][(data[2] >> 4) & 0x0F];
+		int bit_rate = BitRateTable[mpeg2 | mpeg25][layer - 1][(p[2] >> 4) & 0x0F];
 		if (!bit_rate)
 			return false;
 
 		switch (layer)
 		{
 		case 1:
-			frame_size = (12000 * bit_rate) / sample_rate;
-			frame_size = (frame_size + padding) * 4;
+			frameSize = (12000 * bit_rate) / samplingRate;
+			frameSize = (frameSize + padding) * 4;
 			break;
 		case 2:
 		case 3:
 		default:
-			frame_size = (144000 * bit_rate) / sample_rate;
-			frame_size = frame_size + padding;
+			frameSize = (144000 * bit_rate) / samplingRate;
+			frameSize = frameSize + padding;
 			break;
 		}
-
-		if (size >= frame_size + 3 && !FastMpegCheck(data + frame_size))
-			return false;
-
-		if (frame_size > size)
-			frame_size = 0;
-
 		return true;
 	}
 
@@ -331,38 +361,43 @@ private:
 	///	o a 16x Frame sync, always 0x0B77
 	///	o b 2x	Frame type
 	///	o c 3x	Sub stream ID
-	///	o d 10x Frame size - 1 in words
+	///	o d 11x Frame size - 1 in words
 	///	o e 2x	Frame size code
 	///	o f 2x	Frame size code 2
 	/// o g 3x  Channel mode
 	/// 0 h 1x  LFE on
 	///
-	static bool Ac3Check(const uint8_t *p, int size, int &frame_size, int &channels)
+	static bool Ac3Check(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
 	{
-		frame_size = 0;
+		frameSize = size;
 		if (size < 7)
 			return true;
 
 		int acmod;
 		bool lfe;
-		int sample_rate;			// for future use, E-AC3 t.b.d.
+		int fscod = (p[4] & 0xC0) >> 6;
+
+		samplingRate = Ac3SampleRateTable[fscod];
 
 		if (p[5] > (10 << 3))		// E-AC-3
 		{
-			if ((p[4] & 0xF0) == 0xF0)	// invalid fscod fscod2
-				return false;
+			if (fscod == 0x03)
+			{
+				int fscod2 = (p[4] & 0x30) >> 4;
+				if (fscod2 == 0x03)
+					return false;		// invalid fscod & fscod2
+
+				samplingRate = Ac3SampleRateTable[fscod2] / 2;
+			}
 
 			acmod = (p[4] & 0x0E) >> 1;	// number of channels, LFE excluded
 			lfe = p[4] & 0x01;
 
-			frame_size = ((p[2] & 0x03) << 8) + p[3] + 1;
-			frame_size *= 2;
+			frameSize = ((p[2] & 0x07) << 8) + p[3] + 1;
+			frameSize *= 2;
 		}
 		else						// AC-3
 		{
-			sample_rate = Ac3SampleRateTable[(p[4] >> 6) & 0x03];
-
-			int fscod = p[4] >> 6;
 			if (fscod == 0x03)		// invalid sample rate
 				return false;
 
@@ -382,7 +417,7 @@ private:
 			lfe = (p[lfe_bptr / 8] & (1 << (7 - (lfe_bptr % 8))));
 
 			// invalid is checked above
-			frame_size = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
+			frameSize = Ac3FrameSizeTable[frmsizcod][fscod] * 2;
 		}
 
 		channels =
@@ -396,13 +431,6 @@ private:
 			acmod == 0x07 ? 5 : 0;	// L, C, R, RL, RR
 
 		if (lfe) channels++;
-
-		if (size >= frame_size + 2 && !FastAc3Check(p + frame_size))
-			return false;
-
-		if (frame_size > size)
-			frame_size = 0;
-
 		return true;
 	}
 
@@ -425,22 +453,21 @@ private:
 	///
 	///	0x56Exxx already checked.
 	///
-	static bool LatmCheck(const uint8_t *p, int size, int &frame_size)
+	static bool LatmCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
 	{
-		frame_size = 0;
+		frameSize = size;
 		if (size < 3)
 			return true;
 
+		// to do: determine channels
+		channels = 2;
+
+		// to do: determine sampling rate
+		samplingRate = 48000;
+
 		// 13 bit frame size without header
-		frame_size = ((p[1] & 0x1F) << 8) + p[2];
-		frame_size += 3;
-
-		if (size >= frame_size + 3 && !FastLatmCheck(p + frame_size))
-			return false;
-
-		if (frame_size > size)
-			frame_size = 0;
-
+		frameSize = ((p[1] & 0x1F) << 8) + p[2];
+		frameSize += 3;
 		return true;
 	}
 	
@@ -478,36 +505,34 @@ private:
 	/// o ...
 	///	o M*13	frame length
 	///
-	static bool AdtsCheck(const uint8_t *p, int size, int &frame_size, int &channels)
+	static bool AdtsCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
 	{
-		frame_size = 0;
+		frameSize = size;
 		if (size < 6)
 			return true;
 
-	    frame_size = (p[3] & 0x03) << 11;
-	    frame_size |= (p[4] & 0xFF) << 3;
-	    frame_size |= (p[5] & 0xE0) >> 5;
-
-	    int ch_config = (p[2] & 0x01) << 7;
-	    ch_config |= (p[3] & 0xC0) >> 6;
-	    channels =
-	    	ch_config == 0x00 ? 0 : // defined in AOT specific config
-			ch_config == 0x01 ? 1 : // C
-	    	ch_config == 0x02 ? 2 : // L, R
-	    	ch_config == 0x03 ? 3 : // C, L, R
-	    	ch_config == 0x04 ? 4 : // C, L, R, RC
-	    	ch_config == 0x05 ? 5 : // C, L, R, RL, RR
-	    	ch_config == 0x06 ? 6 : // C, L, R, RL, RR, LFE
-	    	ch_config == 0x07 ? 8 : // C, L, R, SL, SR, RL, RR, LFE
-				0;
-
-		if (size >= frame_size + 3 && !FastAdtsCheck(p + frame_size))
+		samplingRate = Mpeg4SampleRateTable[(p[2] >> 2) & 0x0F];
+		if (!samplingRate)
 			return false;
 
-		if (frame_size > size)
-			frame_size = 0;
+		frameSize = (p[3] & 0x03) << 11;
+		frameSize |= (p[4] & 0xFF) << 3;
+		frameSize |= (p[5] & 0xE0) >> 5;
 
-		return true;
+	    int cConf = (p[2] & 0x01) << 7;
+	    cConf |= (p[3] & 0xC0) >> 6;
+	    channels =
+	    	cConf == 0x00 ? 0 : // defined in AOT specific config
+			cConf == 0x01 ? 1 : // C
+	    	cConf == 0x02 ? 2 : // L, R
+	    	cConf == 0x03 ? 3 : // C, L, R
+	    	cConf == 0x04 ? 4 : // C, L, R, RC
+	    	cConf == 0x05 ? 5 : // C, L, R, RL, RR
+	    	cConf == 0x06 ? 6 : // C, L, R, RL, RR, LFE
+	    	cConf == 0x07 ? 8 : // C, L, R, SL, SR, RL, RR, LFE
+				0;
+
+	    return true;
 	}
 };
 
@@ -534,6 +559,14 @@ const uint16_t cAudioParser::BitRateTable[2][3][16] =
 ///	MPEG sample rate table.
 ///
 const uint16_t cAudioParser::MpegSampleRateTable[4] = { 44100, 48000, 32000, 0 };
+
+///
+///	MPEG-4 sample rate table.
+///
+const uint32_t cAudioParser::Mpeg4SampleRateTable[16] = {
+		96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
+		16000, 12000, 11025,  8000,  7350,     0,     0,     0
+};
 
 ///
 ///	AC-3 sample rate table.
@@ -679,8 +712,10 @@ void cAudioDecoder::Action(void)
 	{
 		unsigned int channels = 0;
 		unsigned int outputChannels = 0;
+		unsigned int samplingRate = 0;
 
 		bool bufferFull = false;
+		bool setupChanged = false;
 
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		OMX_BUFFERHEADERTYPE *buf = 0;
@@ -697,11 +732,15 @@ void cAudioDecoder::Action(void)
 
 		while (!m_reset)
 		{
+			setupChanged |= cRpiSetup::HasAudioSetupChanged();
+
 			// check for data if no decoded samples are pending
 			if (!m_parser->Empty() && !frame->nb_samples)
 			{
-				if (codec != m_parser->GetCodec() ||
-					channels != m_parser->GetChannels())
+				if (setupChanged ||
+					codec != m_parser->GetCodec() ||
+					channels != m_parser->GetChannels() ||
+					samplingRate != m_parser->GetSamplingRate())
 				{
 					// to change codec config, we need to empty buffer first
 					if (buf)
@@ -710,9 +749,12 @@ void cAudioDecoder::Action(void)
 					{
 						codec = m_parser->GetCodec();
 						channels = m_parser->GetChannels();
+						samplingRate = m_parser->GetSamplingRate();
 
 						outputChannels = channels;
-						SetCodec(codec, outputChannels);
+						SetCodec(codec, outputChannels, samplingRate);
+
+						setupChanged = false;
 					}
 				}
 			}
@@ -836,6 +878,10 @@ void cAudioDecoder::Action(void)
 			// we have a buffer to empty
 			if (buf && bufferFull)
 			{
+				// send empty buffer if we're about to reset
+				if (m_reset)
+					buf->nFilledLen = 0;
+
 				if (m_omx->EmptyAudioBuffer(buf))
 				{
 					bufferFull = false;
@@ -854,7 +900,6 @@ void cAudioDecoder::Action(void)
 			}
 		}
 
-		dsyslog("reset");
 		if (buf && m_omx->EmptyAudioBuffer(buf))
 			buf = 0;
 
@@ -864,27 +909,29 @@ void cAudioDecoder::Action(void)
 	dsyslog("rpihddevice: cAudioDecoder() thread ended");
 }
 
-void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels)
+void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate)
 {
 	if (codec != cAudioCodec::eInvalid && channels > 0)
 	{
 		dsyslog("rpihddevice: set audio codec to %dch %s",
 				channels, cAudioCodec::Str(codec));
 
+		avcodec_flush_buffers(m_codecs[codec].context);
 		m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
 		m_codecs[codec].context->request_channels = 0;
+		//m_codecs[codec].context->bit_rate = 0;
 
 		m_passthrough = false;
 		cAudioCodec::eCodec outputFormat = cAudioCodec::ePCM;
 		cAudioPort::ePort outputPort = cAudioPort::eLocal;
 
 		if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
-			cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, channels, 48000))
+			cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, channels, samplingRate))
 		{
 			outputPort = cAudioPort::eHDMI;
 
 			if (cRpiSetup::IsAudioPassthrough() &&
-				cRpiSetup::IsAudioFormatSupported(codec, channels, 48000))
+				cRpiSetup::IsAudioFormatSupported(codec, channels, samplingRate))
 			{
 				m_passthrough = true;
 				outputFormat = codec;
@@ -898,13 +945,14 @@ void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels)
 
 			// if 2ch PCM audio on HDMI is supported
 			if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
-				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2, 48000))
+				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2, samplingRate))
 				outputPort = cAudioPort::eHDMI;
 		}
 
-		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, 48000);
-		dsyslog("rpihddevice: set %s audio output format to %dch %s%s",
+		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate);
+		dsyslog("rpihddevice: set %s audio output format to %dch %s, %d.%dkHz%s",
 				cAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
+				samplingRate / 1000, (samplingRate % 1000) / 100,
 				m_passthrough ? " (pass-through)" : "");
 	}
 }

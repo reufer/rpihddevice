@@ -7,6 +7,8 @@
 #ifndef OMX_H
 #define OMX_H
 
+#include <queue>
+#include <vdr/thread.h>
 #include "types.h"
 
 extern "C"
@@ -14,9 +16,7 @@ extern "C"
 #include "ilclient.h"
 }
 
-class cMutex;
-
-class cOmx
+class cOmx : public cThread
 {
 
 public:
@@ -55,6 +55,7 @@ public:
 
 	void SetClockReference(eClockReference clockReference);
 	void SetVolume(int vol);
+	void SetMute(bool mute);
 	void SendEos(void);
 	void StopVideo(void);
 	void StopAudio(void);
@@ -86,11 +87,14 @@ public:
 
 private:
 
+	virtual void Action(void);
+
 	static const char* errStr(int err);
 
 	enum eOmxComponent {
 		eClock = 0,
 		eVideoDecoder,
+		eVideoFx,
 		eVideoScheduler,
 		eVideoRender,
 		eAudioRender,
@@ -98,7 +102,8 @@ private:
 	};
 
 	enum eOmxTunnel {
-		eVideoDecoderToVideoScheduler = 0,
+		eVideoDecoderToVideoFx = 0,
+		eVideoFxToVideoScheduler,
 		eVideoSchedulerToVideoRender,
 		eClockToVideoScheduler,
 		eClockToAudioRender,
@@ -120,9 +125,9 @@ private:
 
 	eClockReference	m_clockReference;
 
-	void HandleEndOfStream(unsigned int portId);
+    cCondWait *m_portEventReady;
+    std::queue<unsigned int> *m_portEvents;
 	void HandlePortSettingsChanged(unsigned int portId);
-	void HandleBufferEmpty(COMPONENT_T *comp);
 
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);
 	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);

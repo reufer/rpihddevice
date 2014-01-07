@@ -34,6 +34,7 @@ public:
 	}
 
 	static int GetDisplaySize(int &width, int &height, double &aspect);
+	static bool IsDisplayProgressive(void);
 
 	static cRpiSetup* GetInstance(void);
 	static void DropInstance(void);

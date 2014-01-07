@@ -8,25 +8,17 @@
 #define OMX_DEVICE_H
 
 #include <vdr/device.h>
-#include <vdr/thread.h>
 
 #include "types.h"
 
 class cOmx;
 class cAudioDecoder;
+class cMutex;
 
 class cOmxDevice : cDevice
 {
 
 public:
-
-	enum eState {
-		eNone,
-		eStartingVideo,
-		eAudioOnly,
-		eVideoOnly,
-		eAudioVideo
-	};
 
 	cOmxDevice(void (*onPrimaryDevice)(void));
 	virtual ~cOmxDevice();
@@ -47,12 +39,18 @@ public:
 	virtual int PlayVideo(const uchar *Data, int Length)
 		{ return PlayVideo(Data, Length, false); }
 
-	virtual int PlayVideo(const uchar *Data, int Length, bool singleFrame = false);
+	virtual int PlayVideo(const uchar *Data, int Length, bool singleFrame);
 
 	virtual int64_t GetSTC(void);
 
 	virtual bool HasIBPTrickSpeed(void) { return true; }
+
+#if APIVERSNUM >= 20103
+	virtual void TrickSpeed(int Speed, bool Forward);
+#else
 	virtual void TrickSpeed(int Speed);
+#endif
+
 	virtual void Clear(void);
 	virtual void Play(void);
 	virtual void Freeze(void);
@@ -73,7 +71,7 @@ private:
 
 	void ResetAudioVideo(bool flushVideoRender = false);
 
-	void ApplyTrickSpeed(int trickSpeed, bool reverse = false);
+	void ApplyTrickSpeed(int trickSpeed, bool forward = true);
 	void PtsTracker(int64_t ptsDiff);
 
 	cOmx			*m_omx;

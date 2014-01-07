@@ -37,7 +37,7 @@ public:
 protected:
 
 	virtual void Action(void);
-	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels);
+	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate);
 
 	struct Codec
 	{

@@ -1080,7 +1080,7 @@ int ilclient_setup_tunnel(TUNNEL_T *tunnel, unsigned int portStream, int timeout
       vc_assert(error == OMX_ErrorNone);
       error = OMX_SetupTunnel(tunnel->sink->comp, tunnel->sink_port, NULL, 0);
       vc_assert(error == OMX_ErrorNone);
-      
+
       if(enable_error)
       {
          //Clean up the errors. This does risk removing an error that was nothing to do with this tunnel :-/

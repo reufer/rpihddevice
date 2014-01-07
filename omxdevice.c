@@ -9,6 +9,7 @@
 #include "audio.h"
 #include "setup.h"
 
+#include <vdr/thread.h>
 #include <vdr/remux.h>
 #include <vdr/tools.h>
 #include <vdr/skins.h>
@@ -120,8 +121,10 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 	else
 	{
 		// to get a picture displayed, PlayVideo() needs to be called
-		// twice for MPEG2 and 6x for H264... ?
-		for (int i = 0; i < (m_videoCodec == cVideoCodec::eMPEG2 ? 2 : 6); i++)
+		// twice for MPEG2 and 10x for H264... ?
+		int repeat = ParseVideoCodec(Data, Length) == cVideoCodec::eMPEG2 ? 2 : 10;
+
+		while (repeat--)
 			PlayVideo(Data, Length, true);
 	}
 }
@@ -218,6 +221,9 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
 			const uchar *payload = Data + PesPayloadOffset(Data);
 			unsigned int length = PesLength(Data) - PesPayloadOffset(Data);
 
+			if (length > Length)
+				esyslog("rpihddevice: PES-Length > Length!");
+
 			OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
 			if (buf)
 			{
@@ -255,17 +261,10 @@ int64_t cOmxDevice::GetSTC(void)
 
 void cOmxDevice::Play(void)
 {
-	dsyslog("rpihddevice: Play()");
-
-	Clear();
-	return;
-
 	m_mutex->Lock();
 
-	m_skipAudio = false;
-	m_omx->SetClockScale(1.0f);
-	m_omx->SetClockReference(m_hasAudio ?
-			cOmx::eClockRefAudio : cOmx::eClockRefVideo);
+	ResetAudioVideo();
+	m_omx->SetStartTime(0);
 
 	m_mutex->Unlock();
 	cDevice::Play();
@@ -279,6 +278,14 @@ void cOmxDevice::Freeze(void)
 	cDevice::Freeze();
 }
 
+#if APIVERSNUM >= 20103
+void cOmxDevice::TrickSpeed(int Speed, bool Forward)
+{
+	m_mutex->Lock();
+	ApplyTrickSpeed(Speed, Forward);
+	m_mutex->Unlock();
+}
+#else
 void cOmxDevice::TrickSpeed(int Speed)
 {
 	m_mutex->Lock();
@@ -294,8 +301,9 @@ void cOmxDevice::TrickSpeed(int Speed)
 
 	m_mutex->Unlock();
 }
+#endif
 
-void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool reverse)
+void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool forward)
 {
 	float scale =
 		// slow forward
@@ -304,9 +312,9 @@ void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool reverse)
 		trickSpeed ==  2 ?  0.5f   :
 
 		// fast for-/backward
-		trickSpeed ==  6 ? (reverse ?  -2.0f :  2.0f) :
-		trickSpeed ==  3 ? (reverse ?  -4.0f :  4.0f) :
-		trickSpeed ==  1 ? (reverse ? -12.0f : 12.0f) :
+		trickSpeed ==  6 ? (forward ?  2.0f :  -2.0f) :
+		trickSpeed ==  3 ? (forward ?  4.0f :  -4.0f) :
+		trickSpeed ==  1 ? (forward ? 12.0f : -12.0f) :
 
 		// slow backward
 		trickSpeed == 63 ? -0.125f :
@@ -320,7 +328,7 @@ void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool reverse)
 	m_skipAudio = true;
 
 	dsyslog("rpihddevice: ApplyTrickSpeed(%.3f, %sward)",
-			scale, reverse ? "back" : "for");
+			scale, forward ? "for" : "back");
 
 }
 
@@ -332,7 +340,7 @@ void cOmxDevice::PtsTracker(int64_t ptsDiff)
 		m_playDirection += 2;
 
 	if (m_playDirection < -2 || m_playDirection > 3)
-		ApplyTrickSpeed(m_trickRequest, m_playDirection < 0);
+		ApplyTrickSpeed(m_trickRequest, m_playDirection > 0);
 }
 
 bool cOmxDevice::Flush(int TimeoutMs)
@@ -343,7 +351,6 @@ bool cOmxDevice::Flush(int TimeoutMs)
 
 void cOmxDevice::Clear(void)
 {
-	dsyslog("rpihddevice: Clear()");
 	m_mutex->Lock();
 
 	ResetAudioVideo();
@@ -377,7 +384,13 @@ void cOmxDevice::ResetAudioVideo(bool flushVideoRender)
 
 void cOmxDevice::SetVolumeDevice(int Volume)
 {
-	m_omx->SetVolume(Volume);
+	if (Volume)
+	{
+		m_omx->SetVolume(Volume);
+		m_omx->SetMute(false);
+	}
+	else
+		m_omx->SetMute(true);
 }
 
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)

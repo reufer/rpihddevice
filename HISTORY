@@ -1,6 +1,25 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2013-12-30: Version 0.0.7
+-------------------------
+- new:
+  - support audio sampling rates other than 48kHz
+  - changed setting of trick speed with APIVERSNUM >= 20103
+  - added deinterlacer
+- fixed:
+  - improved audio parser
+  - fixed still image for H264 video
+  - mute audio render if volume is set to zero
+- missing:
+  - image grabbing
+  - video format/output options
+
+2013-12-16: Version 0.0.6a
+--------------------------
+- fixed:
+  - removed OMX mutex
+
 2013-12-15: Version 0.0.6
 -------------------------
 - new:

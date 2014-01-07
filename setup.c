@@ -113,19 +113,20 @@ bool cRpiSetup::HwInit(void)
 bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 		int channels, int samplingRate)
 {
-	// AAC and DTS pass-through currently not supported
-	if (codec == cAudioCodec::eAAC ||
-		codec == cAudioCodec::eADTS)
-		return false;
+	// AAC-LATM and AAC pass-through currently not supported
+//	if (codec == cAudioCodec::eAAC ||
+//		codec == cAudioCodec::eADTS)
+//		return false;
 
 	if (vc_tv_hdmi_audio_supported(
 			codec == cAudioCodec::eMPG  ? EDID_AudioFormat_eMPEG1 :
 			codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
 			codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
 			codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
+			codec == cAudioCodec::eADTS ? EDID_AudioFormat_eAAC   :
 					EDID_AudioFormat_ePCM, channels,
 			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
-			samplingRate ==  44000 ? EDID_AudioSampleRate_e44KHz  :
+			samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
 			samplingRate ==  88000 ? EDID_AudioSampleRate_e88KHz  :
 			samplingRate ==  96000 ? EDID_AudioSampleRate_e96KHz  :
 			samplingRate == 176000 ? EDID_AudioSampleRate_e176KHz :
@@ -133,6 +134,10 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 					EDID_AudioSampleRate_e48KHz,
 					EDID_AudioSampleSize_16bit) == 0)
 		return true;
+
+	dsyslog("rpihddevice: %dch %s, %d.%dkHz not supported by HDMI device",
+			channels, cAudioCodec::Str(codec),
+			samplingRate / 1000, (samplingRate % 1000) / 100);
 
 	return false;
 }
@@ -151,7 +156,29 @@ int cRpiSetup::GetDisplaySize(int &width, int &height, double &aspect)
 		aspect = 1;
 		return 0;
 	}
+
 	return -1;
+}
+
+bool cRpiSetup::IsDisplayProgressive(void)
+{
+	bool progressive = false;
+
+	TV_DISPLAY_STATE_T tvstate;
+	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
+	if (!vc_tv_get_display_state(&tvstate))
+	{
+		// HDMI
+		if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)))
+			progressive = tvstate.display.hdmi.scan_mode == 0;
+		// composite
+		else
+			progressive = false;
+	}
+	else
+		esyslog("rpihddevice: failed to get display state!");
+
+	return progressive;
 }
 
 bool cRpiSetup::HasAudioSetupChanged(void)
