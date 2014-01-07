@@ -1,6 +1,22 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2013-10-14: Version 0.0.4
+-------------------------
+- new:
+  - changed to libav for audio decoding
+  - added support multi-channel audio codecs
+  - added audio format/output options
+- fixed:
+  - removed drawing of black box in front of console which lead to malfunction
+    due to memory bandwidth problem. console blank out will be handled with
+    video format/output options in future versions.
+- missing
+  - trick modes
+  - deinterlacer
+  - video format/output options
+  - much more...
+  
 2013-10-02: Version 0.0.3
 -------------------------
 - new:

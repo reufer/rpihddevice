@@ -11,7 +11,7 @@
 #include <vdr/thread.h>
 
 class cOmx;
-class cAudio;
+class cAudioDecoder;
 
 class cOmxDevice : cDevice
 {
@@ -24,11 +24,25 @@ public:
 		ePlay
 	};
 
+	enum eVideoCodec {
+		eMPEG2,
+		eH264,
+		eUnknown
+	};
+
+	static const char* VideoCodecStr(eVideoCodec codec)
+	{
+		return  (codec == eMPEG2) ? "MPEG2" :
+				(codec == eH264)  ? "H264"  : "unknown";
+	}
+
 	cOmxDevice(void (*onPrimaryDevice)(void));
 	virtual ~cOmxDevice();
 
 	virtual int Init(void);
 	virtual int DeInit(void);
+
+	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect);
 
 	virtual bool HasDecoder(void) const { return true; };
 
@@ -52,11 +66,6 @@ public:
 
 	virtual bool Poll(cPoller &Poller, int TimeoutMs = 0);
 
-	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect)
-		{ cOmxDevice::GetDisplaySize(Width, Height, PixelAspect); }
-
-	static void GetDisplaySize(int &width, int &height, double &aspect);
-
 protected:
 
 	virtual void MakePrimaryDevice(bool On);
@@ -65,17 +74,18 @@ private:
 
 	void (*m_onPrimaryDevice)(void);
 
-	virtual bool OmxSetVideoCodec(const uchar *data);
-	virtual bool OmxSetAudioCodec(const uchar *data);
+	virtual eVideoCodec GetVideoCodec(const uchar *data, int length);
 
-	cOmx	*m_omx;
-	cAudio	*m_audio;
-	cMutex	*m_mutex;
+	cOmx			*m_omx;
+	cAudioDecoder	*m_audio;
+	cMutex			*m_mutex;
 
 	eState	 m_state;
 
 	bool	 m_audioCodecReady;
 	bool	 m_videoCodecReady;
+
+	uchar	 m_audioId;
 };
 
 #endif

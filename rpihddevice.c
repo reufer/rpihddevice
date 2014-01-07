@@ -9,10 +9,9 @@
 
 #include "ovgosd.h"
 #include "omxdevice.h"
+#include "setup.h"
 
-#include "bcm_host.h"
-
-static const char *VERSION        = "0.0.3";
+static const char *VERSION        = "0.0.4";
 static const char *DESCRIPTION    = "HD output device for Raspberry Pi";
 
 class cDummyDevice : cDevice
@@ -29,7 +28,8 @@ public:
     virtual bool Poll(cPoller &Poller, int TimeoutMs = 0) { return true; }
     virtual bool Flush(int TimeoutMs = 0) { return true; }
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect)
-		{ cOmxDevice::GetDisplaySize(Width, Height, PixelAspect); }
+		{ cRpiSetup::GetDisplaySize(Width, Height, PixelAspect); }
+
     bool Start(void) {return true;}
 
 protected:
@@ -43,7 +43,7 @@ private:
 
 	cOmxDevice *m_device;
 
-	static void OnPrimaryDevice() { new cRpiOsdProvider(); }
+	static void OnPrimaryDevice(void) { new cRpiOsdProvider(); }
 
 public:
 	cPluginRpiHdDevice(void);
@@ -58,30 +58,36 @@ public:
 	virtual void Housekeeping(void) {}
 	virtual const char *MainMenuEntry(void) { return NULL; }
 	virtual cOsdObject *MainMenuAction(void) { return NULL; }
-	virtual cMenuSetupPage *SetupMenu(void) { return NULL; }
-	virtual bool SetupParse(const char *Name, const char *Value) { return false; };
+	virtual cMenuSetupPage *SetupMenu(void);
+	virtual bool SetupParse(const char *Name, const char *Value);
 };
 
 cPluginRpiHdDevice::cPluginRpiHdDevice(void) : 
 	m_device(0)
 {
-	m_device = new cOmxDevice(&cPluginRpiHdDevice::OnPrimaryDevice);
 	//new cDummyDevice();
 }
 
 cPluginRpiHdDevice::~cPluginRpiHdDevice()
 {
 	delete m_device;
+	cRpiSetup::DropInstance();
 }
 
 bool cPluginRpiHdDevice::Initialize(void)
 {
-	bcm_host_init();
+	if (!cRpiSetup::HwInit())
+		return false;
+
+	if (!cRpiSetup::IsVideoCodecSupported(cOmxDevice::eMPEG2))
+		esyslog("rpihddevice: WARNING: MPEG2 video decoder not enabled!");
+
+	m_device = new cOmxDevice(&OnPrimaryDevice);
 
 	if (m_device)
 		return (m_device->Init() == 0);
 
-	return true;
+	return false;
 }
 
 bool cPluginRpiHdDevice::Start(void)
@@ -93,6 +99,16 @@ void cPluginRpiHdDevice::Stop(void)
 {
 	if (m_device)
 		m_device->DeInit();
+}
+
+cMenuSetupPage* cPluginRpiHdDevice::SetupMenu(void)
+{
+	return cRpiSetup::GetInstance()->GetSetupPage();
+}
+
+bool cPluginRpiHdDevice::SetupParse(const char *Name, const char *Value)
+{
+	return cRpiSetup::GetInstance()->Parse(Name, Value);
 }
 
 VDRPLUGINCREATOR(cPluginRpiHdDevice); // Don't touch this!

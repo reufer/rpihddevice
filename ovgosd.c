@@ -11,6 +11,7 @@
 
 #include "ovgosd.h"
 #include "omxdevice.h"
+#include "setup.h"
 
 class cOvg : public cThread
 {
@@ -32,7 +33,7 @@ public:
 		m_h(0),
 		m_clear(false)
 	{
-		cOmxDevice::GetDisplaySize(m_width, m_height, m_aspect);
+		cRpiSetup::GetDisplaySize(m_width, m_height, m_aspect);
 
 		m_do = new cCondWait();
 		m_done = new cCondWait();
@@ -128,6 +129,7 @@ protected:
 			dispmanUpdate, dispmanDisplay, 2 /*layer*/, &dstRect, 0, &srcRect,
 			DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
 
+#if 0
 	 	// create black layer in front of console
 		uint32_t pBgImage;
 		uint16_t bgImage = 0x0000; // black
@@ -138,7 +140,7 @@ protected:
 		vc_dispmanx_rect_set(&dstRect, 0, 0, 1 << 16, 1 << 16);
 		vc_dispmanx_element_add(dispmanUpdate, dispmanDisplay, -1 /*layer*/, &srcRect,
 				bgRsc, &dstRect, DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
-
+#endif
 		vc_dispmanx_update_submit_sync(dispmanUpdate);
 
 		EGL_DISPMANX_WINDOW_T nativewindow;

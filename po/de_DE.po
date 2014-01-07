@@ -1,0 +1,30 @@
+# German translations for vdr-rpihddevice package.
+# Copyright (C) 2013 THE vdr-rpihddevice'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the vdr-rpihddevice package.
+#  <thomas@reufer.ch>, 2013.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vdr-rpihddevice 0.0.4\n"
+"Report-Msgid-Bugs-To: <see README>\n"
+"POT-Creation-Date: 2013-10-14 13:33+0200\n"
+"PO-Revision-Date: 2013-10-14 13:36+0200\n"
+"Last-Translator:  <thomas@reufer.ch>\n"
+"Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=ASCII\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "analog"
+msgstr "analog"
+
+msgid "HDMI"
+msgstr "HDMI"
+
+msgid "Audio Port"
+msgstr "Audioanschluss"
+
+msgid "Digital Audio Pass-Through"
+msgstr "Digitalton durchreichen"

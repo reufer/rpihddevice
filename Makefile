@@ -51,19 +51,21 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 DEFINES += -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM
 DEFINES += -Wno-write-strings -fpermissive
 
+CXXFLAGS += -D__STDC_CONSTANT_MACROS
+
 ILCDIR   =ilclient
 VCINCDIR =/opt/vc/include
 VCLIBDIR =/opt/vc/lib
 
 INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads -I$(VCINCDIR)/interface/vmcs_host/linux
 
-LDFLAGS += -L$(VCLIBDIR) -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt -lmpg123
+LDFLAGS += -L$(VCLIBDIR) -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt -lavcodec -lavformat
 LDFLAGS += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
- 
+
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
-OBJS = $(PLUGIN).o omxdevice.o ovgosd.o
+OBJS = $(PLUGIN).o setup.o audio.o omxdevice.o ovgosd.o
 
 ### The main target:
 
