@@ -16,7 +16,7 @@ VERSION = $(shell grep 'static const char \*VERSION *=' $(PLUGIN).c | awk '{ pri
 ### The directory environment:
 
 # Use package data if installed...otherwise assume we're under the VDR source directory:
-PKGCFG = $(if $(VDRDIR),$(shell pkg-config --variable=$(1) $(VDRDIR)/vdr.pc),$(shell pkg-config --variable=$(1) vdr || pkg-config --variable=$(1) ../../../vdr.pc))
+PKGCFG = $(if $(VDRDIR),$(shell pkg-config --variable=$(1) $(VDRDIR)/vdr.pc),$(shell PKG_CONFIG_PATH="$$PKG_CONFIG_PATH:../../.." pkg-config --variable=$(1) vdr))
 LIBDIR = $(call PKGCFG,libdir)
 LOCDIR = $(call PKGCFG,locdir)
 PLGCFG = $(call PKGCFG,plgcfg)
@@ -62,10 +62,15 @@ INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads -I$(
 LDFLAGS += -L$(VCLIBDIR) -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt -lavcodec -lavformat
 LDFLAGS += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
 
+DEBUG ?= 0
+ifeq ($(DEBUG), 1)
+    DEFINES += -DDEBUG
+endif
+    
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
-OBJS = $(PLUGIN).o setup.o omx.o audio.o omxdevice.o ovgosd.o
+OBJS = $(PLUGIN).o setup.o omx.o audio.o omxdevice.o ovgosd.o display.o
 
 ### The main target:
 

@@ -8,7 +8,7 @@
 #define SETUP_H
 
 #include "omx.h"
-#include "types.h"
+#include "tools.h"
 
 class cRpiSetup
 {
@@ -34,7 +34,9 @@ public:
 	}
 
 	static int GetDisplaySize(int &width, int &height, double &aspect);
-	static bool IsDisplayProgressive(void);
+
+	static bool IsDisplayProgressive(void) {
+		return GetInstance()->m_isProgressive; }
 
 	static cRpiSetup* GetInstance(void);
 	static void DropInstance(void);
@@ -44,7 +46,13 @@ public:
 
 private:
 
-	cRpiSetup() : m_audioSetupChanged(false), m_mpeg2Enabled(false) { }
+	cRpiSetup() :
+		m_audioSetupChanged(false),
+		m_mpeg2Enabled(false),
+		m_isProgressive(false),
+		m_displayHeight(0),
+		m_displayWidth(0) { }
+
 	virtual ~cRpiSetup() { }
 
 	static cRpiSetup* s_instance;
@@ -55,6 +63,10 @@ private:
 	bool m_audioSetupChanged;
 
 	bool m_mpeg2Enabled;
+	bool m_isProgressive;
+
+	int m_displayHeight;
+	int m_displayWidth;
 };
 
 #endif

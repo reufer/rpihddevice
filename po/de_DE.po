@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-rpihddevice 0.0.4\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2013-12-08 12:29+0100\n"
+"POT-Creation-Date: 2014-01-11 15:12+0100\n"
 "PO-Revision-Date: 2013-10-14 13:36+0200\n"
 "Last-Translator:  <thomas@reufer.ch>\n"
 "Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
@@ -19,6 +19,9 @@ msgstr ""
 
 msgid "video format not supported!"
 msgstr "Videoformat nicht unterstützt!"
+
+msgid "HD output device for Raspberry Pi"
+msgstr "HD Ausgabegerät für Raspberry Pi"
 
 msgid "analog"
 msgstr "analog"

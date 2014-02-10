@@ -1,6 +1,30 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2014-02-10: Version 0.0.8
+-------------------------
+- new:
+  - image grabbing
+  - implemented proper handling in case of buffer stall
+  - reporting video size
+  - support letter box and center cut out set by VDR
+  - support video scaling
+- fixed:
+  - increased number of audio buffer to fix replay issues with PES recordings
+  - return correct number of audio bytes written from PlayAudio()
+  - fixed start up in audio only mode
+  - fixed still image with deinterlacer
+  - fixed crash during deinitialization
+  - fixed crash when copying 5.1 PCM audio
+  - use cThread::mutex for locking
+  - implement cOvgOsd::SetAreas() and cOvgOsd::SetActive()
+  - audio codec clean up, drop AAC-LATM and rename ADTS to AAC
+  - audio decoding thread clean up
+- known issues
+  - StillImage() will cause buffer stall
+  - artifacts with StillImage() and PES recordings
+  - speed to fast when fast replaying audio only recordings
+
 2013-12-30: Version 0.0.7
 -------------------------
 - new:

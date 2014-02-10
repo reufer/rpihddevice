@@ -31,22 +31,5 @@ private:
 	cOvg *m_ovg;
 };
 
-
-class cOvgOsd : public cOsd
-{
-
-public:
-
-	cOvgOsd(int Left, int Top, uint Level, cOvg *ovg);
-	virtual ~cOvgOsd();
-
-	virtual void Flush(void);
-
-private:
-
-	cOvg *m_ovg;
-
-};
-
 #endif
 

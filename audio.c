@@ -20,8 +20,15 @@ class cAudioParser
 
 public:
 
-	cAudioParser() { }
-	~cAudioParser() { }
+	cAudioParser()
+	{
+		m_mutex = new cMutex();
+	}
+
+	~cAudioParser()
+	{
+		delete m_mutex;
+	}
 
 	AVPacket* Packet(void)
 	{
@@ -85,19 +92,26 @@ public:
 
 	bool Append(const unsigned char *data, unsigned int length)
 	{
+		m_mutex->Lock();
+		bool ret = true;
+
 		if (m_size + length + FF_INPUT_BUFFER_PADDING_SIZE > AVPKT_BUFFER_SIZE)
-			return false;
-
-		memcpy(m_packet.data + m_size, data, length);
-		m_size += length;
-		memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-
-		m_parsed = false;
-		return true;
+			ret = false;
+		else
+		{
+			memcpy(m_packet.data + m_size, data, length);
+			m_size += length;
+			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			m_parsed = false;
+		}
+		m_mutex->Unlock();
+		return ret;
 	}
 
 	void Shrink(unsigned int length)
 	{
+		m_mutex->Lock();
+
 		if (length < m_size)
 		{
 			memmove(m_packet.data, m_packet.data + length, m_size - length);
@@ -108,6 +122,8 @@ public:
 		}
 		else
 			Reset();
+
+		m_mutex->Unlock();
 	}
 	
 private:
@@ -126,6 +142,7 @@ private:
 
 	void Parse()
 	{
+		m_mutex->Lock();
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		int channels = 0;
 		int offset = 0;
@@ -159,15 +176,9 @@ private:
 						codec = cAudioCodec::eEAC3;
 				}
 				break;
-
 			case cAudioCodec::eAAC:
-				if (LatmCheck(p, n, frameSize, channels, samplingRate))
-					codec = cAudioCodec::eAAC;
-				break;
-
-			case cAudioCodec::eADTS:
 				if (AdtsCheck(p, n, frameSize, channels, samplingRate))
-					codec = cAudioCodec::eADTS;
+					codec = cAudioCodec::eAAC;
 				break;
 
 			default:
@@ -196,7 +207,7 @@ private:
 
 		if (offset)
 		{
-			dsyslog("rpihddevice: audio parser skipped %d of %d bytes", offset, m_size);
+			DLOG("audio parser skipped %d of %d bytes", offset, m_size);
 			Shrink(offset);
 		}
 
@@ -209,8 +220,10 @@ private:
 		}
 
 		m_parsed = true;
+		m_mutex->Unlock();
 	}
 
+	cMutex*				m_mutex;
 	AVPacket 			m_packet;
 	cAudioCodec::eCodec m_codec;
 	unsigned int		m_channels;
@@ -232,8 +245,7 @@ private:
 	{
 		return 	FastMpegCheck(p)  ? cAudioCodec::eMPG :
 				FastAc3Check (p)  ? cAudioCodec::eAC3 :
-				FastLatmCheck(p)  ? cAudioCodec::eAAC :
-				FastAdtsCheck(p)  ? cAudioCodec::eADTS :
+				FastAdtsCheck(p)  ? cAudioCodec::eAAC :
 									cAudioCodec::eInvalid;
 	}
 
@@ -600,7 +612,6 @@ cAudioDecoder::cAudioDecoder(cOmx *omx) :
 	m_reset(false),
 	m_ready(false),
 	m_pts(0),
-	m_mutex(new cMutex()),
 	m_wait(new cCondWait()),
 	m_parser(new cAudioParser()),
 	m_omx(omx)
@@ -611,7 +622,6 @@ cAudioDecoder::~cAudioDecoder()
 {
 	delete m_parser;
 	delete m_wait;
-	delete m_mutex;
 }
 
 int cAudioDecoder::Init(void)
@@ -626,8 +636,7 @@ int cAudioDecoder::Init(void)
 	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(CODEC_ID_MP3);
 	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(CODEC_ID_AC3);
 	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(CODEC_ID_EAC3);
-	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(CODEC_ID_AAC_LATM);
-	m_codecs[cAudioCodec::eADTS].codec = avcodec_find_decoder(CODEC_ID_AAC);
+	m_codecs[cAudioCodec::eAAC].codec = avcodec_find_decoder(CODEC_ID_AAC);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -637,13 +646,13 @@ int cAudioDecoder::Init(void)
 			m_codecs[codec].context = avcodec_alloc_context3(m_codecs[codec].codec);
 			if (!m_codecs[codec].context)
 			{
-				esyslog("rpihddevice: failed to allocate %s context!", cAudioCodec::Str(codec));
+				ELOG("failed to allocate %s context!", cAudioCodec::Str(codec));
 				ret = -1;
 				break;
 			}
 			if (avcodec_open2(m_codecs[codec].context, m_codecs[codec].codec, NULL) < 0)
 			{
-				esyslog("rpihddevice: failed to open %s decoder!", cAudioCodec::Str(codec));
+				ELOG("failed to open %s decoder!", cAudioCodec::Str(codec));
 				ret = -1;
 				break;
 			}
@@ -660,266 +669,254 @@ int cAudioDecoder::Init(void)
 
 int cAudioDecoder::DeInit(void)
 {
-	Cancel();
+	Lock();
+
+	Reset();
+	Cancel(-1);
+	m_wait->Signal();
+
+	while (Active())
+		cCondWait::SleepMs(50);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
 		cAudioCodec::eCodec codec = static_cast<cAudioCodec::eCodec>(i);
-		avcodec_close(m_codecs[codec].context);
-		av_free(m_codecs[codec].context);
+		if (m_codecs[codec].codec)
+		{
+			avcodec_close(m_codecs[codec].context);
+			av_free(m_codecs[codec].context);
+		}
 	}
 
 	m_parser->DeInit();
+
+	Unlock();
 	return 0;
 }
 
-int cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint64_t pts)
+bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint64_t pts)
 {
-	int ret = 0;
+	Lock();
+	bool ret = false;
+
 	if (m_ready)
 	{
-		m_mutex->Lock();
 		if (m_parser->Append(buf, length))
 		{
 			m_pts = pts;
 			m_ready = false;
 			m_wait->Signal();
-			ret = length;
+			ret = true;
 		}
-		m_mutex->Unlock();
 	}
+	Unlock();
 	return ret;
 }
 
 void cAudioDecoder::Reset(void)
 {
-	m_mutex->Lock();
+	Lock();
+
 	m_reset = true;
 	m_wait->Signal();
-	m_mutex->Unlock();
+	while (m_reset)
+		cCondWait::SleepMs(1);
+
+	Unlock();
 }
 
 bool cAudioDecoder::Poll(void)
 {
-	return m_ready && m_omx->PollAudioBuffers();
+	return m_ready;
 }
 
 void cAudioDecoder::Action(void)
 {
-	dsyslog("rpihddevice: cAudioDecoder() thread started");
+	DLOG("cAudioDecoder() thread started");
+
+	unsigned int channels = 0;
+	unsigned int outputChannels = 0;
+	unsigned int samplingRate = 0;
+	bool setupChanged = true;
+
+	cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
+	OMX_BUFFERHEADERTYPE *buf = 0;
+
+    AVFrame *frame = avcodec_alloc_frame();
+	if (!frame)
+	{
+		ELOG("failed to allocate audio frame!");
+		return;
+	}
+
+	m_ready = true;
 
 	while (Running())
 	{
-		unsigned int channels = 0;
-		unsigned int outputChannels = 0;
-		unsigned int samplingRate = 0;
+		setupChanged |= cRpiSetup::HasAudioSetupChanged();
 
-		bool bufferFull = false;
-		bool setupChanged = false;
+		// test for codec change if there is data in parser and no left over
+		if (!m_parser->Empty() && !frame->nb_samples)
+			setupChanged |= codec != m_parser->GetCodec() ||
+				channels != m_parser->GetChannels() ||
+				samplingRate != m_parser->GetSamplingRate();
 
-		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
-		OMX_BUFFERHEADERTYPE *buf = 0;
-
-	    AVFrame *frame = avcodec_alloc_frame();
-		if (!frame)
+		// if necessary, set up audio codec
+		if (setupChanged)
 		{
-			esyslog("rpihddevice: failed to allocate audio frame!");
-			return;
+			codec = m_parser->GetCodec();
+			channels = m_parser->GetChannels();
+			samplingRate = m_parser->GetSamplingRate();
+
+			outputChannels = channels;
+			SetCodec(codec, outputChannels, samplingRate);
+
+			avcodec_get_frame_defaults(frame);
+			setupChanged = false;
+
+			if (codec == cAudioCodec::eInvalid)
+				m_reset = true;
 		}
 
-		m_reset = false;
-		m_ready = true;
-
-		while (!m_reset)
+		// get free buffer
+		while ((!m_parser->Empty() || frame->nb_samples) && !buf && !m_reset)
 		{
-			setupChanged |= cRpiSetup::HasAudioSetupChanged();
-
-			// check for data if no decoded samples are pending
-			if (!m_parser->Empty() && !frame->nb_samples)
+			buf = m_omx->GetAudioBuffer(m_pts);
+			if (!buf)
+				m_wait->Wait(10);
+			else
 			{
-				if (setupChanged ||
-					codec != m_parser->GetCodec() ||
+				m_pts = 0;
+				buf->nFilledLen = 0;
+			}
+		}
+
+		// decoding loop
+		while ((!m_parser->Empty() || frame->nb_samples) && buf && !m_reset)
+		{
+			if (setupChanged |= (codec != m_parser->GetCodec() ||
 					channels != m_parser->GetChannels() ||
-					samplingRate != m_parser->GetSamplingRate())
-				{
-					// to change codec config, we need to empty buffer first
-					if (buf)
-						bufferFull = true;
-					else
-					{
-						codec = m_parser->GetCodec();
-						channels = m_parser->GetChannels();
-						samplingRate = m_parser->GetSamplingRate();
+					samplingRate != m_parser->GetSamplingRate()))
+				break;
 
-						outputChannels = channels;
-						SetCodec(codec, outputChannels, samplingRate);
-
-						setupChanged = false;
-					}
-				}
-			}
-
-			// if codec has been configured but we don't have a buffer, get one
-			while (codec != cAudioCodec::eInvalid && !buf && !m_reset)
+			// -- decode frame --
+			if (!frame->nb_samples && !m_passthrough)
 			{
-				buf = m_omx->GetAudioBuffer(m_pts);
-				if (buf)
-					m_pts = 0;
-				else
-					m_wait->Wait(10);
-			}
+				// if frame has been emptied, decode new data, rise reset
+				// flag if something goes wrong
+				int gotFrame = 0;
+				int len = avcodec_decode_audio4(m_codecs[codec].context,
+						frame, &gotFrame, m_parser->Packet());
+				if (len > 0)
+					m_parser->Shrink(len);
 
-			// we have a non-full buffer and data to encode / copy
-			if (buf && !bufferFull && !m_parser->Empty())
-			{
-				int copied = 0;
-				if (m_passthrough)
+				if (len < 0)
 				{
-					// for pass-through directly copy AV packet to buffer
-					if (m_parser->Packet()->size <= buf->nAllocLen - buf->nFilledLen)
-					{
-						m_mutex->Lock();
-
-						memcpy(buf->pBuffer + buf->nFilledLen,
-								m_parser->Packet()->data, m_parser->Packet()->size);
-						buf->nFilledLen += m_parser->Packet()->size;
-						m_parser->Shrink(m_parser->Packet()->size);
-
-						m_mutex->Unlock();
-					}
-					else
-						if (m_parser->Packet()->size > buf->nAllocLen)
-						{
-							esyslog("rpihddevice: encoded audio frame too big!");
-							m_reset = true;
-							break;
-						}
-						else
-							bufferFull = true;
-				}
-				else
-				{
-					// decode frame if we do not pass-through
-					m_mutex->Lock();
-
-					int gotFrame = 0;
-					int len = avcodec_decode_audio4(m_codecs[codec].context,
-							frame, &gotFrame, m_parser->Packet());
-
-					if (len > 0)
-						m_parser->Shrink(len);
-
-					m_mutex->Unlock();
-
-					if (len < 0)
-					{
-						esyslog("rpihddevice: failed to decode audio frame!");
-						m_reset = true;
-						break;
-					}
-				}
-			}
-
-			// we have decoded samples we need to copy to buffer
-			if (buf && !bufferFull && frame->nb_samples > 0)
-			{
-				int length = av_samples_get_buffer_size(NULL,
-						outputChannels == 6 ? 8 : outputChannels, frame->nb_samples,
-						m_codecs[codec].context->sample_fmt, 1);
-
-				if (length <= buf->nAllocLen - buf->nFilledLen)
-				{
-					if (outputChannels == 6)
-					{
-						// interleaved copy to fit 5.1 data into 8 channels
-						int32_t* src = (int32_t*)frame->data[0];
-						int32_t* dst = (int32_t*)buf->pBuffer + buf->nFilledLen;
-
-						for (int i = 0; i < frame->nb_samples; i++)
-						{
-							*dst++ = *src++; // LF & RF
-							*dst++ = *src++; // CF & LFE
-							*dst++ = *src++; // LR & RR
-							*dst++ = 0;      // empty channels
-						}
-					}
-					else
-						memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], length);
-
-					buf->nFilledLen += length;
-					frame->nb_samples = 0;
-				}
-				else
-				{
-					if (length > buf->nAllocLen)
-					{
-						esyslog("rpihddevice: decoded audio frame too big!");
-						m_reset = true;
-						break;
-					}
-					else
-						bufferFull = true;
-				}
-			}
-
-			// check if no decoded samples are pending and parser is empty
-			if (!frame->nb_samples && m_parser->Empty())
-			{
-				// if no more data but buffer with data -> end of PES packet
-				if (buf && buf->nFilledLen > 0)
-					bufferFull = true;
-				else
-				{
-					m_ready = true;
-					m_wait->Wait(50);
-				}
-			}
-
-			// we have a buffer to empty
-			if (buf && bufferFull)
-			{
-				// send empty buffer if we're about to reset
-				if (m_reset)
-					buf->nFilledLen = 0;
-
-				if (m_omx->EmptyAudioBuffer(buf))
-				{
-					bufferFull = false;
-					buf = 0;
-
-					// if parser is empty, get new data
-					if (m_parser->Empty())
-						m_ready = true;
-				}
-				else
-				{
-					esyslog("rpihddevice: failed to empty audio buffer!");
+					ELOG("failed to decode audio frame!");
 					m_reset = true;
 					break;
 				}
 			}
+
+			// -- get length --
+			int len = m_passthrough ? m_parser->Packet()->size :
+				av_samples_get_buffer_size(NULL,
+					outputChannels == 6 ? 8 : outputChannels, frame->nb_samples,
+					m_codecs[codec].context->sample_fmt, 1);
+
+			if (len > (signed)(buf->nAllocLen - buf->nFilledLen) || len < 0)
+			{
+				// rise reset flag if packet is even bigger than allocated buffer
+				m_reset = len > (signed)(buf->nAllocLen) || len < 0;
+				if (m_reset)
+					ELOG("encoded audio frame too big!");
+				break;
+			}
+
+			// -- copy frame --
+			if (m_passthrough)
+			{
+				// for pass-through directly copy AV packet to buffer
+				memcpy(buf->pBuffer + buf->nFilledLen,
+						m_parser->Packet()->data, len);
+
+				buf->nFilledLen += len;
+				m_parser->Shrink(len);
+			}
+			else if (frame->nb_samples)
+			{
+				if (outputChannels == 6)
+				{
+					int32_t* src = (int32_t*)frame->data[0];
+					int32_t* dst = (int32_t*)(buf->pBuffer + buf->nFilledLen);
+
+					// interleaved copy to fit 5.1 data into 8 channels
+					for (int i = 0; i < frame->nb_samples; i++)
+					{
+						*dst++ = *src++; // LF & RF
+						*dst++ = *src++; // CF & LFE
+						*dst++ = *src++; // LR & RR
+						*dst++ = 0;      // empty channels
+					}
+				}
+				else
+					memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], len);
+
+				buf->nFilledLen += len;
+				avcodec_get_frame_defaults(frame);
+			}
 		}
 
-		if (buf && m_omx->EmptyAudioBuffer(buf))
-			buf = 0;
+		// -- reset --
+		if (m_reset)
+		{
+			m_parser->Reset();
+			avcodec_get_frame_defaults(frame);
+			if (buf)
+			{
+				cOmx::PtsToTicks(0, buf->nTimeStamp);
+				buf->nFilledLen = 0;
+				buf->nFlags = 0;
+			}
+		}
 
-		av_free(frame);
-		m_parser->Reset();
+		// -- empty buffer --
+		if (buf)
+		{
+			if (buf->nFilledLen)
+				m_omx->SetClockReference(cOmx::eClockRefAudio);
+			if (m_omx->EmptyAudioBuffer(buf))
+				buf = 0;
+		}
+
+		m_reset = false;
+
+		// accept new packets as soon as parser is empty and frame has been sent
+		if (m_parser->Empty() && !frame->nb_samples)
+		{
+			if (m_ready)
+				m_wait->Wait(50);
+			else
+				m_ready = true;
+		}
 	}
-	dsyslog("rpihddevice: cAudioDecoder() thread ended");
+
+	av_free(frame);
+	SetCodec(cAudioCodec::eInvalid, outputChannels, samplingRate);
+	DLOG("cAudioDecoder() thread ended");
 }
 
 void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate)
 {
+	m_omx->StopAudio();
+
 	if (codec != cAudioCodec::eInvalid && channels > 0)
 	{
-		dsyslog("rpihddevice: set audio codec to %dch %s",
-				channels, cAudioCodec::Str(codec));
+		DLOG("set audio codec to %dch %s", channels, cAudioCodec::Str(codec));
 
 		avcodec_flush_buffers(m_codecs[codec].context);
 		m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
 		m_codecs[codec].context->request_channels = 0;
-		//m_codecs[codec].context->bit_rate = 0;
 
 		m_passthrough = false;
 		cAudioCodec::eCodec outputFormat = cAudioCodec::ePCM;
@@ -950,7 +947,7 @@ void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, 
 		}
 
 		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate);
-		dsyslog("rpihddevice: set %s audio output format to %dch %s, %d.%dkHz%s",
+		ILOG("set %s audio output format to %dch %s, %d.%dkHz%s",
 				cAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
 				samplingRate / 1000, (samplingRate % 1000) / 100,
 				m_passthrough ? " (pass-through)" : "");

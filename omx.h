@@ -9,7 +9,7 @@
 
 #include <queue>
 #include <vdr/thread.h>
-#include "types.h"
+#include "tools.h"
 
 extern "C"
 {
@@ -25,6 +25,8 @@ public:
 	virtual ~cOmx();
 	int Init(void);
 	int DeInit(void);
+
+	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -50,7 +52,8 @@ public:
 
 	enum eClockReference {
 		eClockRefAudio,
-		eClockRefVideo
+		eClockRefVideo,
+		eClockRefNone
 	};
 
 	void SetClockReference(eClockReference clockReference);
@@ -76,6 +79,10 @@ public:
 			eDataUnitType dataUnit = eArbitraryStreamSection);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cAudioPort::ePort audioPort, int samplingRate = 0);
+	void GetVideoSize(int &width, int &height, bool &interlaced);
+
+	void SetDisplayMode(bool letterbox, bool noaspect);
+	void SetDisplayRegion(int x, int y, int width, int height);
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
@@ -114,7 +121,9 @@ private:
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
-	cMutex	*m_mutex;
+	int m_videoWidth;
+	int m_videoHeight;
+	bool m_videoInterlaced;
 
 	bool m_setAudioStartTime;
 	bool m_setVideoStartTime;
@@ -125,14 +134,21 @@ private:
 
 	eClockReference	m_clockReference;
 
-    cCondWait *m_portEventReady;
-    std::queue<unsigned int> *m_portEvents;
+	cCondWait *m_eventReady;
+	std::queue<unsigned int> *m_portEvents;
+	bool m_stallEvent;
+	void (*m_onBufferStall)(void*);
+	void *m_onBufferStallData;
+
 	void HandlePortSettingsChanged(unsigned int portId);
+	void SetBufferStall(int delayMs);
+	bool IsBufferStall(void);
 
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);
 	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnError(void *instance, COMPONENT_T *comp, OMX_U32 data);
+	static void OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
 
 };
 

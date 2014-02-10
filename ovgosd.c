@@ -10,8 +10,33 @@
 #include <GLES/gl.h>
 
 #include "ovgosd.h"
+#include "display.h"
 #include "omxdevice.h"
 #include "setup.h"
+#include "tools.h"
+
+class cOvgOsd : public cOsd
+{
+
+public:
+
+	cOvgOsd(int Left, int Top, uint Level, cOvg *ovg);
+	virtual ~cOvgOsd();
+
+	virtual void Flush(void);
+	virtual eOsdError SetAreas(const tArea *Areas, int NumAreas);
+
+protected:
+
+	virtual void SetActive(bool On);
+
+private:
+
+	cOvg *m_ovg;
+
+};
+
+/* ------------------------------------------------------------------------- */
 
 class cOvg : public cThread
 {
@@ -21,7 +46,6 @@ public:
 		cThread(),
 		m_do(0),
 		m_done(0),
-		m_mutex(0),
 		m_width(0),
 		m_height(0),
 		m_aspect(0),
@@ -37,7 +61,6 @@ public:
 
 		m_do = new cCondWait();
 		m_done = new cCondWait();
-		m_mutex = new cMutex();
 
 		Start();
 	}
@@ -46,10 +69,11 @@ public:
 	{
 		Cancel(-1);
 		Clear();
+		while (Active())
+			cCondWait::SleepMs(50);
 
 		delete m_do;
 		delete m_done;
-		delete m_mutex;
 	}
 
 	void GetDisplaySize(int &width, int &height, double &aspect)
@@ -61,7 +85,7 @@ public:
 
 	void DrawPixmap(int x, int y, int w, int h, int d, const uint8_t *data)
 	{
-		m_mutex->Lock();
+		Lock();
 		m_pixmap = data;
 		m_d = d;
 		m_x = x;
@@ -70,34 +94,34 @@ public:
 		m_h = h;
 		m_do->Signal();
 		m_done->Wait();
-		m_mutex->Unlock();
+		Unlock();
 	}
 
 	void Clear()
 	{
-		m_mutex->Lock();
+		Lock();
 		m_clear = true;
 		m_do->Signal();
 		m_done->Wait();
-		m_mutex->Unlock();
+		Unlock();
 	}
 
 protected:
 
 	virtual void Action(void)
 	{
-		dsyslog("rpihddevice: cOvg() thread started");
+		DLOG("cOvg() thread started");
 
 		EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 		if (display == EGL_NO_DISPLAY)
-			esyslog("rpihddevice: failed to get EGL display connection!");
+			ELOG("failed to get EGL display connection!");
 
 		if (eglInitialize(display, NULL, NULL) == EGL_FALSE)
-			esyslog("rpihddevice: failed to init EGL display connection!");
+			ELOG("failed to init EGL display connection!");
 
 		eglBindAPI(EGL_OPENVG_API);
 
-		const EGLint fbAttr[] = {
+		const EGLint attr[] = {
 			EGL_RED_SIZE, 8,
 			EGL_GREEN_SIZE, 8,
 			EGL_BLUE_SIZE, 8,
@@ -108,40 +132,20 @@ protected:
 		};
 
 		EGLConfig config;
-		EGLint numConfig;
+		EGLint nConfig;
 
 		// get an appropriate EGL frame buffer configuration
-		if (eglChooseConfig(display, fbAttr, &config, 1, &numConfig) == EGL_FALSE)
-			esyslog("rpihddevice: failed to get EGL frame buffer config!");
+		if (eglChooseConfig(display, attr, &config, 1, &nConfig) == EGL_FALSE)
+			ELOG("failed to get EGL frame buffer config!");
 
 		// create an EGL rendering context
 		EGLContext context = eglCreateContext(display, config, NULL, NULL);
 		if (context == EGL_NO_CONTEXT)
-			esyslog("rpihddevice: failed to create EGL rendering context!");
+			ELOG("failed to create EGL rendering context!");
 
-		DISPMANX_DISPLAY_HANDLE_T dispmanDisplay = vc_dispmanx_display_open(0 /* LCD */);
-		DISPMANX_UPDATE_HANDLE_T dispmanUpdate = vc_dispmanx_update_start(0);
-
-		VC_RECT_T dstRect = { 0, 0, m_width, m_height };
-	 	VC_RECT_T srcRect = { 0, 0, m_width << 16, m_height << 16 };
-
-	 	DISPMANX_ELEMENT_HANDLE_T dispmanElement = vc_dispmanx_element_add(
-			dispmanUpdate, dispmanDisplay, 2 /*layer*/, &dstRect, 0, &srcRect,
-			DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
-
-#if 0
-	 	// create black layer in front of console
-		uint32_t pBgImage;
-		uint16_t bgImage = 0x0000; // black
-		DISPMANX_RESOURCE_HANDLE_T bgRsc = vc_dispmanx_resource_create(VC_IMAGE_RGB565, 1, 1, &pBgImage);
-		vc_dispmanx_rect_set(&dstRect, 0, 0, 1, 1);
-		vc_dispmanx_resource_write_data(bgRsc, VC_IMAGE_RGB565, sizeof(bgImage), &bgImage, &dstRect);
-		vc_dispmanx_rect_set(&srcRect, 0, 0, 0, 0);
-		vc_dispmanx_rect_set(&dstRect, 0, 0, 1 << 16, 1 << 16);
-		vc_dispmanx_element_add(dispmanUpdate, dispmanDisplay, -1 /*layer*/, &srcRect,
-				bgRsc, &dstRect, DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
-#endif
-		vc_dispmanx_update_submit_sync(dispmanUpdate);
+		cRpiDisplay::Open(0 /* LCD */);
+		DISPMANX_ELEMENT_HANDLE_T dispmanElement;
+		cRpiDisplay::AddElement(dispmanElement, m_width, m_height, 2);
 
 		EGL_DISPMANX_WINDOW_T nativewindow;
 		nativewindow.element = dispmanElement;
@@ -153,13 +157,14 @@ protected:
 			EGL_NONE
 		};
 
-		EGLSurface surface = eglCreateWindowSurface(display, config, &nativewindow, windowAttr);
+		EGLSurface surface = eglCreateWindowSurface(display, config,
+				&nativewindow, windowAttr);
 		if (surface == EGL_NO_SURFACE)
-			esyslog("rpihddevice: failed to create EGL window surface!");
+			ELOG("failed to create EGL window surface!");
 
 		// connect the context to the surface
 		if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE)
-			esyslog("rpihddevice: failed to connect context to surface!");
+			ELOG("failed to connect context to surface!");
 
 		float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 	    vgSetfv(VG_CLEAR_COLOR, 4, color);
@@ -175,7 +180,8 @@ protected:
 		vgScale(1.0f, -1.0f);
 		vgTranslate(0.0f, -m_height);
 
-		VGImage image = vgCreateImage(VG_sARGB_8888, m_width, m_height, VG_IMAGE_QUALITY_BETTER);
+		VGImage image = vgCreateImage(VG_sARGB_8888, m_width, m_height,
+				VG_IMAGE_QUALITY_BETTER);
 
 		while (Running())
 		{
@@ -183,7 +189,8 @@ protected:
 			if (m_pixmap)
 			{
 				vgClearImage(image, m_x, m_y, m_w, m_h);
-				vgImageSubData(image, m_pixmap, m_d, VG_sARGB_8888, m_x, m_y, m_w, m_h);
+				vgImageSubData(image, m_pixmap, m_d, VG_sARGB_8888,
+						m_x, m_y, m_w, m_h);
 				vgDrawImage(image);
 				m_pixmap = 0;
 			}
@@ -204,19 +211,21 @@ protected:
 		eglSwapBuffers(display, surface);
 
 		// Release OpenGL resources
-		eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+		eglMakeCurrent(display,
+				EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 		eglDestroySurface(display, surface);
 		eglDestroyContext(display, context);
 		eglTerminate(display);
 
-		dsyslog("rpihddevice: cOvg() thread ended");
+		cRpiDisplay::Close();
+
+		DLOG("cOvg() thread ended");
 	}
 
 private:
 
 	cCondWait* m_do;
 	cCondWait* m_done;
-	cMutex* m_mutex;
 
 	int m_width;
 	int m_height;
@@ -237,13 +246,13 @@ cRpiOsdProvider::cRpiOsdProvider() :
 	cOsdProvider(),
 	m_ovg(0)
 {
-	dsyslog("rpihddevice: new cOsdProvider()");
+	DLOG("new cOsdProvider()");
 	m_ovg = new cOvg();
 }
 
 cRpiOsdProvider::~cRpiOsdProvider()
 {
-	dsyslog("rpihddevice: delete cOsdProvider()");
+	DLOG("delete cOsdProvider()");
 	delete m_ovg;
 }
 
@@ -251,6 +260,8 @@ cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 {
 	return new cOvgOsd(Left, Top, Level, m_ovg);
 }
+
+/* ------------------------------------------------------------------------- */
 
 cOvgOsd::cOvgOsd(int Left, int Top, uint Level, cOvg *ovg) :
 	cOsd(Left, Top, Level),
@@ -304,3 +315,31 @@ void cOvgOsd::Flush(void)
 	}
 }
 
+eOsdError cOvgOsd::SetAreas(const tArea *Areas, int NumAreas)
+{
+	eOsdError error;
+	cBitmap * bitmap;
+
+	if (Active())
+		m_ovg->Clear();
+
+	error = cOsd::SetAreas(Areas, NumAreas);
+
+	for (int i = 0; (bitmap = GetBitmap(i)) != NULL; i++)
+		bitmap->Clean();
+
+	return error;
+}
+
+void cOvgOsd::SetActive(bool On)
+{
+	if (On != Active())
+	{
+		cOsd::SetActive(On);
+		if (!On)
+			m_ovg->Clear();
+		else
+			if (GetBitmap(0))
+				Flush();
+	}
+}

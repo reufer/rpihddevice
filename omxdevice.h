@@ -9,7 +9,7 @@
 
 #include <vdr/device.h>
 
-#include "types.h"
+#include "tools.h"
 
 class cOmx;
 class cAudioDecoder;
@@ -26,10 +26,17 @@ public:
 	virtual int Init(void);
 	virtual int DeInit(void);
 
-	virtual bool HasDecoder(void) const { return true; };
-	virtual bool CanReplay(void)  const { return true; };
+	virtual bool HasDecoder(void) const { return true; }
+	virtual bool CanReplay(void)  const { return true; }
+	virtual bool HasIBPTrickSpeed(void) { return true; }
 
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect);
+	virtual void GetVideoSize(int &Width, int &Height, double &VideoAspect);
+	virtual void SetVideoDisplayFormat(eVideoDisplayFormat VideoDisplayFormat);
+
+	virtual cRect CanScaleVideo(const cRect &Rect, int Alignment = taCenter)
+		{ return Rect; }
+	virtual void ScaleVideo(const cRect &Rect = cRect::Null);
 
 	virtual bool SetPlayMode(ePlayMode PlayMode);
 
@@ -43,7 +50,7 @@ public:
 
 	virtual int64_t GetSTC(void);
 
-	virtual bool HasIBPTrickSpeed(void) { return true; }
+	virtual uchar *GrabImage(int &Size, bool Jpeg = true, int Quality = -1, int SizeX = -1, int SizeY = -1);
 
 #if APIVERSNUM >= 20103
 	virtual void TrickSpeed(int Speed, bool Forward);
@@ -57,7 +64,6 @@ public:
 
 	virtual void SetVolumeDevice(int Volume);
 
-	virtual bool Flush(int TimeoutMs = 0);
 	virtual bool Poll(cPoller &Poller, int TimeoutMs = 0);
 
 protected:
@@ -69,6 +75,10 @@ private:
 	void (*m_onPrimaryDevice)(void);
 	virtual cVideoCodec::eCodec ParseVideoCodec(const uchar *data, int length);
 
+	static void OnBufferStall(void *data)
+		{ (static_cast <cOmxDevice*> (data))->HandleBufferStall(); }
+
+	void HandleBufferStall();
 	void ResetAudioVideo(bool flushVideoRender = false);
 
 	void ApplyTrickSpeed(int trickSpeed, bool forward = true);

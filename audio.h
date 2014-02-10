@@ -13,7 +13,7 @@ extern "C" {
 
 #include <vdr/thread.h>
 
-#include "types.h"
+#include "tools.h"
 #include "omx.h"
 
 class cAudioParser;
@@ -29,7 +29,7 @@ public:
 	virtual int Init(void);
 	virtual int DeInit(void);
 
-	virtual int WriteData(const unsigned char *buf, unsigned int length, uint64_t pts = 0);
+	virtual bool WriteData(const unsigned char *buf, unsigned int length, uint64_t pts = 0);
 
 	virtual bool Poll(void);
 	virtual void Reset(void);
@@ -53,9 +53,8 @@ private:
 	bool		  m_ready;
 	uint64_t 	  m_pts;
 
-    cMutex		 *m_mutex;
-    cCondWait	 *m_wait;
-    cAudioParser *m_parser;
+	cCondWait	 *m_wait;
+	cAudioParser *m_parser;
 	cOmx		 *m_omx;
 };
 

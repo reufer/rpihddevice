@@ -27,6 +27,8 @@ void cRpiSetup::DropInstance(void)
 {
 	delete s_instance;
 	s_instance = 0;
+
+	bcm_host_deinit();
 }
 
 class cRpiSetupPage : public cMenuSetupPage
@@ -77,25 +79,6 @@ private:
 bool cRpiSetup::HwInit(void)
 {
 	bcm_host_init();
-	vcos_init();
-
-	VCHI_INSTANCE_T vchiInstance;
-	VCHI_CONNECTION_T *vchiConnections;
-	if (vchi_initialise(&vchiInstance) != VCHIQ_SUCCESS)
-	{
-		esyslog("rpihddevice: failed to open vchiq instance!");
-		return false;
-	}
-	if (vchi_connect(NULL, 0, vchiInstance) != 0)
-	{
-		esyslog("rpihddevice: failed to connect to vchi!");
-		return false;
-	}
-	if (vc_vchi_tv_init(vchiInstance, &vchiConnections, 1) != 0)
-	{
-		esyslog("rpihddevice: failed to connect to tvservice!");
-		return false;
-	}
 
 	if (!vc_gencmd_send("codec_enabled MPG2"))
 	{
@@ -107,23 +90,52 @@ bool cRpiSetup::HwInit(void)
 		}
 	}
 
+	int height = 0, width = 0;
+	bool progressive = false;
+	cVideoPort::ePort port = cVideoPort::eComposite;
+
+	TV_DISPLAY_STATE_T tvstate;
+	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
+	if (!vc_tv_get_display_state(&tvstate))
+	{
+		// HDMI
+		if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)))
+		{
+			progressive = tvstate.display.hdmi.scan_mode == 0;
+			height = tvstate.display.hdmi.height;
+			width = tvstate.display.hdmi.width;
+			port = cVideoPort::eHDMI;
+		}
+		else
+		{
+			height = tvstate.display.sdtv.height;
+			width = tvstate.display.sdtv.width;
+		}
+
+		ILOG("using %s video output at %dx%d%s",
+				cVideoPort::Str(port), width, height, progressive ? "p" : "i");
+
+		GetInstance()->m_isProgressive = progressive;
+		GetInstance()->m_displayHeight = height;
+		GetInstance()->m_displayWidth = width;
+	}
+	else
+	{
+		ELOG("failed to get display parameters!");
+		return false;
+	}
+
 	return true;
 }
 
 bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 		int channels, int samplingRate)
 {
-	// AAC-LATM and AAC pass-through currently not supported
-//	if (codec == cAudioCodec::eAAC ||
-//		codec == cAudioCodec::eADTS)
-//		return false;
-
 	if (vc_tv_hdmi_audio_supported(
 			codec == cAudioCodec::eMPG  ? EDID_AudioFormat_eMPEG1 :
 			codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
 			codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
-			codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
-			codec == cAudioCodec::eADTS ? EDID_AudioFormat_eAAC   :
+			codec == cAudioCodec::eAAC ? EDID_AudioFormat_eAAC   :
 					EDID_AudioFormat_ePCM, channels,
 			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
 			samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
@@ -135,7 +147,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 					EDID_AudioSampleSize_16bit) == 0)
 		return true;
 
-	dsyslog("rpihddevice: %dch %s, %d.%dkHz not supported by HDMI device",
+	DLOG("%dch %s, %d.%dkHz not supported by HDMI device",
 			channels, cAudioCodec::Str(codec),
 			samplingRate / 1000, (samplingRate % 1000) / 100);
 
@@ -144,41 +156,10 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 
 int cRpiSetup::GetDisplaySize(int &width, int &height, double &aspect)
 {
-	uint32_t screenWidth;
-	uint32_t screenHeight;
-
-	if (graphics_get_display_size(0 /* LCD */, &screenWidth, &screenHeight) < 0)
-			esyslog("rpihddevice: failed to get display size!");
-	else
-	{
-		width = (int)screenWidth;
-		height = (int)screenHeight;
-		aspect = 1;
-		return 0;
-	}
-
-	return -1;
-}
-
-bool cRpiSetup::IsDisplayProgressive(void)
-{
-	bool progressive = false;
-
-	TV_DISPLAY_STATE_T tvstate;
-	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
-	if (!vc_tv_get_display_state(&tvstate))
-	{
-		// HDMI
-		if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)))
-			progressive = tvstate.display.hdmi.scan_mode == 0;
-		// composite
-		else
-			progressive = false;
-	}
-	else
-		esyslog("rpihddevice: failed to get display state!");
-
-	return progressive;
+	height = GetInstance()->m_displayHeight;
+	width = GetInstance()->m_displayWidth;
+	aspect = (double)width / height;
+	return 0;
 }
 
 bool cRpiSetup::HasAudioSetupChanged(void)
