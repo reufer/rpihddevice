@@ -15,29 +15,6 @@
 static const char *VERSION        = "0.0.8";
 static const char *DESCRIPTION    = tr("HD output device for Raspberry Pi");
 
-class cDummyDevice : cDevice
-{
-
-public:
-
-	cDummyDevice() { }
-	virtual ~cDummyDevice() { }
-    virtual bool HasDecoder(void) const { return true; }
-    virtual bool SetPlayMode(ePlayMode PlayMode) { return true; }
-    virtual int  PlayVideo(const uchar *Data, int Length) { return Length; }
-    virtual int  PlayAudio(const uchar *Data, int Length, uchar Id) { return Length; }
-    virtual bool Poll(cPoller &Poller, int TimeoutMs = 0) { return true; }
-    virtual bool Flush(int TimeoutMs = 0) { return true; }
-	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect)
-		{ cRpiSetup::GetDisplaySize(Width, Height, PixelAspect); }
-
-    bool Start(void) {return true;}
-
-protected:
-	virtual void MakePrimaryDevice(bool On) { if (On) new cRpiOsdProvider(); }
-
-};
-
 class cPluginRpiHdDevice : public cPlugin
 {
 private:
@@ -66,7 +43,6 @@ public:
 cPluginRpiHdDevice::cPluginRpiHdDevice(void) : 
 	m_device(0)
 {
-	//new cDummyDevice();
 }
 
 cPluginRpiHdDevice::~cPluginRpiHdDevice()

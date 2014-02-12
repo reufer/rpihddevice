@@ -46,6 +46,7 @@ public:
 
 	void SetClockState(eClockState clockState);
 	void SetClockScale(float scale);
+	void GetClockScale(OMX_S32 &scale);
 	void SetStartTime(uint64_t pts);
 	void SetCurrentReferenceTime(uint64_t pts);
 	unsigned int GetMediaTime(void);

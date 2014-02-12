@@ -139,7 +139,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 					EDID_AudioFormat_ePCM, channels,
 			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
 			samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
-			samplingRate ==  88000 ? EDID_AudioSampleRate_e88KHz  :
+			samplingRate ==  88200 ? EDID_AudioSampleRate_e88KHz  :
 			samplingRate ==  96000 ? EDID_AudioSampleRate_e96KHz  :
 			samplingRate == 176000 ? EDID_AudioSampleRate_e176KHz :
 			samplingRate == 192000 ? EDID_AudioSampleRate_e192KHz :
@@ -173,7 +173,8 @@ bool cRpiSetup::HasAudioSetupChanged(void)
 
 cMenuSetupPage* cRpiSetup::GetSetupPage(void)
 {
-	return new cRpiSetupPage(&m_audioPort, &m_passthrough, &m_audioSetupChanged);
+	return new cRpiSetupPage(
+			&m_audioPort, &m_passthrough, &m_audioSetupChanged);
 }
 
 bool cRpiSetup::Parse(const char *name, const char *value)

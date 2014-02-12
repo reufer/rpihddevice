@@ -50,7 +50,8 @@ public:
 
 	virtual int64_t GetSTC(void);
 
-	virtual uchar *GrabImage(int &Size, bool Jpeg = true, int Quality = -1, int SizeX = -1, int SizeY = -1);
+	virtual uchar *GrabImage(int &Size, bool Jpeg = true, int Quality = -1,
+			int SizeX = -1, int SizeY = -1);
 
 #if APIVERSNUM >= 20103
 	virtual void TrickSpeed(int Speed, bool Forward);

@@ -291,7 +291,8 @@ int64_t cOmxDevice::GetSTC(void)
 	return m_omx->GetSTC();
 }
 
-uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality, int SizeX, int SizeY)
+uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,
+		int SizeX, int SizeY)
 {
 	DBG("GrabImage(%s, %dx%d)", Jpeg ? "JPEG" : "PNM", SizeX, SizeY);
 

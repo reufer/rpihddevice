@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- fixed:
+  - suppress buffer stall when clock is halted
+
 2014-02-10: Version 0.0.8
 -------------------------
 - new:

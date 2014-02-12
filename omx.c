@@ -112,8 +112,15 @@ void cOmx::Action(void)
 		}
 		if (m_stallEvent)
 		{
-			if (IsBufferStall() && m_onBufferStall)
-				m_onBufferStall(m_onBufferStallData);
+			if (IsBufferStall())
+			{
+				OMX_S32 clockScale = 0;
+				GetClockScale(clockScale);
+
+				// report buffer stall only if clock is not halted
+				if (clockScale && m_onBufferStall)
+					m_onBufferStall(m_onBufferStallData);
+			}
 			m_stallEvent = false;
 		}
 	}
@@ -524,6 +531,18 @@ void cOmx::SetClockScale(float scale)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
 		ELOG("failed to set clock scale (%d)!", scaleType.xScale);
+}
+
+void cOmx::GetClockScale(OMX_S32 &scale)
+{
+	OMX_TIME_CONFIG_SCALETYPE scaleType;
+	OMX_INIT_STRUCT(scaleType);
+
+	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
+		ELOG("failed to get clock scale!");
+	else
+		scale = scaleType.xScale;
 }
 
 void cOmx::SetStartTime(uint64_t pts)
