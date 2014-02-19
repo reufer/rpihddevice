@@ -58,6 +58,7 @@ public:
 	};
 
 	void SetClockReference(eClockReference clockReference);
+	void SetClockLatencyTarget(void);
 	void SetVolume(int vol);
 	void SetMute(bool mute);
 	void SendEos(void);

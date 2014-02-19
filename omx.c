@@ -358,6 +358,7 @@ int cOmx::Init(void)
 	DBG("started with %d video and %d audio buffers",
 		m_freeVideoBuffers, m_freeAudioBuffers);
 
+	SetClockLatencyTarget();
 	SetBufferStall(1500);
 
 	FlushVideo();
@@ -610,6 +611,26 @@ void cOmx::SetClockReference(eClockReference clockReference)
 
 		m_clockReference = clockReference;
 	}
+}
+
+void cOmx::SetClockLatencyTarget(void)
+{
+	OMX_CONFIG_LATENCYTARGETTYPE latencyTarget;
+	OMX_INIT_STRUCT(latencyTarget);
+
+	// values set according reference implementation in omxplayer
+	latencyTarget.nPortIndex = OMX_ALL;
+	latencyTarget.bEnabled = OMX_TRUE;
+	latencyTarget.nFilter = 10;
+	latencyTarget.nTarget = 0;
+	latencyTarget.nShift = 3;
+	latencyTarget.nSpeedFactor = -200;
+	latencyTarget.nInterFactor = 100;
+	latencyTarget.nAdjCap = 100;
+
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigLatencyTarget, &latencyTarget) != OMX_ErrorNone)
+		ELOG("failed set clock latency target!");
 }
 
 void cOmx::SetBufferStall(int delayMs)
