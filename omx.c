@@ -242,6 +242,7 @@ cOmx::cOmx() :
 	m_freeAudioBuffers(0),
 	m_freeVideoBuffers(0),
 	m_clockReference(eClockRefNone),
+	m_clockScale(0),
 	m_eventReady(new cCondWait()),
 	m_portEvents(new std::queue<unsigned int>),
 	m_stallEvent(false),
@@ -525,13 +526,22 @@ void cOmx::SetClockState(eClockState clockState)
 
 void cOmx::SetClockScale(float scale)
 {
-	OMX_TIME_CONFIG_SCALETYPE scaleType;
-	OMX_INIT_STRUCT(scaleType);
-	scaleType.xScale = floor(scale * pow(2, 16));
+	OMX_S32 clockScale = floor(scale * pow(2, 16));
+	if (clockScale != m_clockScale)
+	{
+		OMX_TIME_CONFIG_SCALETYPE scaleType;
+		OMX_INIT_STRUCT(scaleType);
+		scaleType.xScale = clockScale;
 
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-			OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
-		ELOG("failed to set clock scale (%d)!", scaleType.xScale);
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+				OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
+			ELOG("failed to set clock scale (%.3f)!", scale);
+		else
+		{
+			DBG("SetClockScale(%.3f)", scale);
+			m_clockScale = clockScale;
+		}
+	}
 }
 
 void cOmx::GetClockScale(OMX_S32 &scale)
@@ -618,6 +628,7 @@ void cOmx::SetClockLatencyTarget(void)
 	OMX_CONFIG_LATENCYTARGETTYPE latencyTarget;
 	OMX_INIT_STRUCT(latencyTarget);
 
+	// latency target for clock
 	// values set according reference implementation in omxplayer
 	latencyTarget.nPortIndex = OMX_ALL;
 	latencyTarget.bEnabled = OMX_TRUE;
@@ -631,6 +642,21 @@ void cOmx::SetClockLatencyTarget(void)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigLatencyTarget, &latencyTarget) != OMX_ErrorNone)
 		ELOG("failed set clock latency target!");
+
+	// latency target for video render
+	// values set according reference implementation in omxplayer
+	latencyTarget.nPortIndex = 90;
+	latencyTarget.bEnabled = OMX_TRUE;
+	latencyTarget.nFilter = 2;
+	latencyTarget.nTarget = 4000;
+	latencyTarget.nShift = 3;
+	latencyTarget.nSpeedFactor = -135;
+	latencyTarget.nInterFactor = 500;
+	latencyTarget.nAdjCap = 20;
+
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
+			OMX_IndexConfigLatencyTarget, &latencyTarget) != OMX_ErrorNone)
+		ELOG("failed set video render latency target!");
 }
 
 void cOmx::SetBufferStall(int delayMs)

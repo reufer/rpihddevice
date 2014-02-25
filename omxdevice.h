@@ -85,6 +85,8 @@ private:
 	void ApplyTrickSpeed(int trickSpeed, bool forward = true);
 	void PtsTracker(int64_t ptsDiff);
 
+	void UpdateLatency(int64_t pts);
+
 	cOmx			*m_omx;
 	cAudioDecoder	*m_audio;
 	cMutex			*m_mutex;
@@ -100,6 +102,7 @@ private:
 
 	int64_t	m_audioPts;
 	int64_t	m_videoPts;
+	int64_t m_latency;
 };
 
 #endif

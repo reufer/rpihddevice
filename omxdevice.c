@@ -17,6 +17,11 @@
 
 #include <string.h>
 
+// latency target for transfer mode in PTS ticks (90kHz) -> 100ms
+#define LATENCY_TARGET 9000LL
+// latency window for validation where closed loop will be active (+/- 4s)
+#define LATENCY_WINDOW 360000LL
+
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
@@ -30,7 +35,8 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_playDirection(0),
 	m_trickRequest(0),
 	m_audioPts(0),
-	m_videoPts(0)
+	m_videoPts(0),
+	m_latency(0)
 {
 }
 
@@ -190,6 +196,9 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		m_audioPts = pts;
 	}
 
+	if (Transferring() && pts)
+		UpdateLatency(pts);
+
 	int ret = m_audio->WriteData(Data + PesPayloadOffset(Data),
 			Length - PesPayloadOffset(Data), pts) ? Length : 0;
 
@@ -251,6 +260,9 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
 
 	if (m_hasVideo)
 	{
+		if (!m_hasAudio && Transferring() && pts)
+			UpdateLatency(pts);
+
 		while (Length)
 		{
 			OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
@@ -438,6 +450,30 @@ void cOmxDevice::PtsTracker(int64_t ptsDiff)
 	}
 }
 
+void cOmxDevice::UpdateLatency(int64_t pts)
+{
+	// calculate and validate latency
+	uint64_t latency = pts - m_omx->GetSTC();
+	if (abs(latency > LATENCY_WINDOW))
+		return;
+
+	m_latency = (7 * m_latency + latency) >> 3;
+
+//	DBG("%lld", m_latency);
+
+	float speed = 1.0f;
+	if (m_latency < 0.5f * LATENCY_TARGET)
+		speed = 0.990f;
+	else if (m_latency < 0.9f * LATENCY_TARGET)
+		speed = 0.999f;
+	else if (m_latency > 2.0f * LATENCY_TARGET)
+		speed = 1.010f;
+	else if (m_latency > 1.1f * LATENCY_TARGET)
+		speed = 1.001f;
+
+	m_omx->SetClockScale(speed);
+}
+
 void cOmxDevice::HandleBufferStall()
 {
 	ELOG("buffer stall!");
@@ -466,6 +502,7 @@ void cOmxDevice::ResetAudioVideo(bool flushVideoRender)
 	m_trickRequest = 0;
 	m_audioPts = 0;
 	m_videoPts = 0;
+	m_latency = 0;
 
 	m_hasAudio = false;
 	m_hasVideo = false;

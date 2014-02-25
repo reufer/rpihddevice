@@ -135,6 +135,7 @@ private:
 	int m_freeVideoBuffers;
 
 	eClockReference	m_clockReference;
+	OMX_S32 m_clockScale;
 
 	cCondWait *m_eventReady;
 	std::queue<unsigned int> *m_portEvents;
