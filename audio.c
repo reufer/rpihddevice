@@ -135,10 +135,6 @@ private:
 	// size is set to the first frame length.
 	// Valid packets are always moved to the buffer start, if no valid
 	// audio frame has been found, packet gets cleared.
-	//
-	// To do:
-	// - parse sampling rate to allow non-48kHz audio
-	// - consider codec change for next frame check
 
 	void Parse()
 	{
@@ -152,10 +148,9 @@ private:
 		while (m_size - offset >= 3)
 		{
 			// 4 bytes 0xFFExxxxx MPEG audio
-			// 3 bytes 0x56Exxx AAC LATM audio
 			// 5 bytes 0x0B77xxxxxx AC-3 audio
 			// 6 bytes 0x0B77xxxxxxxx E-AC-3 audio
-			// 7/9 bytes 0xFFFxxxxxxxxxxx ADTS audio
+			// 7/9 bytes 0xFFFxxxxxxxxxxx AAC audio
 			// PCM audio can't be found
 
 			const uint8_t *p = m_packet.data + offset;
