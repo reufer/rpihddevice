@@ -689,16 +689,23 @@ int cAudioDecoder::DeInit(void)
 	return 0;
 }
 
-bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length, uint64_t pts)
+bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
+		uint64_t pts, bool force)
 {
 	Lock();
 	bool ret = false;
 
-	if (m_ready)
+	// normally, only accept new audio packet if parser is empty. appending
+	// new data may be forced in transfer mode, can't be tracked in this case
+	if (m_ready || force)
 	{
 		if (m_parser->Append(buf, length))
 		{
-			m_pts = pts;
+			if (m_ready)
+				m_pts = pts;
+			else
+				DBG("audio parser not empty, pts discarded");
+
 			m_ready = false;
 			m_wait->Signal();
 			ret = true;

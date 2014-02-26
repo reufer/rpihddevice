@@ -29,7 +29,8 @@ public:
 	virtual int Init(void);
 	virtual int DeInit(void);
 
-	virtual bool WriteData(const unsigned char *buf, unsigned int length, uint64_t pts = 0);
+	virtual bool WriteData(const unsigned char *buf, unsigned int length,
+			uint64_t pts = 0, bool force = false);
 
 	virtual bool Poll(void);
 	virtual void Reset(void);
@@ -37,7 +38,8 @@ public:
 protected:
 
 	virtual void Action(void);
-	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate);
+	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels,
+			unsigned int samplingRate);
 
 	struct Codec
 	{
