@@ -334,31 +334,6 @@ int cOmx::Init(void)
 	ilclient_change_component_state(m_comp[eVideoFx], OMX_StateIdle);
 	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
 
-	// set up the number and size of buffers for audio render
-	m_freeAudioBuffers = 8;
-
-	OMX_PARAM_PORTDEFINITIONTYPE param;
-	OMX_INIT_STRUCT(param);
-	param.nPortIndex = 100;
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to get audio render port parameters!");
-	param.nBufferSize = KILOBYTE(160);
-	param.nBufferCountActual = m_freeAudioBuffers;
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to set audio render port parameters!");
-
-	OMX_INIT_STRUCT(param);
-	param.nPortIndex = 130;
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to get video decoder port parameters!");
-	m_freeVideoBuffers = param.nBufferCountActual;
-
-	DBG("started with %d video and %d audio buffers",
-		m_freeVideoBuffers, m_freeAudioBuffers);
-
 	SetClockLatencyTarget();
 	SetBufferStall(1500);
 
@@ -845,6 +820,20 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec, eDataUnitType dataUnit)
 			OMX_IndexParamVideoPortFormat, &videoFormat) != OMX_ErrorNone)
 		ELOG("failed to set video decoder parameters!");
 
+	OMX_PARAM_PORTDEFINITIONTYPE param;
+	OMX_INIT_STRUCT(param);
+	param.nPortIndex = 130;
+	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+		ELOG("failed to get video decoder port parameters!");
+
+	param.nBufferCountActual = 40;
+	m_freeVideoBuffers = param.nBufferCountActual;
+
+	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+		ELOG("failed to set video decoder port parameters!");
+
 	// start with valid frames only if codec is MPEG2
 	SetVideoErrorConcealment(codec == cVideoCodec::eMPEG2);
 	SetVideoDataUnitType(dataUnit);
@@ -972,6 +961,22 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexConfigBrcmAudioDestination, &audioDest) != OMX_ErrorNone)
 		ELOG("failed to set audio destination!");
+
+	// set up the number and size of buffers for audio render
+	OMX_PARAM_PORTDEFINITIONTYPE param;
+	OMX_INIT_STRUCT(param);
+	param.nPortIndex = 100;
+	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+		ELOG("failed to get audio render port parameters!");
+
+	param.nBufferSize = KILOBYTE(160);
+	param.nBufferCountActual = 8;
+	m_freeAudioBuffers = param.nBufferCountActual;
+
+	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
+		ELOG("failed to set audio render port parameters!");
 
 	if (ilclient_enable_port_buffers(m_comp[eAudioRender], 100, NULL, NULL, NULL) != 0)
 		ELOG("failed to enable port buffer on audio render!");
