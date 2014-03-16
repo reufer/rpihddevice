@@ -349,6 +349,9 @@ int cOmx::DeInit(void)
 {
 	Cancel();
 
+	for (int i = 0; i < eNumTunnels; i++)
+		ilclient_disable_tunnel(&m_tun[i]);
+
 	ilclient_teardown_tunnels(m_tun);
 	ilclient_state_transition(m_comp, OMX_StateIdle);
 	ilclient_state_transition(m_comp, OMX_StateLoaded);
