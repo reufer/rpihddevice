@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - fixed:
+  - displaying subtitles when OSD is active (fix by Klaus Schmidinger)
   - default quality when grabbing jpeg image (reported by Klaus Schmidinger)
   - suppress buffer stall when clock is halted
   - set clock latency target according omxplayer

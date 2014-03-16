@@ -271,11 +271,17 @@ cOvgOsd::cOvgOsd(int Left, int Top, uint Level, cOvg *ovg) :
 
 cOvgOsd::~cOvgOsd()
 {
-	m_ovg->Clear();
+	if (Active())
+		m_ovg->Clear();
+
+	SetActive(false);
 }
 
 void cOvgOsd::Flush(void)
 {
+	if (!Active())
+		return;
+
 	if (IsTrueColor())
 	{
 		LOCK_PIXMAPS;
