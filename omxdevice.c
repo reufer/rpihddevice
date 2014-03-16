@@ -320,6 +320,7 @@ uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,
 
 	SizeX = (SizeX > 0) ? SizeX : width;
 	SizeY = (SizeY > 0) ? SizeY : height;
+	Quality = (Quality >= 0) ? Quality : 100;
 
 	// bigger than needed, but uint32_t ensures proper alignment
 	uint8_t* frame = (uint8_t*)(MALLOC(uint32_t, SizeX * SizeY));
