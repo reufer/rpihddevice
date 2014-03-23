@@ -200,7 +200,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		UpdateLatency(pts);
 
 	int ret = m_audio->WriteData(Data + PesPayloadOffset(Data),
-			Length - PesPayloadOffset(Data), pts, Transferring()) ? Length : 0;
+			Length - PesPayloadOffset(Data), pts) ? Length : 0;
 
 	if (Transferring() && !ret)
 		DLOG("audio packet not accepted! (%d bytes)", Length);

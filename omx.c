@@ -974,7 +974,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		ELOG("failed to get audio render port parameters!");
 
 	param.nBufferSize = KILOBYTE(160);
-	param.nBufferCountActual = 8;
+	param.nBufferCountActual = 4;
 	m_freeAudioBuffers = param.nBufferCountActual;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),

@@ -11,9 +11,10 @@
 #include <vdr/tools.h>
 #include <vdr/remux.h>
 
+#include <queue>
 #include <string.h>
 
-#define AVPKT_BUFFER_SIZE (64 * 1024) /* 1 PES packet */
+#define AVPKT_BUFFER_SIZE (KILOBYTE(256))
 
 class cAudioParser
 {
@@ -56,6 +57,16 @@ public:
 		return m_samplingRate;
 	}
 
+	uint64_t GetPts(void)
+	{
+		return m_ptsQueue.empty() ? 0 : m_ptsQueue.front().pts;
+	}
+
+	unsigned int GetFreeSpace(void)
+	{
+		return AVPKT_BUFFER_SIZE - m_size - FF_INPUT_BUFFER_PADDING_SIZE;
+	}
+
 	bool Empty(void)
 	{
 		if (!m_parsed)
@@ -88,9 +99,12 @@ public:
 		m_size = 0;
 		m_parsed = false;
 		memset(m_packet.data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+		while (!m_ptsQueue.empty())
+			m_ptsQueue.pop();
 	}
 
-	bool Append(const unsigned char *data, unsigned int length)
+	bool Append(const unsigned char *data, uint64_t pts, unsigned int length)
 	{
 		m_mutex->Lock();
 		bool ret = true;
@@ -102,6 +116,10 @@ public:
 			memcpy(m_packet.data + m_size, data, length);
 			m_size += length;
 			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+			Pts entry = {pts, length};
+			m_ptsQueue.push(entry);
+
 			m_parsed = false;
 		}
 		m_mutex->Unlock();
@@ -117,6 +135,25 @@ public:
 			memmove(m_packet.data, m_packet.data + length, m_size - length);
 			m_size -= length;
 			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+			// clear current PTS since it's not valid anymore after
+			// shrinking the packet
+			if (!m_ptsQueue.empty())
+				m_ptsQueue.front().pts = 0;
+
+			while (!m_ptsQueue.empty() && length)
+			{
+				if (m_ptsQueue.front().length <= length)
+				{
+					length -= m_ptsQueue.front().length;
+					m_ptsQueue.pop();
+				}
+				else
+				{
+					length -= m_ptsQueue.front().length -= length;
+					length = 0;
+				}
+			}
 
 			m_parsed = false;
 		}
@@ -218,12 +255,19 @@ private:
 		m_mutex->Unlock();
 	}
 
+	struct Pts
+	{
+		uint64_t 		pts;
+		unsigned int 	length;
+	};
+
 	cMutex*				m_mutex;
 	AVPacket 			m_packet;
 	cAudioCodec::eCodec m_codec;
 	unsigned int		m_channels;
 	unsigned int		m_samplingRate;
 	unsigned int		m_size;
+	std::queue<Pts> 	m_ptsQueue;
 	bool				m_parsed;
 
 	/* ------------------------------------------------------------------------- */
@@ -605,8 +649,6 @@ cAudioDecoder::cAudioDecoder(cOmx *omx) :
 	cThread(),
 	m_passthrough(false),
 	m_reset(false),
-	m_ready(false),
-	m_pts(0),
 	m_wait(new cCondWait()),
 	m_parser(new cAudioParser()),
 	m_omx(omx)
@@ -631,7 +673,7 @@ int cAudioDecoder::Init(void)
 	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(CODEC_ID_MP3);
 	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(CODEC_ID_AC3);
 	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(CODEC_ID_EAC3);
-	m_codecs[cAudioCodec::eAAC].codec = avcodec_find_decoder(CODEC_ID_AAC);
+	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(CODEC_ID_AAC);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -690,27 +732,14 @@ int cAudioDecoder::DeInit(void)
 }
 
 bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
-		uint64_t pts, bool force)
+		uint64_t pts)
 {
 	Lock();
-	bool ret = false;
 
-	// normally, only accept new audio packet if parser is empty. appending
-	// new data may be forced in transfer mode, can't be tracked in this case
-	if (m_ready || force)
-	{
-		if (m_parser->Append(buf, length))
-		{
-			if (m_ready)
-				m_pts = pts;
-			else
-				DBG("audio parser not empty, pts discarded");
+	bool ret = m_parser->Append(buf, pts, length);
+	if (ret)
+		m_wait->Signal();
 
-			m_ready = false;
-			m_wait->Signal();
-			ret = true;
-		}
-	}
 	Unlock();
 	return ret;
 }
@@ -729,7 +758,7 @@ void cAudioDecoder::Reset(void)
 
 bool cAudioDecoder::Poll(void)
 {
-	return m_ready;
+	return m_parser->GetFreeSpace() > KILOBYTE(16);
 }
 
 void cAudioDecoder::Action(void)
@@ -750,8 +779,6 @@ void cAudioDecoder::Action(void)
 		ELOG("failed to allocate audio frame!");
 		return;
 	}
-
-	m_ready = true;
 
 	while (Running())
 	{
@@ -783,14 +810,11 @@ void cAudioDecoder::Action(void)
 		// get free buffer
 		while ((!m_parser->Empty() || frame->nb_samples) && !buf && !m_reset)
 		{
-			buf = m_omx->GetAudioBuffer(m_pts);
+			buf = m_omx->GetAudioBuffer(m_parser->GetPts());
 			if (!buf)
 				m_wait->Wait(10);
 			else
-			{
-				m_pts = 0;
 				buf->nFilledLen = 0;
-			}
 		}
 
 		// decoding loop
@@ -883,24 +907,14 @@ void cAudioDecoder::Action(void)
 		}
 
 		// -- empty buffer --
-		if (buf)
-		{
-			if (buf->nFilledLen)
-				m_omx->SetClockReference(cOmx::eClockRefAudio);
-			if (m_omx->EmptyAudioBuffer(buf))
-				buf = 0;
-		}
+		if (buf && m_omx->EmptyAudioBuffer(buf))
+			buf = 0;
 
 		m_reset = false;
 
-		// accept new packets as soon as parser is empty and frame has been sent
+		// wait for new audio packets
 		if (m_parser->Empty() && !frame->nb_samples)
-		{
-			if (m_ready)
-				m_wait->Wait(50);
-			else
-				m_ready = true;
-		}
+			m_wait->Wait(50);
 	}
 
 	av_free(frame);

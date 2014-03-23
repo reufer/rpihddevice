@@ -30,7 +30,7 @@ public:
 	virtual int DeInit(void);
 
 	virtual bool WriteData(const unsigned char *buf, unsigned int length,
-			uint64_t pts = 0, bool force = false);
+			uint64_t pts = 0);
 
 	virtual bool Poll(void);
 	virtual void Reset(void);
@@ -52,8 +52,6 @@ private:
 	Codec		  m_codecs[cAudioCodec::eNumCodecs];
 	bool		  m_passthrough;
 	bool		  m_reset;
-	bool		  m_ready;
-	uint64_t 	  m_pts;
 
 	cCondWait	 *m_wait;
 	cAudioParser *m_parser;
