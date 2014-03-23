@@ -17,8 +17,8 @@
 
 #include <string.h>
 
-// latency target for transfer mode in PTS ticks (90kHz) -> 100ms
-#define LATENCY_TARGET 9000LL
+// latency target for transfer mode in PTS ticks (90kHz) -> 200ms
+#define LATENCY_TARGET 18000LL
 // latency window for validation where closed loop will be active (+/- 4s)
 #define LATENCY_WINDOW 360000LL
 
