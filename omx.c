@@ -198,9 +198,9 @@ void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
 	if (comp == omx->m_comp[eVideoDecoder])
-		omx->m_freeVideoBuffers++;
+		omx->m_freeVideoBuffers = true;
 	else if (comp == omx->m_comp[eAudioRender])
-		omx->m_freeAudioBuffers++;
+		omx->m_freeAudioBuffers = true;
 }
 
 void cOmx::OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
@@ -239,8 +239,8 @@ cOmx::cOmx() :
 	m_setAudioStartTime(false),
 	m_setVideoStartTime(false),
 	m_setVideoDiscontinuity(false),
-	m_freeAudioBuffers(0),
-	m_freeVideoBuffers(0),
+	m_freeAudioBuffers(true),
+	m_freeVideoBuffers(true),
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
 	m_eventReady(new cCondWait()),
@@ -831,7 +831,7 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec, eDataUnitType dataUnit)
 		ELOG("failed to get video decoder port parameters!");
 
 	param.nBufferCountActual = 40;
-	m_freeVideoBuffers = param.nBufferCountActual;
+	m_freeVideoBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -975,7 +975,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 
 	param.nBufferSize = KILOBYTE(160);
 	param.nBufferCountActual = 4;
-	m_freeAudioBuffers = param.nBufferCountActual;
+	m_freeAudioBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -1038,21 +1038,19 @@ void cOmx::SetDisplayRegion(int x, int y, int width, int height)
 OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 {
 	Lock();
-	OMX_BUFFERHEADERTYPE* buf = NULL;
 
-	if (m_freeAudioBuffers > 0)
+	OMX_BUFFERHEADERTYPE* buf =
+			ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
+
+	if (buf)
 	{
-		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
-		if (buf)
-		{
-			cOmx::PtsToTicks(pts, buf->nTimeStamp);
-			buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
-			buf->nFlags |= m_setAudioStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
-
-			m_setAudioStartTime = false;
-			m_freeAudioBuffers--;
-		}
+		cOmx::PtsToTicks(pts, buf->nTimeStamp);
+		buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
+		buf->nFlags |= m_setAudioStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
+		m_setAudioStartTime = false;
 	}
+	else
+		m_freeAudioBuffers = false;
 
 	Unlock();
 	return buf;
@@ -1061,36 +1059,24 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 {
 	Lock();
-	OMX_BUFFERHEADERTYPE* buf = NULL;
+	OMX_BUFFERHEADERTYPE* buf =
+			ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
 
-	if (m_freeVideoBuffers > 0)
+	if (buf)
 	{
-		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
-		if (buf)
-		{
-			cOmx::PtsToTicks(pts, buf->nTimeStamp);
-			buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
-			buf->nFlags |= m_setVideoStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
-			buf->nFlags |= m_setVideoDiscontinuity ? OMX_BUFFERFLAG_DISCONTINUITY : 0;
+		cOmx::PtsToTicks(pts, buf->nTimeStamp);
+		buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
+		buf->nFlags |= m_setVideoStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
+		buf->nFlags |= m_setVideoDiscontinuity ? OMX_BUFFERFLAG_DISCONTINUITY : 0;
 
-			m_setVideoStartTime = false;
-			m_setVideoDiscontinuity = false;
-			m_freeVideoBuffers--;
-		}
+		m_setVideoStartTime = false;
+		m_setVideoDiscontinuity = false;
 	}
+	else
+		m_freeVideoBuffers = false;
 
 	Unlock();
 	return buf;
-}
-
-bool cOmx::PollVideoBuffers(int minBuffers)
-{
-	return (m_freeVideoBuffers > minBuffers);
-}
-
-bool cOmx::PollAudioBuffers(int minBuffers)
-{
-	return (m_freeAudioBuffers > minBuffers);
 }
 
 bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)

@@ -88,8 +88,8 @@ public:
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
-	bool PollVideoBuffers(int minBuffers = 0);
-	bool PollAudioBuffers(int minBuffers = 0);
+	bool inline PollVideoBuffers() { return m_freeVideoBuffers; }
+	bool inline PollAudioBuffers() { return m_freeAudioBuffers; }
 
 	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf);
 	bool EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf);
@@ -131,8 +131,8 @@ private:
 	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
 
-	int m_freeAudioBuffers;
-	int m_freeVideoBuffers;
+	bool m_freeAudioBuffers;
+	bool m_freeVideoBuffers;
 
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
