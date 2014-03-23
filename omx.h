@@ -44,10 +44,11 @@ public:
 		eClockStateWaitForAudioVideo
 	};
 
-	void SetClockState(eClockState clockState);
-	void SetClockScale(float scale);
-	void GetClockScale(OMX_S32 &scale);
-	void SetStartTime(uint64_t pts);
+	void StartClock(bool waitForVideo = false, bool waitForAudio = false);
+	void StopClock();
+
+	void SetClockScale(OMX_S32 scale);
+	bool IsClockFreezed(void) { return m_clockScale == 0; }
 	void SetCurrentReferenceTime(uint64_t pts);
 	unsigned int GetMediaTime(void);
 
@@ -144,7 +145,7 @@ private:
 	void *m_onBufferStallData;
 
 	void HandlePortSettingsChanged(unsigned int portId);
-	void SetBufferStall(int delayMs);
+	void SetBufferStallThreshold(int delayMs);
 	bool IsBufferStall(void);
 
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);

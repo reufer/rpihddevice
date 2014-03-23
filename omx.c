@@ -16,6 +16,8 @@ extern "C" {
 
 #include "bcm_host.h"
 
+#define OMX_PRE_ROLL 50
+
 #define OMX_INIT_STRUCT(a) \
 	memset(&(a), 0, sizeof(a)); \
 	(a).nSize = sizeof(a); \
@@ -112,15 +114,8 @@ void cOmx::Action(void)
 		}
 		if (m_stallEvent)
 		{
-			if (IsBufferStall())
-			{
-				OMX_S32 clockScale = 0;
-				GetClockScale(clockScale);
-
-				// report buffer stall only if clock is not halted
-				if (clockScale && m_onBufferStall)
-					m_onBufferStall(m_onBufferStallData);
-			}
+			if (IsBufferStall() && !IsClockFreezed() && m_onBufferStall)
+				m_onBufferStall(m_onBufferStallData);
 			m_stallEvent = false;
 		}
 	}
@@ -335,7 +330,8 @@ int cOmx::Init(void)
 	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
 
 	SetClockLatencyTarget();
-	SetBufferStall(1500);
+	SetBufferStallThreshold(1500);
+	SetClockReference(cOmx::eClockRefVideo);
 
 	FlushVideo();
 	FlushAudio();
@@ -432,133 +428,96 @@ bool cOmx::IsClockRunning(void)
 		return false;
 }
 
-void cOmx::SetClockState(eClockState clockState)
+void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 {
-	DBG("SetClockState(%s)",
-		clockState == eClockStateRun ? "eClockStateRun" :
-		clockState == eClockStateStop ? "eClockStateStop" :
-		clockState == eClockStateWaitForVideo ? "eClockStateWaitForVideo" :
-		clockState == eClockStateWaitForAudio ? "eClockStateWaitForAudio" :
-		clockState == eClockStateWaitForAudioVideo ? "eClockStateWaitForAudioVideo" :
-				"unknown");
+	DBG("StartClock(%svideo, %saudio)",
+			waitForVideo ? "" : "no ",
+			waitForAudio ? "" : "no ");
 
 	OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
 	OMX_INIT_STRUCT(cstate);
 
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		ELOG("failed to get clock state!");
+	cstate.eState = OMX_TIME_ClockStateRunning;
+	cstate.nOffset = ToOmxTicks(-1000LL * OMX_PRE_ROLL);
 
-	// if clock is already running, we need to stop it first
-	if ((cstate.eState == OMX_TIME_ClockStateRunning) &&
-			(clockState == eClockStateWaitForVideo ||
-			 clockState == eClockStateWaitForAudio ||
-			 clockState == eClockStateWaitForAudioVideo))
+	if (waitForVideo && waitForAudio)
 	{
-		cstate.eState = OMX_TIME_ClockStateStopped;
-		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-				OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-			ELOG("failed to stop clock!");
-	}
-
-	cstate.nWaitMask = 0;
-
-	switch (clockState)
-	{
-	case eClockStateRun:
-		cstate.eState = OMX_TIME_ClockStateRunning;
-		break;
-
-	case eClockStateStop:
-		cstate.eState = OMX_TIME_ClockStateStopped;
-		break;
-
-	case eClockStateWaitForVideo:
-		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		m_setVideoStartTime = true;
-		cstate.nWaitMask = OMX_CLOCKPORT0;
-		break;
-
-	case eClockStateWaitForAudio:
-		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		m_setAudioStartTime = true;
-		cstate.nWaitMask = OMX_CLOCKPORT1;
-		break;
-
-	case eClockStateWaitForAudioVideo:
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
 		m_setAudioStartTime = true;
 		m_setVideoStartTime = true;
 		cstate.nWaitMask = OMX_CLOCKPORT0 | OMX_CLOCKPORT1;
-		break;
 	}
+	else if (waitForVideo && !waitForAudio)
+	{
+		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
+		m_setVideoStartTime = true;
+		cstate.nWaitMask = OMX_CLOCKPORT0;
 
-//	if (cstate.eState == OMX_TIME_ClockStateWaitingForStartTime)
-		// 50ms pre roll, was 200ms at omxplayer
-//		cstate.nOffset = ToOmxTicks(-1000LL * 50);
+	}
+	else if (!waitForVideo && waitForAudio)
+	{
+		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
+		m_setAudioStartTime = true;
+		cstate.nWaitMask = OMX_CLOCKPORT1;
+	}
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
 		ELOG("failed to set clock state!");
 }
 
-void cOmx::SetClockScale(float scale)
+void cOmx::StopClock()
 {
-	OMX_S32 clockScale = floor(scale * pow(2, 16));
-	if (clockScale != m_clockScale)
+	OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
+	OMX_INIT_STRUCT(cstate);
+
+	cstate.eState = OMX_TIME_ClockStateStopped;
+	cstate.nOffset = ToOmxTicks(-1000LL * OMX_PRE_ROLL);
+
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
+		ELOG("failed to set clock state!");
+}
+
+void cOmx::SetClockScale(OMX_S32 scale)
+{
+	if (scale != m_clockScale)
 	{
 		OMX_TIME_CONFIG_SCALETYPE scaleType;
 		OMX_INIT_STRUCT(scaleType);
-		scaleType.xScale = clockScale;
+		scaleType.xScale = scale;
 
 		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 				OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
-			ELOG("failed to set clock scale (%.3f)!", scale);
+			ELOG("failed to set clock scale (%d)!", scale);
 		else
-		{
-			DBG("SetClockScale(%.3f)", scale);
-			m_clockScale = clockScale;
-		}
+			m_clockScale = scale;
 	}
-}
-
-void cOmx::GetClockScale(OMX_S32 &scale)
-{
-	OMX_TIME_CONFIG_SCALETYPE scaleType;
-	OMX_INIT_STRUCT(scaleType);
-
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-			OMX_IndexConfigTimeScale, &scaleType) != OMX_ErrorNone)
-		ELOG("failed to get clock scale!");
-	else
-		scale = scaleType.xScale;
-}
-
-void cOmx::SetStartTime(uint64_t pts)
-{
-	OMX_TIME_CONFIG_TIMESTAMPTYPE timeStamp;
-	OMX_INIT_STRUCT(timeStamp);
-	timeStamp.nPortIndex = 80; //m_clockReference == eClockRefAudio ? 81 : 80;
-	cOmx::PtsToTicks(pts, timeStamp.nTimestamp);
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-			OMX_IndexConfigTimeClientStartTime, &timeStamp) != OMX_ErrorNone)
-		ELOG("failed to set current start time!");
 }
 
 void cOmx::SetCurrentReferenceTime(uint64_t pts)
 {
 	OMX_TIME_CONFIG_TIMESTAMPTYPE timeStamp;
 	OMX_INIT_STRUCT(timeStamp);
-	timeStamp.nPortIndex = 80; //OMX_ALL; //m_clockReference == eClockRefAudio ? 81 : 80;
 	cOmx::PtsToTicks(pts, timeStamp.nTimestamp);
 
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-			m_clockReference == eClockRefAudio ?
-			OMX_IndexConfigTimeCurrentAudioReference :
-			OMX_IndexConfigTimeCurrentVideoReference, &timeStamp) != OMX_ErrorNone)
-		ELOG("failed to set current %s reference time!",
-				m_clockReference == eClockRefAudio ? "audio" : "video");
+	if (m_clockReference == eClockRefAudio || m_clockReference == eClockRefNone)
+	{
+		timeStamp.nPortIndex = 81;
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigTimeCurrentAudioReference, &timeStamp)
+				!= OMX_ErrorNone)
+			ELOG("failed to set current audio reference time!");
+	}
+
+	if (m_clockReference == eClockRefVideo || m_clockReference == eClockRefNone)
+	{
+		timeStamp.nPortIndex = 80;
+		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
+			OMX_IndexConfigTimeCurrentVideoReference, &timeStamp)
+				!= OMX_ErrorNone)
+			ELOG("failed to set current video reference time!");
+	}
 }
 
 unsigned int cOmx::GetMediaTime(void)
@@ -637,7 +596,7 @@ void cOmx::SetClockLatencyTarget(void)
 		ELOG("failed set video render latency target!");
 }
 
-void cOmx::SetBufferStall(int delayMs)
+void cOmx::SetBufferStallThreshold(int delayMs)
 {
 	if (delayMs > 0)
 	{
@@ -830,7 +789,7 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec, eDataUnitType dataUnit)
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get video decoder port parameters!");
 
-	param.nBufferCountActual = 40;
+	param.nBufferCountActual = 64;
 	m_freeVideoBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),

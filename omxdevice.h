@@ -28,7 +28,7 @@ public:
 
 	virtual bool HasDecoder(void) const { return true; }
 	virtual bool CanReplay(void)  const { return true; }
-	virtual bool HasIBPTrickSpeed(void) { return true; }
+	virtual bool HasIBPTrickSpeed(void);
 
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect);
 	virtual void GetVideoSize(int &Width, int &Height, double &VideoAspect);
@@ -71,6 +71,57 @@ protected:
 
 	virtual void MakePrimaryDevice(bool On);
 
+	enum eDirection {
+		eForward,
+		eBackward
+	};
+
+	static const char* DirectionStr(eDirection dir) {
+		return 	dir == eForward ? "forward" :
+				dir == eBackward ? "backward" : "unknown";
+	}
+
+	enum eSpeed {
+		ePause,
+		eSlowest,
+		eSlower,
+		eSlow,
+		eNormal,
+		eFast,
+		eFaster,
+		eFastest
+	};
+
+	static const char* SpeedStr(eSpeed speed) {
+		return 	speed == ePause   ? "pause"   :
+				speed == eSlowest ? "slowest" :
+				speed == eSlower  ? "slower"  :
+				speed == eSlow    ? "slow"    :
+				speed == eNormal  ? "normal"  :
+				speed == eFast    ? "fast"    :
+				speed == eFaster  ? "faster"  :
+				speed == eFastest ? "fastest" : "unknown";
+	}
+
+	enum eSpeedCorrection {
+		eNegMaxCorrection,
+		eNegCorrection,
+		eNoCorrection,
+		ePosCorrection,
+		ePosMaxCorrection,
+	};
+
+	static const char* SpeedCorrectionStr(eSpeedCorrection corr) {
+		return	corr == eNegMaxCorrection ? "max negative" :
+				corr == eNegCorrection    ? "negative"     :
+				corr == eNoCorrection     ? "no"           :
+				corr == ePosCorrection    ? "positive"     :
+				corr == ePosMaxCorrection ? "max positive" : "unknown";
+	}
+
+	static int s_speeds[2][8];
+	static int s_speedCorrections[5];
+
 private:
 
 	void (*m_onPrimaryDevice)(void);
@@ -80,9 +131,9 @@ private:
 		{ (static_cast <cOmxDevice*> (data))->HandleBufferStall(); }
 
 	void HandleBufferStall();
-	void ResetAudioVideo(bool flushVideoRender = false);
+	void FlushStreams(bool flushVideoRender = false);
 
-	void ApplyTrickSpeed(int trickSpeed, bool forward = true);
+	void ApplyTrickSpeed(int trickSpeed, bool forward);
 	void PtsTracker(int64_t ptsDiff);
 
 	void UpdateLatency(int64_t pts);
@@ -92,6 +143,9 @@ private:
 	cMutex			*m_mutex;
 
 	cVideoCodec::eCodec	m_videoCodec;
+
+	eSpeed		m_speed;
+	eDirection	m_direction;
 
 	bool	m_hasVideo;
 	bool	m_hasAudio;
