@@ -13,7 +13,7 @@
 #include "tools.h"
 
 static const char *VERSION        = "0.0.8";
-static const char *DESCRIPTION    = tr("HD output device for Raspberry Pi");
+static const char *DESCRIPTION    = trNOOP("HD output device for Raspberry Pi");
 
 class cPluginRpiHdDevice : public cPlugin
 {
@@ -27,7 +27,7 @@ public:
 	cPluginRpiHdDevice(void);
 	virtual ~cPluginRpiHdDevice();
 	virtual const char *Version(void) { return VERSION; }
-	virtual const char *Description(void) { return DESCRIPTION; }
+	virtual const char *Description(void) { return tr(DESCRIPTION); }
 	virtual const char *CommandLineHelp(void) { return NULL; }
 	virtual bool ProcessArgs(int argc, char *argv[]) { return true; }
 	virtual bool Initialize(void);

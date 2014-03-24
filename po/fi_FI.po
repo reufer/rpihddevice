@@ -1,0 +1,35 @@
+# Finnish translations for vdr-rpihddevice package.
+# Copyright (C) 2014 THE vdr-rpihddevice'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the vdr-rpihddevice package.
+# Rolf Ahrenberg, 2014
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vdr-rpihddevice 0.0.8\n"
+"Report-Msgid-Bugs-To: <see README>\n"
+"POT-Creation-Date: 2014-03-22 03:22+0200\n"
+"PO-Revision-Date: 2014-03-22 03:22+0200\n"
+"Last-Translator: Rolf Ahrenberg\n"
+"Language-Team: Finnish <vdr@linuxtv.org>\n"
+"Language: fi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "video format not supported!"
+msgstr "Kuvaformaatti ei ole tuettu!"
+
+msgid "HD output device for Raspberry Pi"
+msgstr "Raspberry Pi HD-ulostulolaite"
+
+msgid "analog"
+msgstr "analoginen"
+
+msgid "HDMI"
+msgstr "HDMI"
+
+msgid "Audio Port"
+msgstr "Äänilähtö"
+
+msgid "Digital Audio Pass-Through"
+msgstr "Digitaaliäänen läpivienti"
