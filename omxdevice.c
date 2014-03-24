@@ -108,6 +108,8 @@ void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 
 	if (Height)
 		VideoAspect = (double)Width / Height;
+	else
+		VideoAspect = 1.0;
 }
 
 void cOmxDevice::SetVideoDisplayFormat(eVideoDisplayFormat VideoDisplayFormat)
