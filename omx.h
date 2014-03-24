@@ -27,6 +27,7 @@ public:
 	int DeInit(void);
 
 	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
+	void SetEndOfStreamCallback(void (*onBufferStall)(void*), void* data);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -120,6 +121,18 @@ private:
 		eNumTunnels
 	};
 
+	enum eOmxEvent {
+		ePortSettingsChanged,
+		eConfigChanged,
+		eEndOfStream
+	};
+
+	struct PortEvent
+	{
+		eOmxEvent 	event;
+		int			data;
+	};
+
 	ILCLIENT_T 	*m_client;
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
@@ -139,10 +152,13 @@ private:
 	OMX_S32 m_clockScale;
 
 	cCondWait *m_eventReady;
-	std::queue<unsigned int> *m_portEvents;
-	bool m_stallEvent;
+	std::queue<PortEvent> *m_portEvents;
+
 	void (*m_onBufferStall)(void*);
 	void *m_onBufferStallData;
+
+	void (*m_onEndOfStream)(void*);
+	void *m_onEndOfStreamData;
 
 	void HandlePortSettingsChanged(unsigned int portId);
 	void SetBufferStallThreshold(int delayMs);

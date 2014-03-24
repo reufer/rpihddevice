@@ -130,7 +130,12 @@ private:
 	static void OnBufferStall(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleBufferStall(); }
 
+	static void OnEndOfStream(void *data)
+		{ (static_cast <cOmxDevice*> (data))->HandleEndOfStream(); }
+
 	void HandleBufferStall();
+	void HandleEndOfStream();
+
 	void FlushStreams(bool flushVideoRender = false);
 
 	void ApplyTrickSpeed(int trickSpeed, bool forward);

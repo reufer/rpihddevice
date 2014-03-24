@@ -77,6 +77,7 @@ int cOmxDevice::Init(void)
 		return -1;
 	}
 	m_omx->SetBufferStallCallback(&OnBufferStall, this);
+	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
 	return 0;
 }
 
@@ -179,18 +180,22 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		cDevice::StillPicture(Data, Length);
 	else
 	{
+		m_mutex->Lock();
+
 		// manually restart clock and wait for video only
 		m_omx->StopClock();
 		m_omx->SetClockScale(s_speeds[eForward][eNormal]);
 		m_omx->StartClock(true, false);
 
 		// to get a picture displayed, PlayVideo() needs to be called
-		// 4x for MPEG2 and 12x for H264... ?
+		// 4x for MPEG2 and 13x for H264... ?
 		int repeat =
-			ParseVideoCodec(Data, Length) == cVideoCodec::eMPEG2 ? 4 : 12;
+			ParseVideoCodec(Data, Length) == cVideoCodec::eMPEG2 ? 4 : 13;
 
 		while (repeat--)
-			PlayVideo(Data, Length, true);
+			PlayVideo(Data, Length, !repeat);
+
+		m_mutex->Unlock();
 	}
 }
 
@@ -303,7 +308,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
 						PesLength(Data) - PesPayloadOffset(Data));
 
 				if (singleFrame && Length == PesLength(Data))
-					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+					buf->nFlags |= OMX_BUFFERFLAG_EOS;
 
 				if (!m_omx->EmptyVideoBuffer(buf))
 				{
@@ -544,6 +549,16 @@ void cOmxDevice::HandleBufferStall()
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
 
 	m_mutex->Unlock();
+}
+
+void cOmxDevice::HandleEndOfStream()
+{
+	DBG("HandleEndOfStream()");
+
+	// flush pipes and restart clock after still image
+	FlushStreams();
+	m_omx->SetClockScale(s_speeds[eForward][ePause]);
+	m_omx->StartClock(m_hasVideo, m_hasAudio);
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)
