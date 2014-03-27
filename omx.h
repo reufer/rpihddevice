@@ -129,6 +129,8 @@ private:
 
 	struct PortEvent
 	{
+		PortEvent(eOmxEvent _event, int _data)
+			: event(_event), data(_data) { };
 		eOmxEvent 	event;
 		int			data;
 	};
@@ -152,7 +154,7 @@ private:
 	OMX_S32 m_clockScale;
 
 	cCondWait *m_eventReady;
-	std::queue<PortEvent> *m_portEvents;
+	std::queue<PortEvent*> m_portEvents;
 
 	void (*m_onBufferStall)(void*);
 	void *m_onBufferStallData;

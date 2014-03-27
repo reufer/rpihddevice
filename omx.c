@@ -107,29 +107,31 @@ void cOmx::Action(void)
 	while (Running())
 	{
 		m_eventReady->Wait();
-		while (!m_portEvents->empty())
+		while (!m_portEvents.empty())
 		{
-			switch (m_portEvents->front().event)
+			switch (m_portEvents.front()->event)
 			{
 			case ePortSettingsChanged:
-				HandlePortSettingsChanged(m_portEvents->front().data);
+				HandlePortSettingsChanged(m_portEvents.front()->data);
 				break;
 
 			case eConfigChanged:
-				if (m_portEvents->front().data == OMX_IndexConfigBufferStall)
+				if (m_portEvents.front()->data == OMX_IndexConfigBufferStall)
 					if (IsBufferStall() && !IsClockFreezed() && m_onBufferStall)
 						m_onBufferStall(m_onBufferStallData);
 				break;
 
 			case eEndOfStream:
-				if (m_portEvents->front().data == 90 && m_onEndOfStream)
+				if (m_portEvents.front()->data == 90 && m_onEndOfStream)
 					m_onEndOfStream(m_onEndOfStreamData);
 				break;
 
 			default:
 				break;
 			}
-			m_portEvents->pop();
+
+			delete m_portEvents.front();
+			m_portEvents.pop();
 		}
 	}
 }
@@ -214,24 +216,24 @@ void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
 void cOmx::OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent event = {ePortSettingsChanged, data};
-	omx->m_portEvents->push(event);
+	PortEvent* event = new PortEvent(ePortSettingsChanged, data);
+	omx->m_portEvents.push(event);
 	omx->m_eventReady->Signal();
 }
 
 void cOmx::OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent event = {eConfigChanged, data};
-	omx->m_portEvents->push(event);
+	PortEvent* event = new PortEvent(eConfigChanged, data);
+	omx->m_portEvents.push(event);
 	omx->m_eventReady->Signal();
 }
 
 void cOmx::OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent event = {eEndOfStream, data};
-	omx->m_portEvents->push(event);
+	PortEvent* event = new PortEvent(eEndOfStream, data);
+	omx->m_portEvents.push(event);
 	omx->m_eventReady->Signal();
 }
 
@@ -254,7 +256,6 @@ cOmx::cOmx() :
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
 	m_eventReady(new cCondWait()),
-	m_portEvents(new std::queue<PortEvent>),
 	m_onBufferStall(0),
 	m_onBufferStallData(0)
 {
@@ -265,7 +266,6 @@ cOmx::cOmx() :
 cOmx::~cOmx()
 {
 	delete m_eventReady;
-	delete m_portEvents;
 }
 
 int cOmx::Init(void)
