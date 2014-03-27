@@ -59,7 +59,7 @@ public:
 
 	uint64_t GetPts(void)
 	{
-		return m_ptsQueue.empty() ? 0 : m_ptsQueue.front().pts;
+		return m_ptsQueue.empty() ? 0 : m_ptsQueue.front()->pts;
 	}
 
 	unsigned int GetFreeSpace(void)
@@ -101,7 +101,10 @@ public:
 		memset(m_packet.data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
 		while (!m_ptsQueue.empty())
+		{
+			delete m_ptsQueue.front();
 			m_ptsQueue.pop();
+		}
 	}
 
 	bool Append(const unsigned char *data, uint64_t pts, unsigned int length)
@@ -117,7 +120,7 @@ public:
 			m_size += length;
 			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
-			Pts entry = {pts, length};
+			Pts* entry = new Pts(pts, length);
 			m_ptsQueue.push(entry);
 
 			m_parsed = false;
@@ -139,18 +142,19 @@ public:
 			// clear current PTS since it's not valid anymore after
 			// shrinking the packet
 			if (!m_ptsQueue.empty())
-				m_ptsQueue.front().pts = 0;
+				m_ptsQueue.front()->pts = 0;
 
 			while (!m_ptsQueue.empty() && length)
 			{
-				if (m_ptsQueue.front().length <= length)
+				if (m_ptsQueue.front()->length <= length)
 				{
-					length -= m_ptsQueue.front().length;
+					length -= m_ptsQueue.front()->length;
+					delete m_ptsQueue.front();
 					m_ptsQueue.pop();
 				}
 				else
 				{
-					length -= m_ptsQueue.front().length -= length;
+					length -= m_ptsQueue.front()->length -= length;
 					length = 0;
 				}
 			}
@@ -257,6 +261,9 @@ private:
 
 	struct Pts
 	{
+		Pts(uint64_t _pts, unsigned int _length)
+			: pts(_pts), length(_length) { };
+
 		uint64_t 		pts;
 		unsigned int 	length;
 	};
@@ -267,7 +274,7 @@ private:
 	unsigned int		m_channels;
 	unsigned int		m_samplingRate;
 	unsigned int		m_size;
-	std::queue<Pts> 	m_ptsQueue;
+	std::queue<Pts*> 	m_ptsQueue;
 	bool				m_parsed;
 
 	/* ------------------------------------------------------------------------- */
