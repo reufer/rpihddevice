@@ -97,7 +97,7 @@ public:
 		m_samplingRate = 0;
 		m_packet.size = 0;
 		m_size = 0;
-		m_parsed = false;
+		m_parsed = true; // parser is empty, no need for parsing
 		memset(m_packet.data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
 		while (!m_ptsQueue.empty())
@@ -254,6 +254,8 @@ private:
 			m_samplingRate = samplingRate;
 			m_packet.size = frameSize;
 		}
+		else
+			m_packet.size = 0;
 
 		m_parsed = true;
 		m_mutex->Unlock();
@@ -570,8 +572,6 @@ private:
 			return true;
 
 		samplingRate = Mpeg4SampleRateTable[(p[2] >> 2) & 0x0F];
-		if (!samplingRate)
-			return false;
 
 		frameSize = (p[3] & 0x03) << 11;
 		frameSize |= (p[4] & 0xFF) << 3;
@@ -589,6 +589,9 @@ private:
 	    	cConf == 0x06 ? 6 : // C, L, R, RL, RR, LFE
 	    	cConf == 0x07 ? 8 : // C, L, R, SL, SR, RL, RR, LFE
 				0;
+
+		if (!samplingRate || !channels)
+			return false;
 
 	    return true;
 	}
@@ -898,6 +901,10 @@ void cAudioDecoder::Action(void)
 				buf->nFilledLen += len;
 				avcodec_get_frame_defaults(frame);
 			}
+			// if there's a valid PTS after shrinking, a complete PES packet
+			// has been handled and is ready to play
+			if (m_parser->GetPts())
+				break;
 		}
 
 		// -- reset --
@@ -909,7 +916,7 @@ void cAudioDecoder::Action(void)
 			{
 				cOmx::PtsToTicks(0, buf->nTimeStamp);
 				buf->nFilledLen = 0;
-				buf->nFlags = 0;
+				buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN;
 			}
 		}
 
