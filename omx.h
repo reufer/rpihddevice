@@ -16,6 +16,8 @@ extern "C"
 #include "ilclient.h"
 }
 
+class cOmxEvents;
+
 class cOmx : public cThread
 {
 
@@ -121,20 +123,6 @@ private:
 		eNumTunnels
 	};
 
-	enum eOmxEvent {
-		ePortSettingsChanged,
-		eConfigChanged,
-		eEndOfStream
-	};
-
-	struct PortEvent
-	{
-		PortEvent(eOmxEvent _event, int _data)
-			: event(_event), data(_data) { };
-		eOmxEvent 	event;
-		int			data;
-	};
-
 	ILCLIENT_T 	*m_client;
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
@@ -153,8 +141,7 @@ private:
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
 
-	cCondWait *m_eventReady;
-	std::queue<PortEvent*> m_portEvents;
+	cOmxEvents *m_portEvents;
 
 	void (*m_onBufferStall)(void*);
 	void *m_onBufferStallData;

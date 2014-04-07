@@ -51,6 +51,74 @@ default: \
 	(s).eChannelMapping[1] = OMX_AUDIO_ChannelRF; \
 	break; }
 
+class cOmxEvents
+{
+
+public:
+
+	enum eEvent {
+		ePortSettingsChanged,
+		eConfigChanged,
+		eEndOfStream
+	};
+
+	struct Event
+	{
+		Event(eEvent _event, int _data)
+			: event(_event), data(_data) { };
+		eEvent 	event;
+		int		data;
+	};
+
+	cOmxEvents() :
+		m_signal(new cCondWait()),
+		m_mutex(new cMutex())
+	{ }
+
+	virtual ~cOmxEvents()
+	{
+		while (!m_events.empty())
+		{
+			delete m_events.front();
+			m_events.pop();
+		}
+		delete m_signal;
+		delete m_mutex;
+	}
+
+	Event* Wait(void)
+	{
+		Event* event = 0;
+		while (true)
+		{
+			m_mutex->Lock();
+			if (!m_events.empty())
+			{
+				event = m_events.front();
+				m_events.pop();
+				m_mutex->Unlock();
+				break;
+			}
+			m_mutex->Unlock();
+			m_signal->Wait();
+		}
+		return event;
+	}
+
+	void Add(Event* event)
+	{
+		m_mutex->Lock();
+		m_events.push(event);
+		m_mutex->Unlock();
+		m_signal->Signal();
+	}
+
+private:
+
+	cCondWait*	m_signal;
+	cMutex*		m_mutex;
+	std::queue<Event*> m_events;
+};
 
 const char* cOmx::errStr(int err)
 {
@@ -106,23 +174,23 @@ void cOmx::Action(void)
 {
 	while (Running())
 	{
-		m_eventReady->Wait();
-		while (!m_portEvents.empty())
+		cOmxEvents::Event* event = m_portEvents->Wait();
+		if (event)
 		{
-			switch (m_portEvents.front()->event)
+			switch (event->event)
 			{
-			case ePortSettingsChanged:
-				HandlePortSettingsChanged(m_portEvents.front()->data);
+			case cOmxEvents::ePortSettingsChanged:
+				HandlePortSettingsChanged(event->data);
 				break;
 
-			case eConfigChanged:
-				if (m_portEvents.front()->data == OMX_IndexConfigBufferStall)
+			case cOmxEvents::eConfigChanged:
+				if (event->data == OMX_IndexConfigBufferStall)
 					if (IsBufferStall() && !IsClockFreezed() && m_onBufferStall)
 						m_onBufferStall(m_onBufferStallData);
 				break;
 
-			case eEndOfStream:
-				if (m_portEvents.front()->data == 90 && m_onEndOfStream)
+			case cOmxEvents::eEndOfStream:
+				if (event->data == 90 && m_onEndOfStream)
 					m_onEndOfStream(m_onEndOfStreamData);
 				break;
 
@@ -130,8 +198,7 @@ void cOmx::Action(void)
 				break;
 			}
 
-			delete m_portEvents.front();
-			m_portEvents.pop();
+			delete event;
 		}
 	}
 }
@@ -216,25 +283,22 @@ void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
 void cOmx::OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent* event = new PortEvent(ePortSettingsChanged, data);
-	omx->m_portEvents.push(event);
-	omx->m_eventReady->Signal();
+	omx->m_portEvents->Add(
+			new cOmxEvents::Event(cOmxEvents::ePortSettingsChanged, data));
 }
 
 void cOmx::OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent* event = new PortEvent(eConfigChanged, data);
-	omx->m_portEvents.push(event);
-	omx->m_eventReady->Signal();
+	omx->m_portEvents->Add(
+			new cOmxEvents::Event(cOmxEvents::eConfigChanged, data));
 }
 
 void cOmx::OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	PortEvent* event = new PortEvent(eEndOfStream, data);
-	omx->m_portEvents.push(event);
-	omx->m_eventReady->Signal();
+	omx->m_portEvents->Add(
+			new cOmxEvents::Event(cOmxEvents::eEndOfStream, data));
 }
 
 void cOmx::OnError(void *instance, COMPONENT_T *comp, OMX_U32 data)
@@ -255,7 +319,7 @@ cOmx::cOmx() :
 	m_freeVideoBuffers(true),
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
-	m_eventReady(new cCondWait()),
+	m_portEvents(new cOmxEvents()),
 	m_onBufferStall(0),
 	m_onBufferStallData(0)
 {
@@ -265,7 +329,7 @@ cOmx::cOmx() :
 
 cOmx::~cOmx()
 {
-	delete m_eventReady;
+	delete m_portEvents;
 }
 
 int cOmx::Init(void)
@@ -357,7 +421,8 @@ int cOmx::Init(void)
 
 int cOmx::DeInit(void)
 {
-	Cancel();
+	Cancel(-1);
+	m_portEvents->Add(0);
 
 	for (int i = 0; i < eNumTunnels; i++)
 		ilclient_disable_tunnel(&m_tun[i]);
@@ -762,24 +827,32 @@ void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
 
 void cOmx::FlushAudio(void)
 {
-	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
-
 	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eAudioRender]), OMX_CommandFlush, 100, NULL) != OMX_ErrorNone)
 		ELOG("failed to flush audio render!");
+
+	ilclient_wait_for_event(m_comp[eAudioRender], OMX_EventCmdComplete,
+		OMX_CommandFlush, 0, 100, 0, ILCLIENT_PORT_FLUSH,
+		VCOS_EVENT_FLAGS_SUSPEND);
+
+	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
 }
 
 void cOmx::FlushVideo(bool flushRender)
 {
-	ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
-
 	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eVideoDecoder]), OMX_CommandFlush, 130, NULL) != OMX_ErrorNone)
 		ELOG("failed to flush video decoder!");
+
+	ilclient_wait_for_event(m_comp[eVideoDecoder], OMX_EventCmdComplete,
+		OMX_CommandFlush, 0, 130, 0, ILCLIENT_PORT_FLUSH,
+		VCOS_EVENT_FLAGS_SUSPEND);
 
 	ilclient_flush_tunnels(&m_tun[eVideoDecoderToVideoFx], 1);
 	ilclient_flush_tunnels(&m_tun[eVideoFxToVideoScheduler], 1);
 
 	if (flushRender)
 		ilclient_flush_tunnels(&m_tun[eVideoSchedulerToVideoRender], 1);
+
+	ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
 
 	m_setVideoDiscontinuity = true;
 }
