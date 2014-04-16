@@ -138,6 +138,9 @@ private:
 	bool m_freeAudioBuffers;
 	bool m_freeVideoBuffers;
 
+	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
+	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers;
+
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
 
