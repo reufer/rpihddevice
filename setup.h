@@ -23,6 +23,9 @@ public:
 	static bool IsAudioPassthrough(void) {
 		return GetInstance()->m_passthrough; }
 
+	static bool IgnoreAudioEDID(void) {
+		return GetInstance()->m_ignoreAudioEDID; }
+
 	static bool HasAudioSetupChanged(void);
 
 	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,
@@ -47,6 +50,9 @@ public:
 private:
 
 	cRpiSetup() :
+		m_audioPort(0),
+		m_passthrough(0),
+		m_ignoreAudioEDID(0),
 		m_audioSetupChanged(false),
 		m_mpeg2Enabled(false),
 		m_isProgressive(false),
@@ -59,6 +65,7 @@ private:
 
 	int m_audioPort;
 	int m_passthrough;
+	int m_ignoreAudioEDID;
 
 	bool m_audioSetupChanged;
 
