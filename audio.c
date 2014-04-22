@@ -59,7 +59,14 @@ public:
 
 	uint64_t GetPts(void)
 	{
-		return m_ptsQueue.empty() ? 0 : m_ptsQueue.front()->pts;
+		uint64_t pts = 0;
+		m_mutex->Lock();
+
+		if (!m_ptsQueue.empty())
+			pts = m_ptsQueue.front()->pts;
+
+		m_mutex->Unlock();
+		return pts;
 	}
 
 	unsigned int GetFreeSpace(void)
@@ -92,6 +99,7 @@ public:
 
 	void Reset(void)
 	{
+		m_mutex->Lock();
 		m_codec = cAudioCodec::eInvalid;
 		m_channels = 0;
 		m_samplingRate = 0;
@@ -105,6 +113,7 @@ public:
 			delete m_ptsQueue.front();
 			m_ptsQueue.pop();
 		}
+		m_mutex->Unlock();
 	}
 
 	bool Append(const unsigned char *data, uint64_t pts, unsigned int length)
@@ -181,10 +190,10 @@ private:
 	{
 		m_mutex->Lock();
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
-		int channels = 0;
-		int offset = 0;
-		int frameSize = 0;
-		int samplingRate = 0;
+		unsigned int channels = 0;
+		unsigned int offset = 0;
+		unsigned int frameSize = 0;
+		unsigned int samplingRate = 0;
 
 		while (m_size - offset >= 3)
 		{
@@ -243,7 +252,7 @@ private:
 
 		if (offset)
 		{
-			DLOG("audio parser skipped %d of %d bytes", offset, m_size);
+			DLOG("audio parser skipped %u of %u bytes", offset, m_size);
 			Shrink(offset);
 		}
 
@@ -343,10 +352,12 @@ private:
 	///	Layer II & III:
 	///		FrameLengthInBytes = 144 * BitRate / SampleRate + Padding
 	///
-	static bool MpegCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
+	static bool MpegCheck(const uint8_t *p, unsigned int size,
+			unsigned int &frameSize, unsigned int &channels,
+			unsigned int &samplingRate)
 	{
 		frameSize = size;
-		if (size < 3)
+		if (size < 4)
 			return true;
 
 		int cmode = (p[3] >> 6) & 0x03;
@@ -427,7 +438,9 @@ private:
 	/// o g 3x  Channel mode
 	/// 0 h 1x  LFE on
 	///
-	static bool Ac3Check(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
+	static bool Ac3Check(const uint8_t *p, unsigned int size,
+			unsigned int &frameSize, unsigned int &channels,
+			unsigned int &samplingRate)
 	{
 		frameSize = size;
 		if (size < 7)
@@ -513,7 +526,9 @@ private:
 	///
 	///	0x56Exxx already checked.
 	///
-	static bool LatmCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
+	static bool LatmCheck(const uint8_t *p, unsigned int size,
+			unsigned int &frameSize, unsigned int &channels,
+			unsigned int &samplingRate)
 	{
 		frameSize = size;
 		if (size < 3)
@@ -565,7 +580,9 @@ private:
 	/// o ...
 	///	o M*13	frame length
 	///
-	static bool AdtsCheck(const uint8_t *p, int size, int &frameSize, int &channels, int &samplingRate)
+	static bool AdtsCheck(const uint8_t *p, unsigned int size,
+			unsigned int &frameSize, unsigned int &channels,
+			unsigned int &samplingRate)
 	{
 		frameSize = size;
 		if (size < 6)
