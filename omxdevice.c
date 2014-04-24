@@ -39,7 +39,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
 	m_omx(new cOmx()),
-	m_audio(new cAudioDecoder(m_omx)),
+	m_audio(new cRpiAudioDecoder(m_omx)),
 	m_mutex(new cMutex()),
 	m_videoCodec(cVideoCodec::eInvalid),
 	m_speed(eNormal),

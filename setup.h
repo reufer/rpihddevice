@@ -17,8 +17,8 @@ public:
 
 	static bool HwInit(void);
 
-	static cAudioPort::ePort GetAudioPort(void) {
-		return (GetInstance()->m_audioPort) ? cAudioPort::eHDMI : cAudioPort::eLocal; }
+	static cRpiAudioPort::ePort GetAudioPort(void) {
+		return (GetInstance()->m_audioPort) ? cRpiAudioPort::eHDMI : cRpiAudioPort::eLocal; }
 
 	static bool IsAudioPassthrough(void) {
 		return GetInstance()->m_passthrough; }

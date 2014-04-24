@@ -16,7 +16,7 @@
 
 #define AVPKT_BUFFER_SIZE (KILOBYTE(256))
 
-class cAudioDecoder::cParser
+class cRpiAudioDecoder::cParser
 {
 
 public:
@@ -619,7 +619,7 @@ private:
 ///
 ///	BitRateTable[Version][Layer][Index]
 ///
-const uint16_t cAudioDecoder::cParser::BitRateTable[2][3][16] =
+const uint16_t cRpiAudioDecoder::cParser::BitRateTable[2][3][16] =
 {
 	{	// MPEG Version 1
 		{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
@@ -636,13 +636,13 @@ const uint16_t cAudioDecoder::cParser::BitRateTable[2][3][16] =
 ///
 ///	MPEG sample rate table.
 ///
-const uint16_t cAudioDecoder::cParser::MpegSampleRateTable[4] =
+const uint16_t cRpiAudioDecoder::cParser::MpegSampleRateTable[4] =
 	{ 44100, 48000, 32000, 0 };
 
 ///
 ///	MPEG-4 sample rate table.
 ///
-const uint32_t cAudioDecoder::cParser::Mpeg4SampleRateTable[16] = {
+const uint32_t cRpiAudioDecoder::cParser::Mpeg4SampleRateTable[16] = {
 		96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
 		16000, 12000, 11025,  8000,  7350,     0,     0,     0
 };
@@ -650,7 +650,7 @@ const uint32_t cAudioDecoder::cParser::Mpeg4SampleRateTable[16] = {
 ///
 ///	AC-3 sample rate table.
 ///
-const uint16_t cAudioDecoder::cParser::Ac3SampleRateTable[4] =
+const uint16_t cRpiAudioDecoder::cParser::Ac3SampleRateTable[4] =
 	{ 48000, 44100, 32000, 0 };
 
 ///
@@ -658,7 +658,7 @@ const uint16_t cAudioDecoder::cParser::Ac3SampleRateTable[4] =
 ///
 ///	from ATSC A/52 table 5.18 frame size code table.
 ///
-const uint16_t cAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
+const uint16_t cRpiAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
 {
 	{  64,   69,   96}, {  64,   70,   96}, {  80,   87,  120}, { 80,  88,  120},
 	{  96,  104,  144}, {  96,  105,  144}, { 112,  121,  168}, {112, 122,  168},
@@ -674,7 +674,7 @@ const uint16_t cAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
 
 /* ------------------------------------------------------------------------- */
 
-cAudioDecoder::cAudioDecoder(cOmx *omx) :
+cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	cThread(),
 	m_passthrough(false),
 	m_reset(false),
@@ -684,13 +684,13 @@ cAudioDecoder::cAudioDecoder(cOmx *omx) :
 {
 }
 
-cAudioDecoder::~cAudioDecoder()
+cRpiAudioDecoder::~cRpiAudioDecoder()
 {
 	delete m_parser;
 	delete m_wait;
 }
 
-int cAudioDecoder::Init(void)
+int cRpiAudioDecoder::Init(void)
 {
 	int ret = m_parser->Init();
 	if (ret)
@@ -733,7 +733,7 @@ int cAudioDecoder::Init(void)
 	return ret;
 }
 
-int cAudioDecoder::DeInit(void)
+int cRpiAudioDecoder::DeInit(void)
 {
 	Lock();
 
@@ -760,7 +760,7 @@ int cAudioDecoder::DeInit(void)
 	return 0;
 }
 
-bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
+bool cRpiAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
 		uint64_t pts)
 {
 	Lock();
@@ -773,7 +773,7 @@ bool cAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
 	return ret;
 }
 
-void cAudioDecoder::Reset(void)
+void cRpiAudioDecoder::Reset(void)
 {
 	Lock();
 
@@ -785,12 +785,12 @@ void cAudioDecoder::Reset(void)
 	Unlock();
 }
 
-bool cAudioDecoder::Poll(void)
+bool cRpiAudioDecoder::Poll(void)
 {
 	return m_parser->GetFreeSpace() > KILOBYTE(16);
 }
 
-void cAudioDecoder::Action(void)
+void cRpiAudioDecoder::Action(void)
 {
 	DLOG("cAudioDecoder() thread started");
 
@@ -955,7 +955,7 @@ void cAudioDecoder::Action(void)
 	DLOG("cAudioDecoder() thread ended");
 }
 
-void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate)
+void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate)
 {
 	m_omx->StopAudio();
 
@@ -969,12 +969,12 @@ void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, 
 
 		m_passthrough = false;
 		cAudioCodec::eCodec outputFormat = cAudioCodec::ePCM;
-		cAudioPort::ePort outputPort = cAudioPort::eLocal;
+		cRpiAudioPort::ePort outputPort = cRpiAudioPort::eLocal;
 
-		if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
+		if (cRpiSetup::GetAudioPort() == cRpiAudioPort::eHDMI &&
 			cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, channels, samplingRate))
 		{
-			outputPort = cAudioPort::eHDMI;
+			outputPort = cRpiAudioPort::eHDMI;
 
 			if (cRpiSetup::IsAudioPassthrough() &&
 				cRpiSetup::IsAudioFormatSupported(codec, channels, samplingRate))
@@ -990,14 +990,14 @@ void cAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, 
 			channels = 2;
 
 			// if 2ch PCM audio on HDMI is supported
-			if (cRpiSetup::GetAudioPort() == cAudioPort::eHDMI &&
+			if (cRpiSetup::GetAudioPort() == cRpiAudioPort::eHDMI &&
 				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2, samplingRate))
-				outputPort = cAudioPort::eHDMI;
+				outputPort = cRpiAudioPort::eHDMI;
 		}
 
 		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate);
 		ILOG("set %s audio output format to %dch %s, %d.%dkHz%s",
-				cAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
+				cRpiAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
 				samplingRate / 1000, (samplingRate % 1000) / 100,
 				m_passthrough ? " (pass-through)" : "");
 	}

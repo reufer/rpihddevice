@@ -16,13 +16,13 @@ extern "C" {
 #include "tools.h"
 #include "omx.h"
 
-class cAudioDecoder : public cThread
+class cRpiAudioDecoder : public cThread
 {
 
 public:
 
-    cAudioDecoder(cOmx *omx);
-	virtual ~cAudioDecoder();
+    cRpiAudioDecoder(cOmx *omx);
+	virtual ~cRpiAudioDecoder();
 
 	virtual int Init(void);
 	virtual int DeInit(void);

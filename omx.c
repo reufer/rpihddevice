@@ -926,7 +926,7 @@ void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
 }
 
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
-		cAudioPort::ePort audioPort, int samplingRate)
+		cRpiAudioPort::ePort audioPort, int samplingRate)
 {
 	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
 	OMX_INIT_STRUCT(format);
@@ -1018,7 +1018,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 	OMX_CONFIG_BRCMAUDIODESTINATIONTYPE audioDest;
 	OMX_INIT_STRUCT(audioDest);
 	strcpy((char *)audioDest.sName,
-			audioPort == cAudioPort::eLocal ? "local" : "hdmi");
+			audioPort == cRpiAudioPort::eLocal ? "local" : "hdmi");
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexConfigBrcmAudioDestination, &audioDest) != OMX_ErrorNone)

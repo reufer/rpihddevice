@@ -139,7 +139,7 @@ bool cRpiSetup::HwInit(void)
 
 	int height = 0, width = 0;
 	bool progressive = false;
-	cVideoPort::ePort port = cVideoPort::eComposite;
+	cRpiVideoPort::ePort port = cRpiVideoPort::eComposite;
 
 	TV_DISPLAY_STATE_T tvstate;
 	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
@@ -151,7 +151,7 @@ bool cRpiSetup::HwInit(void)
 			progressive = tvstate.display.hdmi.scan_mode == 0;
 			height = tvstate.display.hdmi.height;
 			width = tvstate.display.hdmi.width;
-			port = cVideoPort::eHDMI;
+			port = cRpiVideoPort::eHDMI;
 		}
 		else
 		{
@@ -160,7 +160,7 @@ bool cRpiSetup::HwInit(void)
 		}
 
 		ILOG("using %s video output at %dx%d%s",
-				cVideoPort::Str(port), width, height, progressive ? "p" : "i");
+				cRpiVideoPort::Str(port), width, height, progressive ? "p" : "i");
 
 		instance->m_isProgressive = progressive;
 		instance->m_displayHeight = height;

@@ -84,7 +84,7 @@ public:
 	int SetVideoCodec(cVideoCodec::eCodec codec,
 			eDataUnitType dataUnit = eArbitraryStreamSection);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
-			int channels, cAudioPort::ePort audioPort, int samplingRate = 0);
+			int channels, cRpiAudioPort::ePort audioPort, int samplingRate = 0);
 	void GetVideoSize(int &width, int &height, bool &interlaced);
 
 	void SetDisplayMode(bool letterbox, bool noaspect);

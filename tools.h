@@ -57,7 +57,7 @@ public:
 	}
 };
 
-class cAudioPort
+class cRpiAudioPort
 {
 public:
 
@@ -72,7 +72,7 @@ public:
 	}
 };
 
-class cVideoPort
+class cRpiVideoPort
 {
 public:
 

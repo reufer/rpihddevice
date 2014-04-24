@@ -12,7 +12,7 @@
 #include "tools.h"
 
 class cOmx;
-class cAudioDecoder;
+class cRpiAudioDecoder;
 class cMutex;
 
 class cOmxDevice : cDevice
@@ -143,9 +143,9 @@ private:
 
 	void UpdateLatency(int64_t pts);
 
-	cOmx			*m_omx;
-	cAudioDecoder	*m_audio;
-	cMutex			*m_mutex;
+	cOmx			 *m_omx;
+	cRpiAudioDecoder *m_audio;
+	cMutex			 *m_mutex;
 
 	cVideoCodec::eCodec	m_videoCodec;
 
