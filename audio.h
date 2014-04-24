@@ -16,8 +16,6 @@ extern "C" {
 #include "tools.h"
 #include "omx.h"
 
-class cAudioParser;
-
 class cAudioDecoder : public cThread
 {
 
@@ -49,12 +47,14 @@ protected:
 
 private:
 
+	class cParser;
+
 	Codec		  m_codecs[cAudioCodec::eNumCodecs];
 	bool		  m_passthrough;
 	bool		  m_reset;
 
 	cCondWait	 *m_wait;
-	cAudioParser *m_parser;
+	cParser		 *m_parser;
 	cOmx		 *m_omx;
 };
 

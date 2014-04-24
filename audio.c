@@ -16,17 +16,17 @@
 
 #define AVPKT_BUFFER_SIZE (KILOBYTE(256))
 
-class cAudioParser
+class cAudioDecoder::cParser
 {
 
 public:
 
-	cAudioParser()
+	cParser()
 	{
 		m_mutex = new cMutex();
 	}
 
-	~cAudioParser()
+	~cParser()
 	{
 		delete m_mutex;
 	}
@@ -619,7 +619,7 @@ private:
 ///
 ///	BitRateTable[Version][Layer][Index]
 ///
-const uint16_t cAudioParser::BitRateTable[2][3][16] =
+const uint16_t cAudioDecoder::cParser::BitRateTable[2][3][16] =
 {
 	{	// MPEG Version 1
 		{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
@@ -636,12 +636,13 @@ const uint16_t cAudioParser::BitRateTable[2][3][16] =
 ///
 ///	MPEG sample rate table.
 ///
-const uint16_t cAudioParser::MpegSampleRateTable[4] = { 44100, 48000, 32000, 0 };
+const uint16_t cAudioDecoder::cParser::MpegSampleRateTable[4] =
+	{ 44100, 48000, 32000, 0 };
 
 ///
 ///	MPEG-4 sample rate table.
 ///
-const uint32_t cAudioParser::Mpeg4SampleRateTable[16] = {
+const uint32_t cAudioDecoder::cParser::Mpeg4SampleRateTable[16] = {
 		96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
 		16000, 12000, 11025,  8000,  7350,     0,     0,     0
 };
@@ -649,14 +650,15 @@ const uint32_t cAudioParser::Mpeg4SampleRateTable[16] = {
 ///
 ///	AC-3 sample rate table.
 ///
-const uint16_t cAudioParser::Ac3SampleRateTable[4] = { 48000, 44100, 32000, 0 };
+const uint16_t cAudioDecoder::cParser::Ac3SampleRateTable[4] =
+	{ 48000, 44100, 32000, 0 };
 
 ///
 ///	Possible AC-3 frame sizes.
 ///
 ///	from ATSC A/52 table 5.18 frame size code table.
 ///
-const uint16_t cAudioParser::Ac3FrameSizeTable[38][3] =
+const uint16_t cAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
 {
 	{  64,   69,   96}, {  64,   70,   96}, {  80,   87,  120}, { 80,  88,  120},
 	{  96,  104,  144}, {  96,  105,  144}, { 112,  121,  168}, {112, 122,  168},
@@ -677,7 +679,7 @@ cAudioDecoder::cAudioDecoder(cOmx *omx) :
 	m_passthrough(false),
 	m_reset(false),
 	m_wait(new cCondWait()),
-	m_parser(new cAudioParser()),
+	m_parser(new cParser()),
 	m_omx(omx)
 {
 }
