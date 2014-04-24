@@ -1,13 +1,33 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2014-04-24: Version 0.0.9
+-------------------------
+- new:
+  - added Finnish translations (thanks to Rolf Ahrenberg)
+  - setup option to ignore HDMI audio EDID
 - fixed:
+  - add prefix to plugin specific class names (suggested by Rolf Ahrenberg)
+  - move cAudioParser to avoid duplicate class name (reported by Patrick Maier)
+  - maintain list of rejected OMX buffers
+  - thread-safe container for OMX events
+  - report valid VideoAspect if video is stopped (reported by Rolf Ahrenberg)
+  - fixed buffer stall after StillPicture()
+  - increased latency target for transfer mode to 200ms
+  - reworked clock handling for normal play back and trick modes
+  - simplified OMX buffer polling
+  - added proper buffering at audio parser and reduced OMX audio buffers
   - OMX shutdown when no stream has been played (reported by Klaus Schmidinger)
   - displaying subtitles when OSD is active (fix by Klaus Schmidinger)
   - default quality when grabbing jpeg image (reported by Klaus Schmidinger)
   - suppress buffer stall when clock is halted
   - set clock latency target according omxplayer
-
+- known issues:
+  - direct switching from fast forward to fast rewind will freeze replay
+  - artifacts with StillImage() and PES recordings
+- missing:
+  - plugin specific option for video mode adaption
+  
 2014-02-10: Version 0.0.8
 -------------------------
 - new:
