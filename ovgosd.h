@@ -15,7 +15,7 @@ class cRpiOsdProvider : public cOsdProvider
 {
 
 public:
-	
+
 	cRpiOsdProvider();
 	~cRpiOsdProvider();
 

@@ -142,3 +142,6 @@ clean:
 	@-rm -f $(OBJS) $(DEPFILE) *.so *.tgz core* *~
 	$(MAKE) --no-print-directory -C $(ILCDIR) clean
 
+.PHONY:	cppcheck
+cppcheck:
+	@cppcheck --language=c++ --enable=all -v -f .

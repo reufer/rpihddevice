@@ -21,9 +21,14 @@ class cRpiAudioDecoder::cParser
 
 public:
 
-	cParser()
+	cParser() :
+		m_mutex(new cMutex()),
+		m_codec(cAudioCodec::eInvalid),
+		m_channels(0),
+		m_samplingRate(0),
+		m_size(0),
+		m_parsed(true)
 	{
-		m_mutex = new cMutex();
 	}
 
 	~cParser()
@@ -178,6 +183,9 @@ public:
 	
 private:
 
+	cParser(const cParser&);
+	cParser& operator= (const cParser&);
+
 	// Check format of first audio packet in buffer. If format has been
 	// guessed, but packet is not yet complete, codec is set with a length
 	// of 0. Once the buffer contains either the exact amount of expected
@@ -204,7 +212,7 @@ private:
 			// PCM audio can't be found
 
 			const uint8_t *p = m_packet.data + offset;
-			int n = m_size - offset;
+			unsigned int n = m_size - offset;
 
 			switch (FastCheck(p))
 			{
@@ -507,6 +515,7 @@ private:
 		return true;
 	}
 
+#if 0
 	///
 	///	Fast check for AAC LATM audio.
 	///
@@ -545,6 +554,7 @@ private:
 		frameSize += 3;
 		return true;
 	}
+#endif
 	
 	///
 	///	Fast check for ADTS Audio Data Transport Stream.
@@ -682,6 +692,7 @@ cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	m_parser(new cParser()),
 	m_omx(omx)
 {
+	memset(m_codecs, 0, sizeof(m_codecs));
 }
 
 cRpiAudioDecoder::~cRpiAudioDecoder()

@@ -53,7 +53,7 @@ public:
 	eOSState ProcessKey(eKeys Key)
 	{
 		int newAudioPort = m_newAudioPort;
-		bool newPassthrough = m_newPassthrough;
+		int newPassthrough = m_newPassthrough;
 
 		eOSState state = cMenuSetupPage::ProcessKey(Key);
 
@@ -137,14 +137,14 @@ bool cRpiSetup::HwInit(void)
 		}
 	}
 
-	int height = 0, width = 0;
-	bool progressive = false;
-	cRpiVideoPort::ePort port = cRpiVideoPort::eComposite;
-
 	TV_DISPLAY_STATE_T tvstate;
 	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
 	if (!vc_tv_get_display_state(&tvstate))
 	{
+		int height = 0, width = 0;
+		bool progressive = false;
+		cRpiVideoPort::ePort port = cRpiVideoPort::eComposite;
+
 		// HDMI
 		if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)))
 		{
@@ -183,7 +183,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 	if (codec == cAudioCodec::eMPG || codec == cAudioCodec::eAAC)
 		return false;
 
-	if (IgnoreAudioEDID())
+	if (GetInstance()->m_ignoreAudioEDID)
 		return true;
 
 	if (vc_tv_hdmi_audio_supported(

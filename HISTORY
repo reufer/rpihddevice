@@ -1,6 +1,11 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- new:
+  - added cppcheck as Makefile target (suggested by Rolf Ahrenberg)
+- fixed:
+  - code clean up based on cppcheck's results (thanks to Rolf Ahrenberg)
+
 2014-04-24: Version 0.0.9
 -------------------------
 - new:

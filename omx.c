@@ -115,6 +115,9 @@ public:
 
 private:
 
+	cOmxEvents(const cOmxEvents&);
+	cOmxEvents& operator= (const cOmxEvents&);
+
 	cCondWait*	m_signal;
 	cMutex*		m_mutex;
 	std::queue<Event*> m_events;
@@ -309,6 +312,7 @@ void cOmx::OnError(void *instance, COMPONENT_T *comp, OMX_U32 data)
 
 cOmx::cOmx() :
 	cThread(),
+	m_client(NULL),
 	m_videoWidth(0),
 	m_videoHeight(0),
 	m_videoInterlaced(false),
@@ -323,7 +327,9 @@ cOmx::cOmx() :
 	m_clockScale(0),
 	m_portEvents(new cOmxEvents()),
 	m_onBufferStall(0),
-	m_onBufferStallData(0)
+	m_onBufferStallData(0),
+	m_onEndOfStream(0),
+	m_onEndOfStreamData(0)
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
