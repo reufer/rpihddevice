@@ -665,7 +665,7 @@ void cOmx::SetClockLatencyTarget(void)
 	latencyTarget.nFilter = 10;
 	latencyTarget.nTarget = 0;
 	latencyTarget.nShift = 3;
-	latencyTarget.nSpeedFactor = -200;
+	latencyTarget.nSpeedFactor = -60;
 	latencyTarget.nInterFactor = 100;
 	latencyTarget.nAdjCap = 100;
 

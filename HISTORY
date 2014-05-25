@@ -5,6 +5,7 @@ VDR Plugin 'rpihddevice' Revision History
   - redirect ffmpeg messages to plugin/VDR logs
   - added cppcheck as Makefile target (suggested by Rolf Ahrenberg)
 - fixed:
+  - updated parameter when setting clock latency target according omxplayer
   - code clean up based on cppcheck's results (thanks to Rolf Ahrenberg)
 
 2014-04-24: Version 0.0.9
