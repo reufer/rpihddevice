@@ -11,6 +11,11 @@
 #include <vdr/tools.h>
 #include <vdr/remux.h>
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/log.h>
+}
+
 #include <queue>
 #include <string.h>
 
@@ -701,6 +706,8 @@ cRpiAudioDecoder::~cRpiAudioDecoder()
 	delete m_wait;
 }
 
+extern int SysLogLevel;
+
 int cRpiAudioDecoder::Init(void)
 {
 	int ret = m_parser->Init();
@@ -708,6 +715,11 @@ int cRpiAudioDecoder::Init(void)
 		return ret;
 
 	avcodec_register_all();
+
+	av_log_set_level(
+			SysLogLevel > 2 ? AV_LOG_VERBOSE :
+			SysLogLevel > 1 ? AV_LOG_INFO : AV_LOG_ERROR);
+	av_log_set_callback(&Log);
 
 	m_codecs[cAudioCodec::ePCM ].codec = NULL;
 	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(CODEC_ID_MP3);
@@ -765,6 +777,7 @@ int cRpiAudioDecoder::DeInit(void)
 		}
 	}
 
+	av_log_set_callback(&av_log_default_callback);
 	m_parser->DeInit();
 
 	Unlock();
@@ -1012,4 +1025,22 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 				samplingRate / 1000, (samplingRate % 1000) / 100,
 				m_passthrough ? " (pass-through)" : "");
 	}
+}
+
+int cRpiAudioDecoder::s_printPrefix = 1;
+
+void cRpiAudioDecoder::Log(void* ptr, int level, const char* fmt, va_list vl)
+{
+	if (level == AV_LOG_QUIET)
+		return;
+
+	char line[128];
+	av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &s_printPrefix);
+
+	if (level <= AV_LOG_ERROR)
+		ELOG("%s", line);
+	else if (level <= AV_LOG_INFO)
+		ILOG("%s", line);
+	else if (level <= AV_LOG_VERBOSE)
+		DLOG("%s", line);
 }

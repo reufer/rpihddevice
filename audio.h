@@ -7,10 +7,6 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-}
-
 #include <vdr/thread.h>
 
 #include "tools.h"
@@ -39,10 +35,13 @@ protected:
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels,
 			unsigned int samplingRate);
 
+	static void Log(void* ptr, int level, const char* fmt, va_list vl);
+	static int s_printPrefix;
+
 	struct Codec
 	{
-		AVCodec 		*codec;
-	    AVCodecContext 	*context;
+		class AVCodec		 *codec;
+	    class AVCodecContext *context;
 	};
 
 private:
