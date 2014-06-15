@@ -17,6 +17,23 @@
 #define DBG(a...)  void()
 #endif
 
+class cVideoFraming
+{
+public:
+
+	enum eFraming {
+		eFrame,
+		eCut,
+		eStretch
+	};
+
+	static const char* Str(eFraming framing) {
+		return  (framing == eFrame)   ? "frame"   :
+				(framing == eCut)     ? "cut"     :
+				(framing == eStretch) ? "stretch" : "unknown";
+	}
+};
+
 class cAudioCodec
 {
 public:

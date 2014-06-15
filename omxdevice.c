@@ -80,6 +80,7 @@ int cOmxDevice::Init(void)
 	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
 
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
+	HandleVideoSetupChanged();
 
 	return 0;
 }
@@ -115,18 +116,6 @@ void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 		VideoAspect = (double)Width / Height;
 	else
 		VideoAspect = 1.0;
-}
-
-void cOmxDevice::SetVideoDisplayFormat(eVideoDisplayFormat VideoDisplayFormat)
-{
-	DBG("SetVideoDisplayFormat(%s)",
-		VideoDisplayFormat == vdfPanAndScan   ? "PanAndScan"   :
-		VideoDisplayFormat == vdfLetterBox    ? "LetterBox"    :
-		VideoDisplayFormat == vdfCenterCutOut ? "CenterCutOut" : "undefined");
-
-	m_omx->SetDisplayMode(VideoDisplayFormat == vdfLetterBox, false);
-
-	cDevice::SetVideoDisplayFormat(VideoDisplayFormat);
 }
 
 void cOmxDevice::ScaleVideo(const cRect &Rect)
@@ -571,6 +560,22 @@ void cOmxDevice::HandleEndOfStream()
 void cOmxDevice::HandleVideoSetupChanged()
 {
 	DBG("HandleVideoSettingsChanged()");
+
+	switch (cRpiSetup::GetVideoFraming())
+	{
+	default:
+	case cVideoFraming::eFrame:
+		m_omx->SetDisplayMode(false, false);
+		break;
+
+	case cVideoFraming::eCut:
+		m_omx->SetDisplayMode(true, false);
+		break;
+
+	case cVideoFraming::eStretch:
+		m_omx->SetDisplayMode(true, true);
+		break;
+	}
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)

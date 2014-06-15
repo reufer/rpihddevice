@@ -1064,7 +1064,7 @@ void cOmx::GetVideoSize(int &width, int &height, bool &interlaced)
 	interlaced = m_videoInterlaced;
 }
 
-void cOmx::SetDisplayMode(bool letterbox, bool noaspect)
+void cOmx::SetDisplayMode(bool fill, bool noaspect)
 {
 	OMX_CONFIG_DISPLAYREGIONTYPE region;
 	OMX_INIT_STRUCT(region);
@@ -1073,8 +1073,7 @@ void cOmx::SetDisplayMode(bool letterbox, bool noaspect)
 			(OMX_DISPLAY_SET_MODE | OMX_DISPLAY_SET_NOASPECT);
 
 	region.noaspect = noaspect ? OMX_TRUE : OMX_FALSE;
-	region.mode = letterbox ?
-			OMX_DISPLAY_MODE_LETTERBOX : OMX_DISPLAY_MODE_FILL;
+	region.mode = fill ? OMX_DISPLAY_MODE_FILL : OMX_DISPLAY_MODE_LETTERBOX;
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
 			OMX_IndexConfigDisplayRegion, &region) != OMX_ErrorNone)

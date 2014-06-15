@@ -71,6 +71,8 @@ protected:
 		SetupStore("PassThrough", m_audio.passthrough);
 		SetupStore("IgnoreAudioEDID", m_audio.ignoreEDID);
 
+		SetupStore("VideoFraming", m_video.framing);
+
 		cRpiSetup::GetInstance()->Set(m_audio, m_video);
 }
 
@@ -80,6 +82,9 @@ private:
 	{
 		int current = Current();
 		Clear();
+
+		Add(new cMenuEditStraItem(
+				tr("Video Framing"), &m_video.framing, 3, s_videoframing));
 
 		Add(new cMenuEditStraItem(
 				tr("Audio Port"), &m_audio.port, 2, s_audioport));
@@ -102,10 +107,14 @@ private:
 	cRpiSetup::VideoParameters m_video;
 
 	static const char *const s_audioport[2];
+	static const char *const s_videoframing[3];
 };
 
 const char *const cRpiSetupPage::s_audioport[] =
 		{ tr("analog"), tr("HDMI") };
+
+const char *const cRpiSetupPage::s_videoframing[] =
+		{ tr("frame"), tr("cut"), tr("stretch") };
 
 bool cRpiSetup::HwInit(void)
 {
@@ -230,6 +239,8 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 		m_audio.passthrough = atoi(value);
 	else if (!strcasecmp(name, "IgnoreAudioEDID"))
 		m_audio.ignoreEDID = atoi(value);
+	else if (!strcasecmp(name, "VideoFraming"))
+		m_video.framing = atoi(value);
 	else return false;
 
 	return true;
@@ -237,12 +248,17 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 
 void cRpiSetup::Set(AudioParameters audio, VideoParameters video)
 {
-	if (audio != m_audio && m_onAudioSetupChanged)
-		m_onAudioSetupChanged(m_onAudioSetupChangedData);
+	if (audio != m_audio)
+	{
+		m_audio = audio;
+		if (m_onAudioSetupChanged)
+			m_onAudioSetupChanged(m_onAudioSetupChangedData);
+	}
 
-	if (video != m_video && m_onVideoSetupChanged)
-		m_onVideoSetupChanged(m_onVideoSetupChangedData);
-
-	m_audio = audio;
-	m_video = video;
+	if (video != m_video)
+	{
+		m_video = video;
+		if (m_onVideoSetupChanged)
+			m_onVideoSetupChanged(m_onVideoSetupChangedData);
+	}
 }

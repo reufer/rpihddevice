@@ -34,10 +34,13 @@ public:
 
 	struct VideoParameters
 	{
-		VideoParameters() { }
+		VideoParameters() :
+			framing(0) { }
+
+		int framing;
 
 		bool operator!=(const VideoParameters& a) {
-					return true;
+			return (a.framing != framing);
 		}
 	};
 
@@ -52,6 +55,12 @@ public:
 
 	static bool IgnoreAudioEDID(void) {
 		return GetInstance()->m_audio.ignoreEDID; }
+
+	static cVideoFraming::eFraming GetVideoFraming(void) {
+		return GetInstance()->m_video.framing == 0 ? cVideoFraming::eFrame :
+			   GetInstance()->m_video.framing == 1 ? cVideoFraming::eCut :
+					   cVideoFraming::eStretch;
+	}
 
 	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,
 			int channels, int samplingRate);

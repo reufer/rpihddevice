@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - setup option for video framing mode in case of incompatible aspect ratio
   - redirect ffmpeg messages to plugin/VDR logs
   - added cppcheck as Makefile target (suggested by Rolf Ahrenberg)
   - reworked setup parameter handling

@@ -32,7 +32,6 @@ public:
 
 	virtual void GetOsdSize(int &Width, int &Height, double &PixelAspect);
 	virtual void GetVideoSize(int &Width, int &Height, double &VideoAspect);
-	virtual void SetVideoDisplayFormat(eVideoDisplayFormat VideoDisplayFormat);
 
 	virtual cRect CanScaleVideo(const cRect &Rect, int Alignment = taCenter)
 		{ return Rect; }
