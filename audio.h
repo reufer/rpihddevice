@@ -35,6 +35,11 @@ protected:
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels,
 			unsigned int samplingRate);
 
+	static void OnAudioSetupChanged(void *data)
+		{ (static_cast <cRpiAudioDecoder*> (data))->HandleAudioSetupChanged(); }
+
+	void HandleAudioSetupChanged();
+
 	static void Log(void* ptr, int level, const char* fmt, va_list vl);
 	static int s_printPrefix;
 
@@ -51,6 +56,7 @@ private:
 	Codec		  m_codecs[cAudioCodec::eNumCodecs];
 	bool		  m_passthrough;
 	bool		  m_reset;
+	bool		  m_setupChanged;
 
 	cCondWait	 *m_wait;
 	cParser		 *m_parser;

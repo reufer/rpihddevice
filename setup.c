@@ -36,31 +36,29 @@ class cRpiSetupPage : public cMenuSetupPage
 
 public:
 
-	cRpiSetupPage(int *audioPort, int *passthrough, int *ignoreAudioEDID,
-			bool *audioSetupChanged) :
-		m_audioPort(audioPort),
-		m_passthrough(passthrough),
-		m_ignoreAudioEDID(ignoreAudioEDID),
-		m_audioSetupChanged(audioSetupChanged)
-	{
-		m_newAudioPort = *m_audioPort;
-		m_newPassthrough = *m_passthrough;
-		m_newIgnoreAudioEDID = *m_ignoreAudioEDID;
+	cRpiSetupPage(
+			cRpiSetup::AudioParameters audio,
+			cRpiSetup::VideoParameters video) :
 
+		m_audio(audio),
+		m_video(video)
+	{
 		Setup();
 	}
 
 	eOSState ProcessKey(eKeys Key)
 	{
-		int newAudioPort = m_newAudioPort;
-		int newPassthrough = m_newPassthrough;
+		int newAudioPort = m_audio.port;
+		int newPassthrough = m_audio.passthrough;
 
 		eOSState state = cMenuSetupPage::ProcessKey(Key);
 
 		if (Key != kNone)
-			if ((newAudioPort != m_newAudioPort) ||
-					(newPassthrough != m_newPassthrough))
+		{
+			if ((newAudioPort != m_audio.port) ||
+					(newPassthrough != m_audio.passthrough))
 				Setup();
+		}
 
 		return state;
 	}
@@ -69,15 +67,12 @@ protected:
 
 	virtual void Store(void)
 	{
-		*m_audioSetupChanged =
-			(*m_audioPort != m_newAudioPort) ||
-			(*m_passthrough != m_newPassthrough) ||
-			(*m_ignoreAudioEDID != m_newIgnoreAudioEDID);
+		SetupStore("AudioPort", m_audio.port);
+		SetupStore("PassThrough", m_audio.passthrough);
+		SetupStore("IgnoreAudioEDID", m_audio.ignoreEDID);
 
-		SetupStore("AudioPort", *m_audioPort = m_newAudioPort);
-		SetupStore("PassThrough", *m_passthrough = m_newPassthrough);
-		SetupStore("IgnoreAudioEDID", *m_ignoreAudioEDID = m_newIgnoreAudioEDID);
-	}
+		cRpiSetup::GetInstance()->Set(m_audio, m_video);
+}
 
 private:
 
@@ -87,31 +82,24 @@ private:
 		Clear();
 
 		Add(new cMenuEditStraItem(
-				tr("Audio Port"), &m_newAudioPort, 2, s_audioport));
+				tr("Audio Port"), &m_audio.port, 2, s_audioport));
 
-		if (m_newAudioPort == 1)
+		if (m_audio.port == 1)
 		{
 			Add(new cMenuEditBoolItem(
-					tr("Digital Audio Pass-Through"), &m_newPassthrough));
+					tr("Digital Audio Pass-Through"), &m_audio.passthrough));
 
-			if (m_newPassthrough)
+			if (m_audio.passthrough)
 				Add(new cMenuEditBoolItem(
-						tr("Ignore Audio EDID"), &m_newIgnoreAudioEDID));
+						tr("Ignore Audio EDID"), &m_audio.ignoreEDID));
 		}
 
 		SetCurrent(Get(current));
 		Display();
 	}
 
-	int m_newAudioPort;
-	int m_newPassthrough;
-	int m_newIgnoreAudioEDID;
-
-	int *m_audioPort;
-	int *m_passthrough;
-	int *m_ignoreAudioEDID;
-
-	bool *m_audioSetupChanged;
+	cRpiSetup::AudioParameters m_audio;
+	cRpiSetup::VideoParameters m_video;
 
 	static const char *const s_audioport[2];
 };
@@ -175,6 +163,18 @@ bool cRpiSetup::HwInit(void)
 	return true;
 }
 
+void cRpiSetup::SetAudioSetupChangedCallback(void (*callback)(void*), void* data)
+{
+	GetInstance()->m_onAudioSetupChanged = callback;
+	GetInstance()->m_onAudioSetupChangedData = data;
+}
+
+void cRpiSetup::SetVideoSetupChangedCallback(void (*callback)(void*), void* data)
+{
+	GetInstance()->m_onVideoSetupChanged = callback;
+	GetInstance()->m_onVideoSetupChangedData = data;
+}
+
 bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 		int channels, int samplingRate)
 {
@@ -183,7 +183,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 	if (codec == cAudioCodec::eMPG || codec == cAudioCodec::eAAC)
 		return false;
 
-	if (GetInstance()->m_ignoreAudioEDID)
+	if (GetInstance()->m_audio.ignoreEDID)
 		return true;
 
 	if (vc_tv_hdmi_audio_supported(
@@ -217,28 +217,32 @@ int cRpiSetup::GetDisplaySize(int &width, int &height, double &aspect)
 	return 0;
 }
 
-bool cRpiSetup::HasAudioSetupChanged(void)
-{
-	if (!GetInstance()->m_audioSetupChanged)
-		return false;
-
-	GetInstance()->m_audioSetupChanged = false;
-	return true;
-}
-
 cMenuSetupPage* cRpiSetup::GetSetupPage(void)
 {
-	return new cRpiSetupPage(
-			&m_audioPort, &m_passthrough, &m_ignoreAudioEDID,
-			&m_audioSetupChanged);
+	return new cRpiSetupPage(m_audio, m_video);
 }
 
 bool cRpiSetup::Parse(const char *name, const char *value)
 {
-	if (!strcasecmp(name, "AudioPort")) m_audioPort = atoi(value);
-	else if (!strcasecmp(name, "PassThrough")) m_passthrough = atoi(value);
-	else if (!strcasecmp(name, "IgnoreAudioEDID")) m_ignoreAudioEDID = atoi(value);
+	if (!strcasecmp(name, "AudioPort"))
+		m_audio.port = atoi(value);
+	else if (!strcasecmp(name, "PassThrough"))
+		m_audio.passthrough = atoi(value);
+	else if (!strcasecmp(name, "IgnoreAudioEDID"))
+		m_audio.ignoreEDID = atoi(value);
 	else return false;
 
 	return true;
+}
+
+void cRpiSetup::Set(AudioParameters audio, VideoParameters video)
+{
+	if (audio != m_audio && m_onAudioSetupChanged)
+		m_onAudioSetupChanged(m_onAudioSetupChangedData);
+
+	if (video != m_video && m_onVideoSetupChanged)
+		m_onVideoSetupChanged(m_onVideoSetupChangedData);
+
+	m_audio = audio;
+	m_video = video;
 }

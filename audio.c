@@ -693,6 +693,7 @@ cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	cThread(),
 	m_passthrough(false),
 	m_reset(false),
+	m_setupChanged(true),
 	m_wait(new cCondWait()),
 	m_parser(new cParser()),
 	m_omx(omx)
@@ -751,6 +752,8 @@ int cRpiAudioDecoder::Init(void)
 	if (ret < 0)
 		DeInit();
 
+	cRpiSetup::SetAudioSetupChangedCallback(&OnAudioSetupChanged, this);
+
 	Start();
 
 	return ret;
@@ -766,6 +769,8 @@ int cRpiAudioDecoder::DeInit(void)
 
 	while (Active())
 		cCondWait::SleepMs(50);
+
+	cRpiSetup::SetAudioSetupChangedCallback(0);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -814,6 +819,12 @@ bool cRpiAudioDecoder::Poll(void)
 	return m_parser->GetFreeSpace() > KILOBYTE(16);
 }
 
+void cRpiAudioDecoder::HandleAudioSetupChanged()
+{
+	DBG("HandleAudioSetupChanged()");
+	m_setupChanged = true;
+}
+
 void cRpiAudioDecoder::Action(void)
 {
 	DLOG("cAudioDecoder() thread started");
@@ -821,7 +832,6 @@ void cRpiAudioDecoder::Action(void)
 	unsigned int channels = 0;
 	unsigned int outputChannels = 0;
 	unsigned int samplingRate = 0;
-	bool setupChanged = true;
 
 	cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 	OMX_BUFFERHEADERTYPE *buf = 0;
@@ -835,16 +845,14 @@ void cRpiAudioDecoder::Action(void)
 
 	while (Running())
 	{
-		setupChanged |= cRpiSetup::HasAudioSetupChanged();
-
 		// test for codec change if there is data in parser and no left over
 		if (!m_parser->Empty() && !frame->nb_samples)
-			setupChanged |= codec != m_parser->GetCodec() ||
+			m_setupChanged |= codec != m_parser->GetCodec() ||
 				channels != m_parser->GetChannels() ||
 				samplingRate != m_parser->GetSamplingRate();
 
 		// if necessary, set up audio codec
-		if (setupChanged)
+		if (m_setupChanged)
 		{
 			codec = m_parser->GetCodec();
 			channels = m_parser->GetChannels();
@@ -854,7 +862,7 @@ void cRpiAudioDecoder::Action(void)
 			SetCodec(codec, outputChannels, samplingRate);
 
 			avcodec_get_frame_defaults(frame);
-			setupChanged = false;
+			m_setupChanged = false;
 
 			if (codec == cAudioCodec::eInvalid)
 				m_reset = true;
@@ -873,7 +881,7 @@ void cRpiAudioDecoder::Action(void)
 		// decoding loop
 		while ((!m_parser->Empty() || frame->nb_samples) && buf && !m_reset)
 		{
-			if (setupChanged |= (codec != m_parser->GetCodec() ||
+			if (m_setupChanged |= (codec != m_parser->GetCodec() ||
 					channels != m_parser->GetChannels() ||
 					samplingRate != m_parser->GetSamplingRate()))
 				break;

@@ -78,11 +78,16 @@ int cOmxDevice::Init(void)
 	}
 	m_omx->SetBufferStallCallback(&OnBufferStall, this);
 	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
+
+	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
+
 	return 0;
 }
 
 int cOmxDevice::DeInit(void)
 {
+	cRpiSetup::SetVideoSetupChangedCallback(0);
+
 	if (m_audio->DeInit() < 0)
 	{
 		ELOG("failed to deinitialize audio!");
@@ -561,6 +566,11 @@ void cOmxDevice::HandleEndOfStream()
 	FlushStreams();
 	m_omx->SetClockScale(s_speeds[eForward][ePause]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
+}
+
+void cOmxDevice::HandleVideoSetupChanged()
+{
+	DBG("HandleVideoSettingsChanged()");
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)
