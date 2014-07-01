@@ -38,42 +38,121 @@ private:
 
 /* ------------------------------------------------------------------------- */
 
+class cOvgCmd
+{
+public:
+
+	cOvgCmd() { }
+	virtual ~cOvgCmd() { }
+
+	virtual void Execute(VGImage image, int width, int height) = 0;
+};
+
+class cOvgClear : public cOvgCmd
+{
+public:
+
+	cOvgClear() : cOvgCmd() { }
+	~cOvgClear() { }
+
+	virtual void Execute(VGImage image, int width, int height)
+	{
+		vgClearImage(image, 0, 0, width, height);
+		vgDrawImage(image);
+	}
+};
+
+class cOvgDrawBitmap : public cOvgCmd
+{
+public:
+
+	cOvgDrawBitmap(int x, int y, int w, int h, int stride, uint8_t *argb) :
+		cOvgCmd(),
+		m_x(x),
+		m_y(y),
+		m_w(w),
+		m_h(h),
+		m_d(stride),
+		m_argb(argb) { }
+
+	~cOvgDrawBitmap()
+	{
+		free(m_argb);
+	}
+
+	virtual void Execute(VGImage image, int width, int height)
+	{
+		vgClearImage(image, m_x, m_y, m_w, m_h);
+		vgImageSubData(image, m_argb, m_d, VG_sARGB_8888, m_x, m_y, m_w, m_h);
+		vgDrawImage(image);
+	}
+
+protected:
+
+	int m_x;
+	int m_y;
+	int m_w;
+	int m_h;
+	int m_d;
+	uint8_t *m_argb;
+};
+
+class cOvgDrawPixmap : public cOvgCmd
+{
+public:
+
+	cOvgDrawPixmap(int x, int y, cPixmapMemory* pixmap) :
+		cOvgCmd(),
+		m_x(x),
+		m_y(y),
+		m_pixmap(pixmap) { }
+
+	~cOvgDrawPixmap()
+	{
+		delete m_pixmap;
+	}
+
+	virtual void Execute(VGImage image, int width, int height)
+	{
+		int x = m_x + m_pixmap->ViewPort().X();
+		int y = m_y + m_pixmap->ViewPort().Y();
+		int w = m_pixmap->ViewPort().Width();
+		int h = m_pixmap->ViewPort().Height();
+		int d = m_pixmap->ViewPort().Width() * sizeof(tColor);
+
+		vgClearImage(image, x, y, w, h);
+		vgImageSubData(image, m_pixmap->Data(), d, VG_sARGB_8888, x, y, w, h);
+		vgDrawImage(image);
+	}
+
+protected:
+
+	int m_x;
+	int m_y;
+	cPixmapMemory* m_pixmap;
+};
+
+/* ------------------------------------------------------------------------- */
+
 class cOvg : public cThread
 {
 public:
 
 	cOvg() :
 		cThread(),
-		m_do(0),
-		m_done(0),
 		m_width(0),
 		m_height(0),
-		m_aspect(0),
-		m_pixmap(0),
-		m_d(0),
-		m_x(0),
-		m_y(0),
-		m_w(0),
-		m_h(0),
-		m_clear(false)
+		m_aspect(0)
 	{
 		cRpiSetup::GetDisplaySize(m_width, m_height, m_aspect);
-
-		m_do = new cCondWait();
-		m_done = new cCondWait();
-
 		Start();
 	}
 
 	~cOvg()
 	{
 		Cancel(-1);
-		Clear();
 		while (Active())
 			cCondWait::SleepMs(50);
-
-		delete m_do;
-		delete m_done;
 	}
 
 	void GetDisplaySize(int &width, int &height, double &aspect)
@@ -83,26 +162,10 @@ public:
 		aspect = m_aspect;
 	}
 
-	void DrawPixmap(int x, int y, int w, int h, int d, const uint8_t *data)
+	void DoCmd(cOvgCmd* cmd)
 	{
 		Lock();
-		m_pixmap = data;
-		m_d = d;
-		m_x = x;
-		m_y = y;
-		m_w = w;
-		m_h = h;
-		m_do->Signal();
-		m_done->Wait();
-		Unlock();
-	}
-
-	void Clear()
-	{
-		Lock();
-		m_clear = true;
-		m_do->Signal();
-		m_done->Wait();
+		m_commands.push(cmd);
 		Unlock();
 	}
 
@@ -185,23 +248,21 @@ protected:
 
 		while (Running())
 		{
-			m_do->Wait();
-			if (m_pixmap)
+			while (!m_commands.empty())
 			{
-				vgClearImage(image, m_x, m_y, m_w, m_h);
-				vgImageSubData(image, m_pixmap, m_d, VG_sARGB_8888,
-						m_x, m_y, m_w, m_h);
-				vgDrawImage(image);
-				m_pixmap = 0;
+				Lock();
+				cOvgCmd* cmd = m_commands.front();
+				m_commands.pop();
+				Unlock();
+
+				if (cmd)
+				{
+					cmd->Execute(image, m_width, m_height);
+					eglSwapBuffers(display, surface);
+					delete cmd;
+				}
 			}
-			if (m_clear)
-			{
-				vgClearImage(image, 0, 0, m_width, m_height);
-				vgDrawImage(image);
-				m_clear = false;
-			}
-			eglSwapBuffers(display, surface);
-			m_done->Signal();
+			cCondWait::SleepMs(10);
 		}
 
 		vgDestroyImage(image);
@@ -224,23 +285,14 @@ protected:
 
 private:
 
-	cCondWait* m_do;
-	cCondWait* m_done;
-
 	int m_width;
 	int m_height;
 	double m_aspect;
 
-	const uint8_t *m_pixmap;
-	int m_d;
-	int m_x;
-	int m_y;
-	int m_w;
-	int m_h;
-
-	bool m_clear;
-
+	std::queue<cOvgCmd*> m_commands;
 };
+
+/* ------------------------------------------------------------------------- */
 
 cRpiOsdProvider::cRpiOsdProvider() :
 	cOsdProvider(),
@@ -272,7 +324,7 @@ cOvgOsd::cOvgOsd(int Left, int Top, uint Level, cOvg *ovg) :
 cOvgOsd::~cOvgOsd()
 {
 	if (Active())
-		m_ovg->Clear();
+		m_ovg->DoCmd(new cOvgClear());
 
 	SetActive(false);
 }
@@ -286,13 +338,9 @@ void cOvgOsd::Flush(void)
 	{
 		LOCK_PIXMAPS;
 
-		while (cPixmapMemory *pm = RenderPixmaps()) {
-			m_ovg->DrawPixmap(
-					Left() + pm->ViewPort().X(), Top() + pm->ViewPort().Y(),
-					pm->ViewPort().Width(),	pm->ViewPort().Height(),
-					pm->ViewPort().Width() * sizeof(tColor), pm->Data());
-			delete pm;
-		}
+		while (cPixmapMemory *pm = RenderPixmaps())
+			m_ovg->DoCmd(new cOvgDrawPixmap(Left(), Top(), pm));
+
 		return;
 	}
 
@@ -313,10 +361,10 @@ void cOvgOsd::Flush(void)
 					bitmap->GetColor(x, y);
 				}
 			}
-			m_ovg->DrawPixmap(Left() + bitmap->X0() + x1, 
-				Top() + bitmap->Y0() + y1, w, h, w * sizeof(tColor), argb);
+			m_ovg->DoCmd(new cOvgDrawBitmap(Left() + bitmap->X0() + x1,
+				Top() + bitmap->Y0() + y1, w, h, w * sizeof(tColor), argb));
+
 			bitmap->Clean();
-			free(argb);
 		}
 	}
 }
@@ -327,7 +375,7 @@ eOsdError cOvgOsd::SetAreas(const tArea *Areas, int NumAreas)
 	cBitmap * bitmap;
 
 	if (Active())
-		m_ovg->Clear();
+		m_ovg->DoCmd(new cOvgClear());
 
 	error = cOsd::SetAreas(Areas, NumAreas);
 
@@ -343,7 +391,7 @@ void cOvgOsd::SetActive(bool On)
 	{
 		cOsd::SetActive(On);
 		if (!On)
-			m_ovg->Clear();
+			m_ovg->DoCmd(new cOvgClear());
 		else
 			if (GetBitmap(0))
 				Flush();
