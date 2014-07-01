@@ -41,7 +41,6 @@ protected:
 	void HandleAudioSetupChanged();
 
 	static void Log(void* ptr, int level, const char* fmt, va_list vl);
-	static int s_printPrefix;
 
 	struct Codec
 	{

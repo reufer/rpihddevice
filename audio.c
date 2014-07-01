@@ -1035,20 +1035,18 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 	}
 }
 
-int cRpiAudioDecoder::s_printPrefix = 1;
-
 void cRpiAudioDecoder::Log(void* ptr, int level, const char* fmt, va_list vl)
 {
 	if (level == AV_LOG_QUIET)
 		return;
 
 	char line[128];
-	av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &s_printPrefix);
+	vsnprintf(line, sizeof(line), fmt, vl);
 
 	if (level <= AV_LOG_ERROR)
-		ELOG("%s", line);
+		ELOG("[libav] %s", line);
 	else if (level <= AV_LOG_INFO)
-		ILOG("%s", line);
+		ILOG("[libav] %s", line);
 	else if (level <= AV_LOG_VERBOSE)
-		DLOG("%s", line);
+		DLOG("[libav] %s", line);
 }
