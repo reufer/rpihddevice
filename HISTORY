@@ -2,6 +2,8 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - support building against external ffmpeg/libav by setting EXT_LIBAV
+  - support for >=ffmpeg-1.2 and >=libav-0.8 with resampling
   - setup option for video framing mode in case of incompatible aspect ratio
   - redirect ffmpeg messages to plugin/VDR logs
   - added cppcheck as Makefile target (suggested by Rolf Ahrenberg)

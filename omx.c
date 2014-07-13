@@ -1001,7 +1001,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		OMX_AUDIO_PARAM_PCMMODETYPE pcm;
 		OMX_INIT_STRUCT(pcm);
 		pcm.nPortIndex = 100;
-		pcm.nChannels = channels == 6 ? 8 : channels;
+		pcm.nChannels = channels;
 		pcm.eNumData = OMX_NumericalDataSigned;
 		pcm.eEndian = OMX_EndianLittle;
 		pcm.bInterleaved = OMX_TRUE;

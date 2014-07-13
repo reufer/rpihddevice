@@ -14,6 +14,46 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/log.h>
+#include <libavutil/opt.h>
+
+// ffmpeg's resampling
+#ifdef HAVE_LIBSWRESAMPLE
+#  include <libswresample/swresample.h>
+#  define DO_RESAMPLE
+#endif
+
+// libav's resampling
+#ifdef HAVE_LIBAVRESAMPLE
+#  include <libavresample/avresample.h>
+#  include <libavutil/samplefmt.h>
+#  define DO_RESAMPLE
+#  define SwrContext AVAudioResampleContext
+#  define swr_alloc  avresample_alloc_context
+#  define swr_init   avresample_open
+#  define swr_free   avresample_free
+#  define swr_convert(ctx, dst, out_cnt, src, in_cnt) \
+		avresample_convert(ctx, dst, 0, out_cnt, (uint8_t**)src, 0, in_cnt)
+#endif
+
+// legacy libavcodec
+#if LIBAVCODEC_VERSION_MAJOR < 55
+#  define av_frame_alloc   avcodec_alloc_frame
+#  define av_frame_free    avcodec_free_frame
+#  define av_frame_unref   avcodec_get_frame_defaults
+#  define AV_CODEC_ID_MP3  CODEC_ID_MP3
+#  define AV_CODEC_ID_AC3  CODEC_ID_AC3
+#  define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
+#  define AV_CODEC_ID_AAC  CODEC_ID_AAC
+#endif
+
+#if LIBAVCODEC_VERSION_MAJOR < 54
+#  define avcodec_free_frame av_free
+#endif
+
+// prevent depreciated warnings for >ffmpeg-1.2.x and >libav-9.x
+#if LIBAVCODEC_VERSION_MAJOR > 54
+#  undef FF_API_REQUEST_CHANNELS
+#endif
 }
 
 #include <queue>
@@ -689,6 +729,24 @@ const uint16_t cRpiAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
 
 /* ------------------------------------------------------------------------- */
 
+#define AV_CH_LAYOUT(ch) ( \
+		ch == 1 ? AV_CH_LAYOUT_MONO    : \
+		ch == 2 ? AV_CH_LAYOUT_STEREO  : \
+		ch == 3 ? AV_CH_LAYOUT_2POINT1 : \
+		ch == 6 ? AV_CH_LAYOUT_5POINT1 : 0)
+
+#define AV_SAMPLE_STR(fmt) ( \
+		fmt == AV_SAMPLE_FMT_U8   ? "U8"             : \
+		fmt == AV_SAMPLE_FMT_S16  ? "S16"            : \
+		fmt == AV_SAMPLE_FMT_S32  ? "S32"            : \
+		fmt == AV_SAMPLE_FMT_FLT  ? "float"          : \
+		fmt == AV_SAMPLE_FMT_DBL  ? "double"         : \
+		fmt == AV_SAMPLE_FMT_U8P  ? "U8, planar"     : \
+		fmt == AV_SAMPLE_FMT_S16P ? "S16, planar"    : \
+		fmt == AV_SAMPLE_FMT_S32P ? "S32, planar"    : \
+		fmt == AV_SAMPLE_FMT_FLTP ? "float, planar"  : \
+		fmt == AV_SAMPLE_FMT_DBLP ? "double, planar" : "unknown")
+
 cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	cThread(),
 	m_passthrough(false),
@@ -723,10 +781,10 @@ int cRpiAudioDecoder::Init(void)
 	av_log_set_callback(&Log);
 
 	m_codecs[cAudioCodec::ePCM ].codec = NULL;
-	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(CODEC_ID_MP3);
-	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(CODEC_ID_AC3);
-	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(CODEC_ID_EAC3);
-	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(CODEC_ID_AAC);
+	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(AV_CODEC_ID_MP3);
+	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(AV_CODEC_ID_AC3);
+	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(AV_CODEC_ID_EAC3);
+	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -749,12 +807,13 @@ int cRpiAudioDecoder::Init(void)
 		}
 	}
 
-	if (ret < 0)
+	if (!ret)
+	{
+		cRpiSetup::SetAudioSetupChangedCallback(&OnAudioSetupChanged, this);
+		Start();
+	}
+	else
 		DeInit();
-
-	cRpiSetup::SetAudioSetupChangedCallback(&OnAudioSetupChanged, this);
-
-	Start();
 
 	return ret;
 }
@@ -776,10 +835,7 @@ int cRpiAudioDecoder::DeInit(void)
 	{
 		cAudioCodec::eCodec codec = static_cast<cAudioCodec::eCodec>(i);
 		if (m_codecs[codec].codec)
-		{
 			avcodec_close(m_codecs[codec].context);
-			av_free(m_codecs[codec].context);
-		}
 	}
 
 	av_log_set_callback(&av_log_default_callback);
@@ -833,10 +889,15 @@ void cRpiAudioDecoder::Action(void)
 	unsigned int outputChannels = 0;
 	unsigned int samplingRate = 0;
 
+#ifdef DO_RESAMPLE
+	AVSampleFormat sampleFormat = AV_SAMPLE_FMT_NONE;
+	SwrContext *resample = 0;
+#endif
+
 	cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 	OMX_BUFFERHEADERTYPE *buf = 0;
 
-    AVFrame *frame = avcodec_alloc_frame();
+    AVFrame *frame = av_frame_alloc();
 	if (!frame)
 	{
 		ELOG("failed to allocate audio frame!");
@@ -861,8 +922,11 @@ void cRpiAudioDecoder::Action(void)
 			outputChannels = channels;
 			SetCodec(codec, outputChannels, samplingRate);
 
-			avcodec_get_frame_defaults(frame);
+			av_frame_unref(frame);
 			m_setupChanged = false;
+#ifdef DO_RESAMPLE
+			sampleFormat = AV_SAMPLE_FMT_NONE;
+#endif
 
 			if (codec == cAudioCodec::eInvalid)
 				m_reset = true;
@@ -907,10 +971,45 @@ void cRpiAudioDecoder::Action(void)
 
 			// -- get length --
 			int len = m_passthrough ? m_parser->Packet()->size :
-				av_samples_get_buffer_size(NULL,
-					outputChannels == 6 ? 8 : outputChannels, frame->nb_samples,
-					m_codecs[codec].context->sample_fmt, 1);
+				av_samples_get_buffer_size(NULL, outputChannels,
+						frame->nb_samples, AV_SAMPLE_FMT_S16, 1);
 
+#ifdef DO_RESAMPLE
+			if (sampleFormat != m_codecs[codec].context->sample_fmt)
+			{
+				sampleFormat = m_codecs[codec].context->sample_fmt;
+				swr_free(&resample);
+				resample = swr_alloc();
+
+				if (!resample)
+				{
+					ELOG("failed to allocate resampling context!");
+					m_reset = true;
+					break;
+				}
+
+				DBG("decoding %s samples in %d channels",
+						AV_SAMPLE_STR(sampleFormat),
+						m_codecs[codec].context->channels);
+
+				av_opt_set_int(resample, "in_channel_layout",
+						AV_CH_LAYOUT(m_codecs[codec].context->channels), 0);
+				av_opt_set_int(resample, "out_channel_layout",
+						AV_CH_LAYOUT(outputChannels), 0);
+
+				av_opt_set_int(resample, "in_sample_rate",
+						m_codecs[codec].context->sample_rate, 0);
+				av_opt_set_int(resample, "out_sample_rate",
+						m_codecs[codec].context->sample_rate, 0);
+
+				av_opt_set_int(resample, "in_sample_fmt",
+						m_codecs[codec].context->sample_fmt, 0);
+				av_opt_set_int(resample, "out_sample_fmt",
+						AV_SAMPLE_FMT_S16, 0);
+
+				swr_init(resample);
+			}
+#endif
 			if (len > (signed)(buf->nAllocLen - buf->nFilledLen) || len < 0)
 			{
 				// rise reset flag if packet is even bigger than allocated buffer
@@ -932,25 +1031,27 @@ void cRpiAudioDecoder::Action(void)
 			}
 			else if (frame->nb_samples)
 			{
-				if (outputChannels == 6)
-				{
-					int32_t* src = (int32_t*)frame->data[0];
-					int32_t* dst = (int32_t*)(buf->pBuffer + buf->nFilledLen);
+#ifdef DO_RESAMPLE
+				uint8_t *dst[] = { buf->pBuffer + buf->nFilledLen };
+				const uint8_t** src = (const uint8_t **)(frame->extended_data);
 
-					// interleaved copy to fit 5.1 data into 8 channels
-					for (int i = 0; i < frame->nb_samples; i++)
-					{
-						*dst++ = *src++; // LF & RF
-						*dst++ = *src++; // CF & LFE
-						*dst++ = *src++; // LR & RR
-						*dst++ = 0;      // empty channels
-					}
+				if (swr_convert(resample,
+						dst, frame->nb_samples, src, frame->nb_samples) > 0)
+				{
+					buf->nFilledLen += len;
+					av_frame_unref(frame);
 				}
 				else
-					memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], len);
-
+				{
+					m_reset = true;
+					ELOG("failed to resample audio frame!");
+					break;
+				}
+#else
+				memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], len);
 				buf->nFilledLen += len;
-				avcodec_get_frame_defaults(frame);
+				av_frame_unref(frame);
+#endif
 			}
 			// if there's a valid PTS after shrinking, a complete PES packet
 			// has been handled and is ready to play
@@ -962,7 +1063,7 @@ void cRpiAudioDecoder::Action(void)
 		if (m_reset)
 		{
 			m_parser->Reset();
-			avcodec_get_frame_defaults(frame);
+			av_frame_unref(frame);
 			if (buf)
 			{
 				cOmx::PtsToTicks(0, buf->nTimeStamp);
@@ -982,7 +1083,11 @@ void cRpiAudioDecoder::Action(void)
 			m_wait->Wait(50);
 	}
 
-	av_free(frame);
+#ifdef DO_RESAMPLE
+	swr_free(&resample);
+#endif
+
+	av_frame_free(&frame);
 	SetCodec(cAudioCodec::eInvalid, outputChannels, samplingRate);
 	DLOG("cAudioDecoder() thread ended");
 }
@@ -996,9 +1101,6 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 		DLOG("set audio codec to %dch %s", channels, cAudioCodec::Str(codec));
 
 		avcodec_flush_buffers(m_codecs[codec].context);
-		m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_NATIVE;
-		m_codecs[codec].context->request_channels = 0;
-
 		m_passthrough = false;
 		cAudioCodec::eCodec outputFormat = cAudioCodec::ePCM;
 		cRpiAudioPort::ePort outputPort = cRpiAudioPort::eLocal;
@@ -1017,16 +1119,17 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 		}
 		else
 		{
-			m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT_STEREO_DOWNMIX;
-			m_codecs[codec].context->request_channels = 2;
 			channels = 2;
-
 			// if 2ch PCM audio on HDMI is supported
 			if (cRpiSetup::GetAudioPort() == cRpiAudioPort::eHDMI &&
 				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2, samplingRate))
 				outputPort = cRpiAudioPort::eHDMI;
 		}
 
+		m_codecs[codec].context->request_channel_layout = AV_CH_LAYOUT(channels);
+#if FF_API_REQUEST_CHANNELS
+		m_codecs[codec].context->request_channels = channels;
+#endif
 		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate);
 		ILOG("set %s audio output format to %dch %s, %d.%dkHz%s",
 				cRpiAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),

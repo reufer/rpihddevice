@@ -57,16 +57,40 @@ ILCDIR   =ilclient
 VCINCDIR =$(SDKSTAGE)/opt/vc/include
 VCLIBDIR =$(SDKSTAGE)/opt/vc/lib
 
-INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads -I$(VCINCDIR)/interface/vmcs_host/linux
-
-LDFLAGS += -L$(VCLIBDIR) -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt -lavcodec -lavformat
-LDFLAGS += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
+INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads 
+INCLUDES += -I$(VCINCDIR)/interface/vmcs_host/linux
+ 
+LDLIBS  += -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt
+LDLIBS  += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
+LDFLAGS += -L$(VCLIBDIR)
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
     DEFINES += -DDEBUG
 endif
-    
+
+# ffmpeg/libav configuration
+ifdef EXT_LIBAV
+	LIBAV_PKGCFG = $(shell PKG_CONFIG_PATH=$(EXT_LIBAV)/lib/pkgconfig pkg-config $(1))
+else
+	LIBAV_PKGCFG = $(shell pkg-config $(1))
+endif
+
+LDLIBS   += $(call LIBAV_PKGCFG,--libs libavcodec) $(call LIBAV_PKGCFG,--libs libavformat)
+INCLUDES += $(call LIBAV_PKGCFG,--cflags libavcodec) $(call LIBAV_PKGCFG,--cflags libavformat)
+
+ifeq ($(call LIBAV_PKGCFG,--exists libswresample && echo 1), 1)
+	DEFINES  += -DHAVE_LIBSWRESAMPLE
+	LDLIBS   += $(call LIBAV_PKGCFG,--libs libswresample)
+	INCLUDES += $(call LIBAV_PKGCFG,--cflags libswresample)
+else
+ifeq ($(call LIBAV_PKGCFG,--exists libavresample && echo 1), 1)
+	DEFINES  += -DHAVE_LIBAVRESAMPLE
+	LDLIBS   += $(call LIBAV_PKGCFG,--libs libavresample)
+	INCLUDES += $(call LIBAV_PKGCFG,--cflags libavresample)
+endif
+endif
+
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
@@ -119,7 +143,7 @@ install-i18n: $(I18Nmsgs)
 ### Targets:
 
 $(SOFILE): $(ILCLIENT) $(OBJS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared $(OBJS) -o $@
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared $(OBJS) $(LDLIBS) -o $@
 
 $(ILCLIENT):
 	$(MAKE) --no-print-directory -C $(ILCDIR) all
