@@ -189,7 +189,19 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 			ParseVideoCodec(Data, Length) == cVideoCodec::eMPEG2 ? 4 : 13;
 
 		while (repeat--)
-			PlayVideo(Data, Length, !repeat);
+		{
+			const uchar *data = Data;
+			int length = Length;
+
+			// play every single PES packet, rise EOS flag on last
+			while (length)
+			{
+				int pktLen = PesHasLength(data) ? PesLength(data) : length;
+				PlayVideo(data, pktLen, !repeat && (pktLen == length));
+				data += pktLen;
+				length -= pktLen;
+			}
+		}
 
 		m_mutex->Unlock();
 	}

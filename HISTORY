@@ -10,6 +10,7 @@ VDR Plugin 'rpihddevice' Revision History
   - reworked setup parameter handling
   - implemented proper command queue for OVG-OSD
 - fixed:
+  - play multiple video PES packets sequentially in StillPicture()
   - updated parameter when setting clock latency target according omxplayer
   - code clean up based on cppcheck's results (thanks to Rolf Ahrenberg)
 
