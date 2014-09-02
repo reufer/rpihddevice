@@ -244,19 +244,20 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	if (Transferring() && pts)
 		UpdateLatency(pts);
 
-	int ret = m_audio->WriteData(Data + PesPayloadOffset(Data),
+	// ignore packets with invalid payload offset
+	int ret = (Length - PesPayloadOffset(Data) < 0) ||
+			m_audio->WriteData(Data + PesPayloadOffset(Data),
 			Length - PesPayloadOffset(Data), pts) ? Length : 0;
 
 	m_mutex->Unlock();
 	return ret;
 }
 
-int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
+int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 {
 	m_mutex->Lock();
 	int ret = Length;
 
-	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
 	cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
 
 	// video restart after Clear() with same codec
@@ -292,30 +293,39 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
 		m_omx->StartClock(m_hasVideo, m_hasAudio);
 	}
 
-	// keep track of direction in case of trick speed
-	if (m_trickRequest && pts)
-	{
-		if (m_videoPts)
-			PtsTracker(PtsDiff(m_videoPts, pts));
-
-		m_videoPts = pts;
-	}
-
 	if (m_hasVideo)
 	{
+		int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+
+		// keep track of direction in case of trick speed
+		if (m_trickRequest && pts)
+		{
+			if (m_videoPts)
+				PtsTracker(PtsDiff(m_videoPts, pts));
+
+			m_videoPts = pts;
+		}
+
 		if (!m_hasAudio && Transferring() && pts)
 			UpdateLatency(pts);
 
-		while (Length)
+		// skip PES header, proceed with payload towards OMX
+		Length -= PesPayloadOffset(Data);
+		Data += PesPayloadOffset(Data);
+
+		while (Length > 0)
 		{
 			OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
 			if (buf)
 			{
-				buf->nFilledLen = PesLength(Data) - PesPayloadOffset(Data);
-				memcpy(buf->pBuffer, Data + PesPayloadOffset(Data),
-						PesLength(Data) - PesPayloadOffset(Data));
+				buf->nFilledLen = buf->nAllocLen < (unsigned)Length ?
+						buf->nAllocLen : Length;
 
-				if (singleFrame && Length == PesLength(Data))
+				memcpy(buf->pBuffer, Data, buf->nFilledLen);
+				Length -= buf->nFilledLen;
+				Data += buf->nFilledLen;
+
+				if (EndOfStream && !Length)
 					buf->nFlags |= OMX_BUFFERFLAG_EOS;
 
 				if (!m_omx->EmptyVideoBuffer(buf))
@@ -330,10 +340,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool singleFrame)
 				ret = 0;
 				break;
 			}
-
-			Length -= PesLength(Data);
-			Data += PesLength(Data);
-			pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+			pts = 0;
 		}
 	}
 

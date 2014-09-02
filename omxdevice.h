@@ -45,7 +45,7 @@ public:
 	virtual int PlayVideo(const uchar *Data, int Length)
 		{ return PlayVideo(Data, Length, false); }
 
-	virtual int PlayVideo(const uchar *Data, int Length, bool singleFrame);
+	virtual int PlayVideo(const uchar *Data, int Length, bool EndOfStream);
 
 	virtual int64_t GetSTC(void);
 
