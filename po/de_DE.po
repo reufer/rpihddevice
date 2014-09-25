@@ -41,10 +41,10 @@ msgstr "analog"
 msgid "HDMI"
 msgstr "HDMI"
 
-msgid "frame"
-msgstr "schwarze Balken"
+msgid "box"
+msgstr "einrahmen"
 
-msgid "cut"
+msgid "crop"
 msgstr "abschneiden"
 
 msgid "stretch"

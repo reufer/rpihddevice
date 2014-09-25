@@ -114,7 +114,7 @@ const char *const cRpiSetupPage::s_audioport[] =
 		{ tr("analog"), tr("HDMI") };
 
 const char *const cRpiSetupPage::s_videoframing[] =
-		{ tr("frame"), tr("cut"), tr("stretch") };
+		{ tr("box"), tr("crop"), tr("stretch") };
 
 bool cRpiSetup::HwInit(void)
 {

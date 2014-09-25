@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-rpihddevice 0.0.8\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2014-04-22 21:38+0200\n"
+"POT-Creation-Date: 2014-09-10 07:32+0200\n"
 "PO-Revision-Date: 2014-03-22 03:22+0200\n"
 "Last-Translator: Rolf Ahrenberg\n"
 "Language-Team: Finnish <vdr@linuxtv.org>\n"
@@ -21,6 +21,9 @@ msgstr "Kuvaformaatti ei ole tuettu!"
 
 msgid "HD output device for Raspberry Pi"
 msgstr "Raspberry Pi HD-ulostulolaite"
+
+msgid "Video Framing"
+msgstr ""
 
 msgid "Audio Port"
 msgstr "Äänilähtö"
@@ -36,3 +39,12 @@ msgstr "analoginen"
 
 msgid "HDMI"
 msgstr "HDMI"
+
+msgid "box"
+msgstr ""
+
+msgid "crop"
+msgstr ""
+
+msgid "stretch"
+msgstr ""
