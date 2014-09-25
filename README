@@ -2,17 +2,90 @@ This is a "plugin" for the Video Disk Recorder (VDR).
 
 Written by:                  Thomas Reufer <thomas@reufer.ch>
 
-Project's homepage:          t.b.d.
+Project's homepage:          http://projects.vdr-developer.org/projects/plg-rpihddevice
 
-Latest version available at: t.b.d.
+Latest version available at: git://projects.vdr-developer.org/vdr-plugin-rpihddevice.git
 
 See the file COPYING for license information.
 
 Description:
 
-  Output device for Raspberry Pi.
+  VDR HD output device for Raspberry Pi. The plugin makes use of the Raspberry
+  Pi's VideoCore GPU and provides a lightweight implementation for a VDR output
+  device.
+
+Features:
+
+  - MPEG-2 and H264 high-profile video codec up to 1080p30
+  - MPEG-1 Layer II, (E)AC-3 and AAC audio codec at 32kHz, 44.1kHz or 48kHz with
+    2.0 (Stereo) or 5.1 channels
+  - HDMI multi channel LPCM audio output
+  - HDMI digital audio pass-through
+  - Analog stereo audio output
+  - Box (letter-box/pillar-box), Crop and Stretch video display modes
+  - True color OSD
+  - Video scaling and grabbing support
+
 
 Requirements:
 
-  - valid MPEG2 licence
-  - ffmpeg (tested with 1.0.7)
+  - libavcodec, libavformat and libavutil for audio decoding, provided by ffmpeg
+    or libav
+  - libswresample when using ffmpeg-1.2 or newer
+  - libavresample when using libav-9 or newer
+  - valid MPEG-2 license when watching MPEG-2 streams
+  - Raspberry Pi userland libraries: https://github.com/raspberrypi/userland
+  
+Install:
+
+  Get the source code either as archive or with git and compile like any other
+  VDR plugin:
+
+  $ cd /usr/src/vdr/PLUGINS/src
+  $ git clone git://projects.vdr-developer.org/vdr-plugin-rpihddevice.git rpihddevice
+  $ cd rpihddevice
+  $ make
+  $ make install
+  
+  If you want to link the plugin against a specific version of ffmpeg/libav, set
+  EXT_LIBAV accordingly when compiling the plugin:
+  
+  $ make EXT_LIBAV=/usr/src/ffmpeg-1.2.6
+  
+Usage:
+
+  To start the plugin, just add '-P rpihddevice' to the VDR command line.
+
+  The plugin simply adds two new dispmanx layers on top of the framebuffer, one 
+  for video and one for the OSD. The plugin does not clear the current console 
+  or change any video mode settings. So it's the user's choice, what's being 
+  displayed when no video is shown, e.g. during channel switches or for radio
+  channels.
+  
+  The user also needs to select an appropriate video mode by editing config.txt:
+  http://www.raspberrypi.org/documentation/configuration/config-txt.md
+  
+  For best performance, choose a mode which fits the desired video material,
+  especially regarding frame rate.
+  
+Plugin-Setup:
+
+  Video Framing: Determines how the video frame is displayed on the screen in
+  case the aspect ratio differs. "box" and "cut" will preserve the video's
+  aspect ratio, while "box" (often called "letter box", however "pillar box" is
+  used to show 4:3 videos on a wide screen) will fit the image on the 
+  screen by adding transparent borders. On the other hand, "cut" is cropping 
+  away the overlapping part of the video, so the entire display area is filled.
+  When setting to "stretch", the videos' aspect ratio is adapted to the screen
+  and the resulting image might appear distorted.
+  
+  Audio Port: Set the audio output port to "analog" or "HDMI". When set to
+  analog out, multi channel audio is sampled down to stereo.
+  
+  Digital Audio Pass-Through: Enabled pass through of compressed digital audio
+  if supported by the receiver.
+  
+  Ignore Audio EDID: In case the HDMI peer reports false audio EDID information,
+  they can be ignored with this option.
+  
+  
