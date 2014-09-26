@@ -88,22 +88,34 @@ public:
 
 	cAudioCodec::eCodec GetCodec(void)
 	{
+		m_mutex->Lock();
+
 		if (!m_parsed)
 			Parse();
+
+		m_mutex->Unlock();
 		return m_codec;
 	}
 
 	unsigned int GetChannels(void)
 	{
+		m_mutex->Lock();
+
 		if (!m_parsed)
 			Parse();
+
+		m_mutex->Unlock();
 		return m_channels;
 	}
 
 	unsigned int GetSamplingRate(void)
 	{
+		m_mutex->Lock();
+
 		if (!m_parsed)
 			Parse();
+
+		m_mutex->Unlock();
 		return m_samplingRate;
 	}
 
@@ -126,8 +138,12 @@ public:
 
 	bool Empty(void)
 	{
+		m_mutex->Lock();
+
 		if (!m_parsed)
 			Parse();
+
+		m_mutex->Unlock();
 		return m_packet.size == 0;
 	}
 
@@ -241,7 +257,6 @@ private:
 
 	void Parse()
 	{
-		m_mutex->Lock();
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		unsigned int channels = 0;
 		unsigned int offset = 0;
@@ -305,7 +320,7 @@ private:
 
 		if (offset)
 		{
-			DLOG("audio parser skipped %u of %u bytes", offset, m_size);
+			DBG("audio parser skipped %u of %u bytes", offset, m_size);
 			Shrink(offset);
 		}
 
@@ -320,7 +335,6 @@ private:
 			m_packet.size = 0;
 
 		m_parsed = true;
-		m_mutex->Unlock();
 	}
 
 	struct Pts
@@ -950,8 +964,37 @@ void cRpiAudioDecoder::Action(void)
 					samplingRate != m_parser->GetSamplingRate()))
 				break;
 
-			// -- decode frame --
-			if (!frame->nb_samples && !m_passthrough)
+			if (m_passthrough)
+			{
+				int len = m_parser->Packet()->size;
+
+				// enough space in current buffer?
+				if (len <= (signed)(buf->nAllocLen - buf->nFilledLen))
+				{
+					// rise reset flag if packet is even bigger than
+					// allocated buffer
+					m_reset = len > (signed)(buf->nAllocLen) || len < 0;
+					if (m_reset)
+						ELOG("encoded audio frame too big!");
+					break;
+				}
+				// for pass-through directly copy AV packet to buffer
+				memcpy(buf->pBuffer + buf->nFilledLen,
+						m_parser->Packet()->data, len);
+
+				buf->nFilledLen += len;
+				m_parser->Shrink(len);
+
+				// if there's a valid PTS after shrinking, a complete PES packet
+				// has been handled and is ready to play
+				if (m_parser->GetPts())
+					break;
+
+				continue;
+			}
+
+			// if all samples have been copied, decode new frame
+			if (!frame->nb_samples)
 			{
 				// if frame has been emptied, decode new data, rise reset
 				// flag if something goes wrong
@@ -960,8 +1003,7 @@ void cRpiAudioDecoder::Action(void)
 						frame, &gotFrame, m_parser->Packet());
 				if (len > 0)
 					m_parser->Shrink(len);
-
-				if (len < 0)
+				else
 				{
 					ELOG("failed to decode audio frame!");
 					m_reset = true;
@@ -969,77 +1011,65 @@ void cRpiAudioDecoder::Action(void)
 				}
 			}
 
-			// -- get length --
-			int len = m_passthrough ? m_parser->Packet()->size :
-				av_samples_get_buffer_size(NULL, outputChannels,
-						frame->nb_samples, AV_SAMPLE_FMT_S16, 1);
-
-#ifdef DO_RESAMPLE
-			if (sampleFormat != m_codecs[codec].context->sample_fmt)
+			if (frame->nb_samples)
 			{
-				sampleFormat = m_codecs[codec].context->sample_fmt;
-				swr_free(&resample);
-				resample = swr_alloc();
-
-				if (!resample)
+#ifdef DO_RESAMPLE
+				// setup resampler if needed
+				if (sampleFormat != m_codecs[codec].context->sample_fmt)
 				{
-					ELOG("failed to allocate resampling context!");
-					m_reset = true;
-					break;
+					sampleFormat = m_codecs[codec].context->sample_fmt;
+					swr_free(&resample);
+					resample = swr_alloc();
+
+					if (!resample)
+					{
+						ELOG("failed to allocate resampling context!");
+						m_reset = true;
+						break;
+					}
+
+					DBG("decoding %s samples in %d channels",
+							AV_SAMPLE_STR(sampleFormat),
+							m_codecs[codec].context->channels);
+
+					av_opt_set_int(resample, "in_channel_layout",
+							AV_CH_LAYOUT(m_codecs[codec].context->channels), 0);
+					av_opt_set_int(resample, "out_channel_layout",
+							AV_CH_LAYOUT(outputChannels), 0);
+
+					av_opt_set_int(resample, "in_sample_rate",
+							m_codecs[codec].context->sample_rate, 0);
+					av_opt_set_int(resample, "out_sample_rate",
+							m_codecs[codec].context->sample_rate, 0);
+
+					av_opt_set_int(resample, "in_sample_fmt",
+							m_codecs[codec].context->sample_fmt, 0);
+					av_opt_set_int(resample, "out_sample_fmt",
+							AV_SAMPLE_FMT_S16, 0);
+
+					swr_init(resample);
 				}
 
-				DBG("decoding %s samples in %d channels",
-						AV_SAMPLE_STR(sampleFormat),
-						m_codecs[codec].context->channels);
-
-				av_opt_set_int(resample, "in_channel_layout",
-						AV_CH_LAYOUT(m_codecs[codec].context->channels), 0);
-				av_opt_set_int(resample, "out_channel_layout",
-						AV_CH_LAYOUT(outputChannels), 0);
-
-				av_opt_set_int(resample, "in_sample_rate",
-						m_codecs[codec].context->sample_rate, 0);
-				av_opt_set_int(resample, "out_sample_rate",
-						m_codecs[codec].context->sample_rate, 0);
-
-				av_opt_set_int(resample, "in_sample_fmt",
-						m_codecs[codec].context->sample_fmt, 0);
-				av_opt_set_int(resample, "out_sample_fmt",
-						AV_SAMPLE_FMT_S16, 0);
-
-				swr_init(resample);
-			}
-#endif
-			if (len > (signed)(buf->nAllocLen - buf->nFilledLen) || len < 0)
-			{
-				// rise reset flag if packet is even bigger than allocated buffer
-				m_reset = len > (signed)(buf->nAllocLen) || len < 0;
-				if (m_reset)
-					ELOG("encoded audio frame too big!");
-				break;
-			}
-
-			// -- copy frame --
-			if (m_passthrough)
-			{
-				// for pass-through directly copy AV packet to buffer
-				memcpy(buf->pBuffer + buf->nFilledLen,
-						m_parser->Packet()->data, len);
-
-				buf->nFilledLen += len;
-				m_parser->Shrink(len);
-			}
-			else if (frame->nb_samples)
-			{
-#ifdef DO_RESAMPLE
+				// now do the resampling
 				uint8_t *dst[] = { buf->pBuffer + buf->nFilledLen };
 				const uint8_t** src = (const uint8_t **)(frame->extended_data);
+				int dstSize = (buf->nAllocLen - buf->nFilledLen) /
+						(outputChannels *
+								av_get_bytes_per_sample(AV_SAMPLE_FMT_S16));
 
-				if (swr_convert(resample,
-						dst, frame->nb_samples, src, frame->nb_samples) > 0)
+				int copiedSamples = swr_convert(resample,
+						dst, dstSize, src, frame->nb_samples);
+
+				av_frame_unref(frame);
+
+				if (copiedSamples > 0)
 				{
-					buf->nFilledLen += len;
-					av_frame_unref(frame);
+					buf->nFilledLen += av_samples_get_buffer_size(NULL,
+							outputChannels, copiedSamples, AV_SAMPLE_FMT_S16, 1);
+
+					// get new buffer if not all samples have been resampled
+					if (copiedSamples != frame->nb_samples)
+						break;
 				}
 				else
 				{
@@ -1048,6 +1078,11 @@ void cRpiAudioDecoder::Action(void)
 					break;
 				}
 #else
+				// -- get length --
+				int len = m_passthrough ? m_parser->Packet()->size :
+					av_samples_get_buffer_size(NULL, outputChannels,
+							frame->nb_samples, AV_SAMPLE_FMT_S16, 1);
+
 				memcpy(buf->pBuffer + buf->nFilledLen, frame->data[0], len);
 				buf->nFilledLen += len;
 				av_frame_unref(frame);
