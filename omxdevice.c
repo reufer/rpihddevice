@@ -207,7 +207,11 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 			while (length)
 			{
 				int pktLen = PesHasLength(data) ? PesLength(data) : length;
-				PlayVideo(data, pktLen, !repeat && (pktLen == length));
+
+				// skip non-video packets as they may occur in PES recordings
+				if ((data[3] & 0xf0) == 0xe0)
+					PlayVideo(data, pktLen, !repeat && (pktLen == length));
+
 				data += pktLen;
 				length -= pktLen;
 			}
