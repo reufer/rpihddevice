@@ -10,6 +10,7 @@ VDR Plugin 'rpihddevice' Revision History
   - reworked setup parameter handling
   - implemented proper command queue for OVG-OSD
 - fixed:
+  - skip audio substream header for PES recordings with AC3 audio track
   - reworked audio decoding loop and set correct dstSize before resampling
   - avoid flushing OMX video chain twice when calling SetPlayMode(pmNone)
   - skip packets with invalid payload offset in PlayVideo() and PlayAudio()

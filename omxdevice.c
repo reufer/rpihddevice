@@ -254,10 +254,25 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	if (Transferring() && pts)
 		UpdateLatency(pts);
 
+	int ret = Length;
+	int length = Length - PesPayloadOffset(Data);
+
 	// ignore packets with invalid payload offset
-	int ret = (Length - PesPayloadOffset(Data) < 0) ||
-			m_audio->WriteData(Data + PesPayloadOffset(Data),
-			Length - PesPayloadOffset(Data), pts) ? Length : 0;
+	if (length > 0)
+	{
+		const uchar *data = Data + PesPayloadOffset(Data);
+
+		// remove audio substream header as seen in PES recordings with AC3
+		// audio track (0x80: AC3, 0x88: DTS, 0xA0: LPCM)
+		if ((data[0] == 0x80 || data[0] == 0x88 || data[0] == 0xa0)
+				&& data[0] == Id)
+		{
+			data += 4;
+			length -= 4;
+		}
+		if (!m_audio->WriteData(data, length, pts))
+			ret = 0;
+	}
 
 	m_mutex->Unlock();
 	return ret;
