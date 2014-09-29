@@ -1170,6 +1170,9 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 				cRpiAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
 				samplingRate / 1000, (samplingRate % 1000) / 100,
 				m_passthrough ? " (pass-through)" : "");
+
+		if (outputPort == cRpiAudioPort::eHDMI)
+			cRpiSetup::SetHDMIChannelMapping(m_passthrough, channels);
 	}
 }
 

@@ -72,6 +72,8 @@ public:
 
 	static int GetDisplaySize(int &width, int &height, double &aspect);
 
+	static void SetHDMIChannelMapping(bool passthrough, int channels);
+
 	static bool IsDisplayProgressive(void) {
 		return GetInstance()->m_isProgressive; }
 

@@ -226,6 +226,49 @@ int cRpiSetup::GetDisplaySize(int &width, int &height, double &aspect)
 	return 0;
 }
 
+void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)
+{
+	char command[80], response[80];
+
+	sprintf(command, "hdmi_stream_channels %d", passthrough ? 1 : 0);
+	vc_gencmd(response, sizeof response, command);
+
+	uint32_t channel_map = 0;
+
+	if (!passthrough && channels > 0 && channels <= 6)
+	{
+		const unsigned char ch_mapping[6][8] =
+		{
+			{ 0, 0, 0, 0, 0, 0, 0, 0 }, // not supported
+			{ 1, 2, 0, 0, 0, 0, 0, 0 }, // 2.0
+			{ 1, 2, 4, 0, 0, 0, 0, 0 }, // 2.1
+			{ 0, 0, 0, 0, 0, 0, 0, 0 }, // not supported
+			{ 0, 0, 0, 0, 0, 0, 0, 0 }, // not supported
+			{ 1, 2, 4, 3, 5, 6, 0, 0 }, // 5.1
+		};
+
+		// speaker layout according CEA 861, Table 28: Audio InfoFrame, byte 4
+		const unsigned char cea_map[] =
+		{
+			0xff,	// not supported
+			0x00,	// 2.0
+			0x01,	// 2.1
+			0xff,	// not supported
+			0xff,	// not supported
+			0x0b	// 5.1
+		};
+
+		for (int ch = 0; ch < channels; ch++)
+			if (ch_mapping[channels - 1][ch])
+				channel_map |= (ch_mapping[channels - 1][ch] - 1) << (3 * ch);
+
+		channel_map |= cea_map[channels - 1] << 24;
+	}
+
+	sprintf(command, "hdmi_channel_map 0x%08x", channel_map);
+	vc_gencmd(response, sizeof response, command);
+}
+
 cMenuSetupPage* cRpiSetup::GetSetupPage(void)
 {
 	return new cRpiSetupPage(m_audio, m_video);
