@@ -969,7 +969,7 @@ void cRpiAudioDecoder::Action(void)
 				int len = m_parser->Packet()->size;
 
 				// enough space in current buffer?
-				if (len <= (signed)(buf->nAllocLen - buf->nFilledLen))
+				if (len > (signed)(buf->nAllocLen - buf->nFilledLen))
 				{
 					// rise reset flag if packet is even bigger than
 					// allocated buffer
