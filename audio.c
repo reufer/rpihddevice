@@ -1151,6 +1151,9 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 				m_passthrough = true;
 				outputFormat = codec;
 			}
+			// if we decode locally, upmix mono channels to 2.0
+			else if (channels == 1)
+				channels = 2;
 		}
 		else
 		{

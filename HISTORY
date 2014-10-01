@@ -11,6 +11,7 @@ VDR Plugin 'rpihddevice' Revision History
   - reworked setup parameter handling
   - implemented proper command queue for OVG-OSD
 - fixed:
+  - upmix mono audio channels to stereo when using PCM output on HDMI
   - skip non-video packets in StillPicture(), fixes artifacts in PES recordings
   - skip audio substream header for PES recordings with AC3 audio track
   - reworked audio decoding loop and set correct dstSize before resampling
