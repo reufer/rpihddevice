@@ -234,22 +234,22 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 				&interlace) != OMX_ErrorNone)
 			ELOG("failed to get video decoder interlace config!");
 
-		m_videoWidth = portdef.format.video.nFrameWidth;
-		m_videoHeight = portdef.format.video.nFrameHeight;
-		m_videoInterlaced = interlace.eMode != OMX_InterlaceProgressive;
+		m_videoFormat.width = portdef.format.video.nFrameWidth;
+		m_videoFormat.height = portdef.format.video.nFrameHeight;
+		m_videoFormat.interlaced = interlace.eMode != OMX_InterlaceProgressive;
+		m_videoFormat.frameRate =
+				ALIGN_UP(portdef.format.video.xFramerate, 1 << 16) >> 16;
+		if (m_videoFormat.interlaced)
+			m_videoFormat.frameRate = m_videoFormat.frameRate * 2;
 
-		bool deinterlace;
-		deinterlace = (cRpiSetup::IsDisplayProgressive() && m_videoInterlaced);
-
-		ILOG("decoding video %dx%d%s, %sabling deinterlacer",
-				m_videoWidth, m_videoHeight, m_videoInterlaced ? "i" : "p",
-				deinterlace ? "en" : "dis");
+		if (m_onStreamStart)
+			m_onStreamStart(m_onStreamStartData);
 
 		OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
 		OMX_INIT_STRUCT(filterparam);
 		filterparam.nPortIndex = 191;
 		filterparam.eImageFilter = OMX_ImageFilterNone;
-		if (deinterlace)
+		if (cRpiSetup::IsDisplayProgressive() && m_videoFormat.interlaced)
 		{
 			filterparam.nNumParams = 1;
 			filterparam.nParams[0] = 3;
@@ -313,9 +313,6 @@ void cOmx::OnError(void *instance, COMPONENT_T *comp, OMX_U32 data)
 cOmx::cOmx() :
 	cThread(),
 	m_client(NULL),
-	m_videoWidth(0),
-	m_videoHeight(0),
-	m_videoInterlaced(false),
 	m_setAudioStartTime(false),
 	m_setVideoStartTime(false),
 	m_setVideoDiscontinuity(false),
@@ -329,10 +326,17 @@ cOmx::cOmx() :
 	m_onBufferStall(0),
 	m_onBufferStallData(0),
 	m_onEndOfStream(0),
-	m_onEndOfStreamData(0)
+	m_onEndOfStreamData(0),
+	m_onStreamStart(0),
+	m_onStreamStartData(0)
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
+
+	m_videoFormat.width = 0;
+	m_videoFormat.height = 0;
+	m_videoFormat.frameRate = 0;
+	m_videoFormat.interlaced = false;
 }
 
 cOmx::~cOmx()
@@ -457,6 +461,12 @@ void cOmx::SetEndOfStreamCallback(void (*onEndOfStream)(void*), void* data)
 {
 	m_onEndOfStream = onEndOfStream;
 	m_onEndOfStreamData = data;
+}
+
+void cOmx::SetStreamStartCallback(void (*onStreamStart)(void*), void* data)
+{
+	m_onStreamStart = onStreamStart;
+	m_onStreamStartData = data;
 }
 
 OMX_TICKS cOmx::ToOmxTicks(int64_t val)
@@ -795,9 +805,11 @@ void cOmx::StopVideo(void)
 			m_spareVideoBuffers, NULL, NULL);
 
 	m_spareVideoBuffers = 0;
-	m_videoWidth = 0;
-	m_videoHeight = 0;
-	m_videoInterlaced = false;
+
+	m_videoFormat.width = 0;
+	m_videoFormat.height = 0;
+	m_videoFormat.frameRate = 0;
+	m_videoFormat.interlaced = false;
 }
 
 void cOmx::StopAudio(void)
@@ -1057,11 +1069,13 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 	return 0;
 }
 
-void cOmx::GetVideoSize(int &width, int &height, bool &interlaced)
+void cOmx::GetVideoFormat(int &width, int &height, int &frameRate,
+		bool &interlaced)
 {
-	width = m_videoWidth;
-	height = m_videoHeight;
-	interlaced = m_videoInterlaced;
+	width = m_videoFormat.width;
+	height = m_videoFormat.height;
+	frameRate = m_videoFormat.frameRate;
+	interlaced = m_videoFormat.interlaced;
 }
 
 void cOmx::SetDisplayMode(bool fill, bool noaspect)

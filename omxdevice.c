@@ -78,6 +78,7 @@ int cOmxDevice::Init(void)
 	}
 	m_omx->SetBufferStallCallback(&OnBufferStall, this);
 	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
+	m_omx->SetStreamStartCallback(&OnStreamStart, this);
 
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
 	HandleVideoSetupChanged();
@@ -110,7 +111,9 @@ void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 {
 	bool interlaced;
-	m_omx->GetVideoSize(Width, Height, interlaced);
+	int frameRate;
+
+	m_omx->GetVideoFormat(Width, Height, frameRate, interlaced);
 
 	if (Height)
 		VideoAspect = (double)Width / Height;
@@ -603,6 +606,19 @@ void cOmxDevice::HandleEndOfStream()
 	FlushStreams();
 	m_omx->SetClockScale(s_speeds[eForward][ePause]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
+}
+
+void cOmxDevice::HandleStreamStart()
+{
+	DBG("HandleStreamStart()");
+
+	int width, height, frameRate;
+	bool interlaced;
+
+	m_omx->GetVideoFormat(width, height, frameRate, interlaced);
+
+	ILOG("video stream started %dx%d@%d%s",
+			width, height, frameRate, interlaced ? "i" : "p");
 }
 
 void cOmxDevice::HandleVideoSetupChanged()

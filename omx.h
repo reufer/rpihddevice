@@ -29,7 +29,8 @@ public:
 	int DeInit(void);
 
 	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
-	void SetEndOfStreamCallback(void (*onBufferStall)(void*), void* data);
+	void SetEndOfStreamCallback(void (*onEndOfStream)(void*), void* data);
+	void SetStreamStartCallback(void (*onStreamStart)(void*), void* data);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -85,7 +86,8 @@ public:
 			eDataUnitType dataUnit = eArbitraryStreamSection);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cRpiAudioPort::ePort audioPort, int samplingRate = 0);
-	void GetVideoSize(int &width, int &height, bool &interlaced);
+	void GetVideoFormat(int &width, int &height, int &frameRate,
+			bool &interlaced);
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetDisplayRegion(int x, int y, int width, int height);
@@ -127,9 +129,15 @@ private:
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
-	int m_videoWidth;
-	int m_videoHeight;
-	bool m_videoInterlaced;
+	struct VideoFormat
+	{
+		int width;
+		int height;
+		int frameRate;
+		bool interlaced;
+	};
+
+	VideoFormat m_videoFormat;
 
 	bool m_setAudioStartTime;
 	bool m_setVideoStartTime;
@@ -151,6 +159,9 @@ private:
 
 	void (*m_onEndOfStream)(void*);
 	void *m_onEndOfStreamData;
+
+	void (*m_onStreamStart)(void*);
+	void *m_onStreamStartData;
 
 	void HandlePortSettingsChanged(unsigned int portId);
 	void SetBufferStallThreshold(int delayMs);

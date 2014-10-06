@@ -132,11 +132,15 @@ private:
 	static void OnEndOfStream(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleEndOfStream(); }
 
+	static void OnStreamStart(void *data)
+		{ (static_cast <cOmxDevice*> (data))->HandleStreamStart(); }
+
 	static void OnVideoSetupChanged(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleVideoSetupChanged(); }
 
 	void HandleBufferStall();
 	void HandleEndOfStream();
+	void HandleStreamStart();
 	void HandleVideoSetupChanged();
 
 	void FlushStreams(bool flushVideoRender = false);
