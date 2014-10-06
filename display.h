@@ -23,16 +23,18 @@ public:
 	static cRpiVideoPort::ePort GetVideoPort(void);
 	static bool IsProgressive(void);
 
-	static int Get(int &width, int &height, int &frameRate, bool &interlaced);
-	static int Set(int width, int height, int frameRate, bool interlaced);
-
 	static int Snapshot(unsigned char* frame, int width, int height);
+
+	static int SetVideoFormat(int width, int height, int frameRate,
+			bool interlaced);
 
 protected:
 
 	cRpiDisplay(int width, int height, int frameRate,
 			cRpiVideoPort::ePort port);
 	virtual ~cRpiDisplay();
+
+	int Update(int width, int height, int frameRate, bool interlaced);
 
 	virtual int SetMode(int width, int height, int frameRate, bool interlaced) {
 		return 0;

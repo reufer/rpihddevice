@@ -35,12 +35,17 @@ public:
 	struct VideoParameters
 	{
 		VideoParameters() :
-			framing(0) { }
+			framing(0),
+			resolution(0),
+			frameRate(0) { }
 
 		int framing;
+		int resolution;
+		int frameRate;
 
 		bool operator!=(const VideoParameters& a) {
-			return (a.framing != framing);
+			return (a.framing != framing) || (a.resolution != resolution) ||
+					(a.frameRate != frameRate);
 		}
 	};
 
@@ -60,6 +65,27 @@ public:
 		return GetInstance()->m_video.framing == 0 ? cVideoFraming::eFrame :
 			   GetInstance()->m_video.framing == 1 ? cVideoFraming::eCut :
 					   cVideoFraming::eStretch;
+	}
+
+	static cVideoResolution::eResolution GetVideoResolution(void) {
+		return	GetInstance()->m_video.resolution == 1 ? cVideoResolution::eFollowVideo :
+				GetInstance()->m_video.resolution == 2 ? cVideoResolution::e480 :
+				GetInstance()->m_video.resolution == 3 ? cVideoResolution::e576 :
+				GetInstance()->m_video.resolution == 4 ? cVideoResolution::e720 :
+				GetInstance()->m_video.resolution == 5 ? cVideoResolution::e1080 :
+						cVideoResolution::eDontChange;
+	}
+
+	static cVideoFrameRate::eFrameRate GetVideoFrameRate(void) {
+		return 	GetInstance()->m_video.frameRate == 1 ? cVideoFrameRate::eFollowVideo :
+				GetInstance()->m_video.frameRate == 2 ? cVideoFrameRate::e24p :
+				GetInstance()->m_video.frameRate == 3 ? cVideoFrameRate::e25p :
+				GetInstance()->m_video.frameRate == 4 ? cVideoFrameRate::e30p :
+				GetInstance()->m_video.frameRate == 5 ? cVideoFrameRate::e50i :
+				GetInstance()->m_video.frameRate == 6 ? cVideoFrameRate::e50p :
+				GetInstance()->m_video.frameRate == 7 ? cVideoFrameRate::e60i :
+				GetInstance()->m_video.frameRate == 8 ? cVideoFrameRate::e60p :
+						cVideoFrameRate::eDontChange;
 	}
 
 	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,

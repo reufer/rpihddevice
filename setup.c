@@ -57,6 +57,8 @@ protected:
 		SetupStore("IgnoreAudioEDID", m_audio.ignoreEDID);
 
 		SetupStore("VideoFraming", m_video.framing);
+		SetupStore("Resolution", m_video.resolution);
+		SetupStore("FrameRate", m_video.frameRate);
 
 		cRpiSetup::GetInstance()->Set(m_audio, m_video);
 }
@@ -68,8 +70,17 @@ private:
 		int current = Current();
 		Clear();
 
+		if (cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI)
+		{
+			Add(new cMenuEditStraItem(
+				tr("Resolution"), &m_video.resolution, 6, s_videoResolution));
+
+			Add(new cMenuEditStraItem(
+				tr("Frame Rate"), &m_video.frameRate, 9, s_videoFrameRate));
+		}
+
 		Add(new cMenuEditStraItem(
-				tr("Video Framing"), &m_video.framing, 3, s_videoframing));
+				tr("Video Framing"), &m_video.framing, 3, s_videoFraming));
 
 		Add(new cMenuEditStraItem(
 				tr("Audio Port"), &m_audio.port, 2, s_audioport));
@@ -92,14 +103,24 @@ private:
 	cRpiSetup::VideoParameters m_video;
 
 	static const char *const s_audioport[2];
-	static const char *const s_videoframing[3];
+	static const char *const s_videoFraming[3];
+	static const char *const s_videoResolution[6];
+	static const char *const s_videoFrameRate[9];
 };
 
 const char *const cRpiSetupPage::s_audioport[] =
 		{ tr("analog"), tr("HDMI") };
 
-const char *const cRpiSetupPage::s_videoframing[] =
+const char *const cRpiSetupPage::s_videoFraming[] =
 		{ tr("box"), tr("crop"), tr("stretch") };
+
+const char *const cRpiSetupPage::s_videoResolution[] =
+		{ tr("don't change"), tr("follow video"),
+			"720x480", "720x576", "1280x720", "1920x1080" };
+
+const char *const cRpiSetupPage::s_videoFrameRate[] =
+		{ tr("don't change"), tr("follow video"),
+			"24p", "25p", "30p", "50i", "50p", "60i", "60p"	};
 
 /* ------------------------------------------------------------------------- */
 
@@ -255,6 +276,10 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 		m_audio.ignoreEDID = atoi(value);
 	else if (!strcasecmp(name, "VideoFraming"))
 		m_video.framing = atoi(value);
+	else if (!strcasecmp(name, "Resolution"))
+		m_video.resolution = atoi(value);
+	else if (!strcasecmp(name, "FrameRate"))
+		m_video.frameRate = atoi(value);
 	else return false;
 
 	return true;

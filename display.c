@@ -6,6 +6,7 @@
 
 #include "display.h"
 #include "tools.h"
+#include "setup.h"
 
 #include <vdr/tools.h>
 
@@ -94,25 +95,12 @@ int cRpiDisplay::GetSize(int &width, int &height, double &aspect)
 	return -1;
 }
 
-int cRpiDisplay::Get(int &width, int &height, int &frameRate, bool &interlaced)
+int cRpiDisplay::SetVideoFormat(int width, int height, int frameRate,
+		bool interlaced)
 {
 	cRpiDisplay* instance = GetInstance();
 	if (instance)
-	{
-		width = instance->m_width;
-		height = instance->m_height;
-		frameRate = instance->m_frameRate;
-		interlaced = instance->m_interlaced;
-		return 0;
-	}
-	return -1;
-}
-
-int cRpiDisplay::Set(int width, int height, int frameRate, bool interlaced)
-{
-	cRpiDisplay* instance = GetInstance();
-	if (instance)
-		return instance->SetMode(width, height, frameRate, interlaced);
+		return instance->Update(width, height, frameRate, interlaced);
 
 	return -1;
 }
@@ -161,6 +149,63 @@ int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 		}
 	}
 	return -1;
+}
+
+int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
+{
+	if (cRpiSetup::GetVideoResolution() == cVideoResolution::eDontChange &&
+				cRpiSetup::GetVideoFrameRate() == cVideoFrameRate::eDontChange)
+		return 0;
+
+	int newWidth = m_width;
+	int newHeight = m_height;
+	int newFrameRate = m_frameRate;
+	bool newInterlaced = m_interlaced;
+
+	switch (cRpiSetup::GetVideoResolution())
+	{
+	case cVideoResolution::e480:  newWidth = 720;  newHeight = 480;  break;
+	case cVideoResolution::e576:  newWidth = 720;  newHeight = 576;  break;
+	case cVideoResolution::e720:  newWidth = 1280; newHeight = 720;  break;
+	case cVideoResolution::e1080: newWidth = 1920; newHeight = 1080; break;
+
+	case cVideoResolution::eFollowVideo:
+		if (width && height)
+		{
+			newWidth = width;
+			newHeight = height;
+		}
+		break;
+
+	default:
+	case cVideoResolution::eDontChange:
+		break;
+	}
+
+	switch (cRpiSetup::GetVideoFrameRate())
+	{
+	case cVideoFrameRate::e24p: newFrameRate = 24; newInterlaced = false; break;
+	case cVideoFrameRate::e25p: newFrameRate = 25; newInterlaced = false; break;
+	case cVideoFrameRate::e30p: newFrameRate = 30; newInterlaced = false; break;
+	case cVideoFrameRate::e50i: newFrameRate = 50; newInterlaced = true;  break;
+	case cVideoFrameRate::e50p: newFrameRate = 50; newInterlaced = false; break;
+	case cVideoFrameRate::e60i: newFrameRate = 60; newInterlaced = true;  break;
+	case cVideoFrameRate::e60p: newFrameRate = 60; newInterlaced = false; break;
+
+	case cVideoFrameRate::eFollowVideo:
+		if (frameRate)
+		{
+			newFrameRate = frameRate;
+			newInterlaced = interlaced;
+		}
+		break;
+
+	default:
+	case cVideoFrameRate::eDontChange:
+		break;
+	}
+
+	return SetMode(newWidth, newHeight, newFrameRate, newInterlaced);
 }
 
 /* ------------------------------------------------------------------------- */

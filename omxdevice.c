@@ -619,6 +619,8 @@ void cOmxDevice::HandleStreamStart()
 
 	ILOG("video stream started %dx%d@%d%s",
 			width, height, frameRate, interlaced ? "i" : "p");
+
+	cRpiDisplay::SetVideoFormat(width, height, frameRate, interlaced);
 }
 
 void cOmxDevice::HandleVideoSetupChanged()
@@ -640,6 +642,12 @@ void cOmxDevice::HandleVideoSetupChanged()
 		m_omx->SetDisplayMode(true, true);
 		break;
 	}
+
+	int width, height, frameRate;
+	bool interlaced;
+
+	m_omx->GetVideoFormat(width, height, frameRate, interlaced);
+	cRpiDisplay::SetVideoFormat(width, height, frameRate, interlaced);
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)

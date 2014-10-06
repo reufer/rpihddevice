@@ -17,6 +17,58 @@
 #define DBG(a...)  void()
 #endif
 
+class cVideoResolution
+{
+public:
+
+	enum eResolution {
+		eDontChange = 0,
+		eFollowVideo,
+		e480,
+		e576,
+		e720,
+		e1080
+	};
+
+	static const char* Str(eResolution resolution) {
+		return	(resolution == eDontChange)  ? "don't change" :
+				(resolution == eFollowVideo) ? "follow video" :
+				(resolution == e480)         ? "480"          :
+				(resolution == e576)         ? "576"          :
+				(resolution == e720)         ? "720"          :
+				(resolution == e1080)        ? "1080"         :	"unknown";
+	}
+};
+
+class cVideoFrameRate
+{
+public:
+
+	enum eFrameRate {
+		eDontChange = 0,
+		eFollowVideo,
+		e24p,
+		e25p,
+		e30p,
+		e50i,
+		e50p,
+		e60i,
+		e60p
+	};
+
+	static const char* Str(eFrameRate frameRate) {
+		return	(frameRate == eDontChange)  ? "don't change" :
+				(frameRate == eFollowVideo) ? "follow video" :
+				(frameRate == e24p)         ? "p24"          :
+				(frameRate == e25p)         ? "p25"          :
+				(frameRate == e30p)         ? "p30"          :
+				(frameRate == e50i)         ? "i50"          :
+				(frameRate == e50p)         ? "p50"          :
+				(frameRate == e60i)         ? "i60"          :
+				(frameRate == e60p)         ? "p60"          : "unknown";
+	}
+};
+
 class cVideoFraming
 {
 public:
