@@ -5,6 +5,7 @@
  */
 
 #include "setup.h"
+#include "display.h"
 
 #include <vdr/tools.h>
 #include <vdr/menuitems.h>
@@ -13,23 +14,7 @@
 #include "interface/vchiq_arm/vchiq_if.h"
 #include "interface/vmcs_host/vc_tvservice.h"
 
-cRpiSetup* cRpiSetup::s_instance = 0;
-
-cRpiSetup* cRpiSetup::GetInstance(void)
-{
-	if (!s_instance)
-		s_instance = new cRpiSetup();
-
-	return s_instance;
-}
-
-void cRpiSetup::DropInstance(void)
-{
-	delete s_instance;
-	s_instance = 0;
-
-	bcm_host_deinit();
-}
+/* ------------------------------------------------------------------------- */
 
 class cRpiSetupPage : public cMenuSetupPage
 {
@@ -116,6 +101,26 @@ const char *const cRpiSetupPage::s_audioport[] =
 const char *const cRpiSetupPage::s_videoframing[] =
 		{ tr("box"), tr("crop"), tr("stretch") };
 
+/* ------------------------------------------------------------------------- */
+
+cRpiSetup* cRpiSetup::s_instance = 0;
+
+cRpiSetup* cRpiSetup::GetInstance(void)
+{
+	if (!s_instance)
+		s_instance = new cRpiSetup();
+
+	return s_instance;
+}
+
+void cRpiSetup::DropInstance(void)
+{
+	delete s_instance;
+	s_instance = 0;
+
+	bcm_host_deinit();
+}
+
 bool cRpiSetup::HwInit(void)
 {
 	cRpiSetup* instance = GetInstance();
@@ -134,40 +139,14 @@ bool cRpiSetup::HwInit(void)
 		}
 	}
 
-	TV_DISPLAY_STATE_T tvstate;
-	memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
-	if (!vc_tv_get_display_state(&tvstate))
+	int width, height;
+	if (!cRpiDisplay::GetSize(width, height))
 	{
-		int height = 0, width = 0;
-		bool progressive = false;
-		cRpiVideoPort::ePort port = cRpiVideoPort::eComposite;
-
-		// HDMI
-		if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)))
-		{
-			progressive = tvstate.display.hdmi.scan_mode == 0;
-			height = tvstate.display.hdmi.height;
-			width = tvstate.display.hdmi.width;
-			port = cRpiVideoPort::eHDMI;
-		}
-		else
-		{
-			height = tvstate.display.sdtv.height;
-			width = tvstate.display.sdtv.width;
-		}
-
-		ILOG("using %s video output at %dx%d%s",
-				cRpiVideoPort::Str(port), width, height, progressive ? "p" : "i");
-
-		instance->m_isProgressive = progressive;
-		instance->m_displayHeight = height;
-		instance->m_displayWidth = width;
+		ILOG("HwInit() done, using %s video out at %dx%d",
+		cRpiVideoPort::Str(cRpiDisplay::GetVideoPort()), width, height);
 	}
 	else
-	{
-		ELOG("failed to get display parameters!");
-		return false;
-	}
+		ELOG("failed to get video port information!");
 
 	return true;
 }
@@ -216,14 +195,6 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 			samplingRate / 1000, (samplingRate % 1000) / 100);
 
 	return false;
-}
-
-int cRpiSetup::GetDisplaySize(int &width, int &height, double &aspect)
-{
-	height = GetInstance()->m_displayHeight;
-	width = GetInstance()->m_displayWidth;
-	aspect = (double)width / height;
-	return 0;
 }
 
 void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)

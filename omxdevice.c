@@ -105,7 +105,7 @@ int cOmxDevice::DeInit(void)
 
 void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 {
-	cRpiSetup::GetDisplaySize(Width, Height, PixelAspect);
+	cRpiDisplay::GetSize(Width, Height, PixelAspect);
 }
 
 void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)

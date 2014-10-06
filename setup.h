@@ -70,12 +70,7 @@ public:
 			   codec == cVideoCodec::eH264 ? true : false;
 	}
 
-	static int GetDisplaySize(int &width, int &height, double &aspect);
-
 	static void SetHDMIChannelMapping(bool passthrough, int channels);
-
-	static bool IsDisplayProgressive(void) {
-		return GetInstance()->m_isProgressive; }
 
 	static cRpiSetup* GetInstance(void);
 	static void DropInstance(void);
@@ -92,16 +87,13 @@ private:
 
 	cRpiSetup() :
 		m_mpeg2Enabled(false),
-		m_isProgressive(false),
-		m_displayHeight(0),
-		m_displayWidth(0),
 		m_onAudioSetupChanged(0),
 		m_onAudioSetupChangedData(0),
 		m_onVideoSetupChanged(0),
 		m_onVideoSetupChangedData(0)
 	{ }
 
-	virtual ~cRpiSetup() { }
+	virtual ~cRpiSetup() { };
 
 	static cRpiSetup* s_instance;
 
@@ -109,10 +101,6 @@ private:
 	VideoParameters m_video;
 
 	bool m_mpeg2Enabled;
-	bool m_isProgressive;
-
-	int m_displayHeight;
-	int m_displayWidth;
 
 	void (*m_onAudioSetupChanged)(void*);
 	void *m_onAudioSetupChangedData;

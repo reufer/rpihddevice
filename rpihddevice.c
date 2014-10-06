@@ -10,6 +10,7 @@
 #include "ovgosd.h"
 #include "omxdevice.h"
 #include "setup.h"
+#include "display.h"
 #include "tools.h"
 
 static const char *VERSION        = "0.0.9";
@@ -48,6 +49,7 @@ cPluginRpiHdDevice::cPluginRpiHdDevice(void) :
 cPluginRpiHdDevice::~cPluginRpiHdDevice()
 {
 	cRpiSetup::DropInstance();
+	cRpiDisplay::DropInstance();
 }
 
 bool cPluginRpiHdDevice::Initialize(void)

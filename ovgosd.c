@@ -144,7 +144,7 @@ public:
 		m_height(0),
 		m_aspect(0)
 	{
-		cRpiSetup::GetDisplaySize(m_width, m_height, m_aspect);
+		cRpiDisplay::GetSize(m_width, m_height, m_aspect);
 		Start();
 	}
 
@@ -206,7 +206,6 @@ protected:
 		if (context == EGL_NO_CONTEXT)
 			ELOG("failed to create EGL rendering context!");
 
-		cRpiDisplay::Open(0 /* LCD */);
 		DISPMANX_ELEMENT_HANDLE_T dispmanElement;
 		cRpiDisplay::AddElement(dispmanElement, m_width, m_height, 2);
 
@@ -277,8 +276,6 @@ protected:
 		eglDestroySurface(display, surface);
 		eglDestroyContext(display, context);
 		eglTerminate(display);
-
-		cRpiDisplay::Close();
 
 		DLOG("cOvg() thread ended");
 	}

@@ -5,7 +5,7 @@
  */
 
 #include "omx.h"
-#include "setup.h"
+#include "display.h"
 
 #include <vdr/tools.h>
 #include <vdr/thread.h>
@@ -249,7 +249,7 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		OMX_INIT_STRUCT(filterparam);
 		filterparam.nPortIndex = 191;
 		filterparam.eImageFilter = OMX_ImageFilterNone;
-		if (cRpiSetup::IsDisplayProgressive() && m_videoFormat.interlaced)
+		if (cRpiDisplay::IsProgressive() && m_videoFormat.interlaced)
 		{
 			filterparam.nNumParams = 1;
 			filterparam.nParams[0] = 3;
