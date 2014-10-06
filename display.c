@@ -16,14 +16,6 @@ extern "C" {
 
 cRpiDisplay* cRpiDisplay::s_instance = 0;
 
-class cRpiDisplay::cHandles
-{
-public:
-
-	DISPMANX_DISPLAY_HANDLE_T display;
-	DISPMANX_UPDATE_HANDLE_T  update;
-};
-
 cRpiDisplay* cRpiDisplay::GetInstance(void)
 {
 	if (!s_instance)
@@ -69,28 +61,12 @@ cRpiDisplay::cRpiDisplay(int width, int height, int frameRate,
 	m_height(height),
 	m_frameRate(frameRate),
 	m_interlaced(false),
-	m_port(port),
-	m_handles(new cHandles())
+	m_port(port)
 {
-	m_handles->display = vc_dispmanx_display_open(
-			m_port == cRpiVideoPort::eHDMI ? 0 : 1);
-
-	if (m_handles->display)
-	{
-		m_handles->update = vc_dispmanx_update_start(0);
-		if (m_handles->update == DISPMANX_NO_HANDLE)
-			ELOG("failed to start display update!");
-	}
-	else
-		ELOG("failed to open display!");
 }
 
 cRpiDisplay::~cRpiDisplay()
 {
-	if (m_handles->display)
-		vc_dispmanx_display_close(m_handles->display);
-
-	delete m_handles;
 }
 
 int cRpiDisplay::GetSize(int &width, int &height)
@@ -159,48 +135,30 @@ bool cRpiDisplay::IsProgressive(void)
 	return false;
 }
 
-int cRpiDisplay::AddElement(DISPMANX_ELEMENT_HANDLE_T &element,
-		int width, int height, int layer)
+int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 {
 	cRpiDisplay* instance = GetInstance();
 	if (instance)
 	{
-		VC_RECT_T dstRect = { 0, 0, width, height };
-		VC_RECT_T srcRect = { 0, 0, width << 16, height << 16 };
+		DISPMANX_DISPLAY_HANDLE_T display = vc_dispmanx_display_open(
+				instance->m_port == cRpiVideoPort::eHDMI ? 0 : 1);
 
-		element = vc_dispmanx_element_add(instance->m_handles->update,
-				instance->m_handles->display, layer, &dstRect, 0, &srcRect,
-				DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
-
-		if (!element)
+		if (display)
 		{
-			ELOG("failed to add display element!");
-			return -1;
+			uint32_t image;
+			DISPMANX_RESOURCE_HANDLE_T res = vc_dispmanx_resource_create(
+					VC_IMAGE_RGB888, width, height, &image);
+
+			vc_dispmanx_snapshot(display, res,
+					(DISPMANX_TRANSFORM_T)(DISPMANX_SNAPSHOT_PACK));
+
+			VC_RECT_T rect = { 0, 0, width, height };
+			vc_dispmanx_resource_read_data(res, &rect, frame, width * 3);
+
+			vc_dispmanx_resource_delete(res);
+			vc_dispmanx_display_close(display);
+			return 0;
 		}
-
-		vc_dispmanx_update_submit_sync(instance->m_handles->update);
-		return 0;
-	}
-	return -1;
-}
-
-int cRpiDisplay::Snapshot(uint8_t* frame, int width, int height)
-{
-	cRpiDisplay* instance = GetInstance();
-	if (instance)
-	{
-		uint32_t image;
-		DISPMANX_RESOURCE_HANDLE_T res = vc_dispmanx_resource_create(
-				VC_IMAGE_RGB888, width, height, &image);
-
-		vc_dispmanx_snapshot(instance->m_handles->display, res,
-				(DISPMANX_TRANSFORM_T)(DISPMANX_SNAPSHOT_PACK));
-
-		VC_RECT_T rect = { 0, 0, width, height };
-		vc_dispmanx_resource_read_data(res, &rect, frame, width * 3);
-
-		vc_dispmanx_resource_delete(res);
-		return 0;
 	}
 	return -1;
 }

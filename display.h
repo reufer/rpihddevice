@@ -9,10 +9,6 @@
 
 #include "tools.h"
 
-extern "C" {
-#include "interface/vmcs_host/vc_dispmanx_types.h"
-}
-
 class cRpiDisplay
 {
 
@@ -30,9 +26,7 @@ public:
 	static int Get(int &width, int &height, int &frameRate, bool &interlaced);
 	static int Set(int width, int height, int frameRate, bool interlaced);
 
-	static int AddElement(DISPMANX_ELEMENT_HANDLE_T &element,
-			int width, int height, int layer);
-	static int Snapshot(uint8_t* frame, int width, int height);
+	static int Snapshot(unsigned char* frame, int width, int height);
 
 protected:
 
@@ -57,8 +51,6 @@ private:
 	cRpiDisplay(const cRpiDisplay&);
 	cRpiDisplay& operator= (const cRpiDisplay&);
 
-	class cHandles;
-	cHandles *m_handles;
 };
 
 class cRpiHDMIDisplay : public cRpiDisplay

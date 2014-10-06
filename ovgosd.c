@@ -45,7 +45,20 @@ public:
 	cOvgCmd() { }
 	virtual ~cOvgCmd() { }
 
-	virtual void Execute(VGImage image, int width, int height) = 0;
+	virtual bool Execute(VGImage image, int width, int height) = 0;
+};
+
+class cOvgReset : public cOvgCmd
+{
+public:
+
+	cOvgReset() : cOvgCmd() { }
+	~cOvgReset() { }
+
+	virtual bool Execute(VGImage image, int width, int height)
+	{
+		return false;
+	}
 };
 
 class cOvgClear : public cOvgCmd
@@ -55,10 +68,11 @@ public:
 	cOvgClear() : cOvgCmd() { }
 	~cOvgClear() { }
 
-	virtual void Execute(VGImage image, int width, int height)
+	virtual bool Execute(VGImage image, int width, int height)
 	{
 		vgClearImage(image, 0, 0, width, height);
 		vgDrawImage(image);
+		return true;
 	}
 };
 
@@ -80,11 +94,12 @@ public:
 		free(m_argb);
 	}
 
-	virtual void Execute(VGImage image, int width, int height)
+	virtual bool Execute(VGImage image, int width, int height)
 	{
 		vgClearImage(image, m_x, m_y, m_w, m_h);
 		vgImageSubData(image, m_argb, m_d, VG_sARGB_8888, m_x, m_y, m_w, m_h);
 		vgDrawImage(image);
+		return true;
 	}
 
 protected:
@@ -112,7 +127,7 @@ public:
 		delete m_pixmap;
 	}
 
-	virtual void Execute(VGImage image, int width, int height)
+	virtual bool Execute(VGImage image, int width, int height)
 	{
 		int x = m_x + m_pixmap->ViewPort().X();
 		int y = m_y + m_pixmap->ViewPort().Y();
@@ -123,6 +138,7 @@ public:
 		vgClearImage(image, x, y, w, h);
 		vgImageSubData(image, m_pixmap->Data(), d, VG_sARGB_8888, x, y, w, h);
 		vgDrawImage(image);
+		return true;
 	}
 
 protected:
@@ -139,27 +155,18 @@ class cOvg : public cThread
 public:
 
 	cOvg() :
-		cThread(),
-		m_width(0),
-		m_height(0),
-		m_aspect(0)
+		cThread()
 	{
-		cRpiDisplay::GetSize(m_width, m_height, m_aspect);
 		Start();
 	}
 
 	~cOvg()
 	{
 		Cancel(-1);
+		DoCmd(new cOvgReset());
+
 		while (Active())
 			cCondWait::SleepMs(50);
-	}
-
-	void GetDisplaySize(int &width, int &height, double &aspect)
-	{
-		width = m_width;
-		height = m_height;
-		aspect = m_aspect;
 	}
 
 	void DoCmd(cOvgCmd* cmd)
@@ -175,11 +182,11 @@ protected:
 	{
 		DLOG("cOvg() thread started");
 
-		EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-		if (display == EGL_NO_DISPLAY)
+		EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+		if (eglDisplay == EGL_NO_DISPLAY)
 			ELOG("failed to get EGL display connection!");
 
-		if (eglInitialize(display, NULL, NULL) == EGL_FALSE)
+		if (eglInitialize(eglDisplay, NULL, NULL) == EGL_FALSE)
 			ELOG("failed to init EGL display connection!");
 
 		eglBindAPI(EGL_OPENVG_API);
@@ -198,93 +205,115 @@ protected:
 		EGLint nConfig;
 
 		// get an appropriate EGL frame buffer configuration
-		if (eglChooseConfig(display, attr, &config, 1, &nConfig) == EGL_FALSE)
+		if (eglChooseConfig(eglDisplay, attr, &config, 1, &nConfig)
+				== EGL_FALSE)
 			ELOG("failed to get EGL frame buffer config!");
 
 		// create an EGL rendering context
-		EGLContext context = eglCreateContext(display, config, NULL, NULL);
+		EGLContext context = eglCreateContext(eglDisplay, config, NULL, NULL);
 		if (context == EGL_NO_CONTEXT)
 			ELOG("failed to create EGL rendering context!");
 
-		DISPMANX_ELEMENT_HANDLE_T dispmanElement;
-		cRpiDisplay::AddElement(dispmanElement, m_width, m_height, 2);
-
-		EGL_DISPMANX_WINDOW_T nativewindow;
-		nativewindow.element = dispmanElement;
-		nativewindow.width = m_width;
-		nativewindow.height = m_height;
-
-		const EGLint windowAttr[] = {
-			EGL_RENDER_BUFFER, EGL_SINGLE_BUFFER,
-			EGL_NONE
-		};
-
-		EGLSurface surface = eglCreateWindowSurface(display, config,
-				&nativewindow, windowAttr);
-		if (surface == EGL_NO_SURFACE)
-			ELOG("failed to create EGL window surface!");
-
-		// connect the context to the surface
-		if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE)
-			ELOG("failed to connect context to surface!");
-
-		float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-	    vgSetfv(VG_CLEAR_COLOR, 4, color);
-	    vgClear(0, 0, m_width, m_height);
-		eglSwapBuffers(display, surface);
-
-		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
-		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
-		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
-		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
-
-		vgLoadIdentity();
-		vgScale(1.0f, -1.0f);
-		vgTranslate(0.0f, -m_height);
-
-		VGImage image = vgCreateImage(VG_sARGB_8888, m_width, m_height,
-				VG_IMAGE_QUALITY_BETTER);
-
 		while (Running())
 		{
-			while (!m_commands.empty())
-			{
-				Lock();
-				cOvgCmd* cmd = m_commands.front();
-				m_commands.pop();
-				Unlock();
+			bool reset = false;
 
-				if (cmd)
+			DISPMANX_DISPLAY_HANDLE_T dDisplay = vc_dispmanx_display_open(
+				cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI ? 0 : 1);
+			DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
+
+			int width, height;
+			cRpiDisplay::GetSize(width, height);
+
+			VC_RECT_T dstRect = { 0, 0, width, height };
+			VC_RECT_T srcRect = { 0, 0, width << 16, height << 16 };
+
+			DISPMANX_ELEMENT_HANDLE_T element = vc_dispmanx_element_add(
+					update, dDisplay, 2 /*layer*/, &dstRect, 0, &srcRect,
+					DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
+			vc_dispmanx_update_submit_sync(update);
+
+			EGL_DISPMANX_WINDOW_T nativewindow;
+			nativewindow.element = element;
+			nativewindow.width = width;
+			nativewindow.height = height;
+
+			const EGLint windowAttr[] = {
+				EGL_RENDER_BUFFER, EGL_SINGLE_BUFFER,
+				EGL_NONE
+			};
+
+			EGLSurface surface = eglCreateWindowSurface(eglDisplay, config,
+					&nativewindow, windowAttr);
+			if (surface == EGL_NO_SURFACE)
+				ELOG("failed to create EGL window surface!");
+
+			// connect the context to the surface
+			if (eglMakeCurrent(eglDisplay, surface, surface, context)
+					== EGL_FALSE)
+				ELOG("failed to connect context to surface!");
+
+			float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+		    vgSetfv(VG_CLEAR_COLOR, 4, color);
+		    vgClear(0, 0, width, height);
+			eglSwapBuffers(eglDisplay, surface);
+
+			vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
+			vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
+			vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
+			vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
+
+			vgLoadIdentity();
+			vgScale(1.0f, -1.0f);
+			vgTranslate(0.0f, -height);
+
+			VGImage image = vgCreateImage(VG_sARGB_8888, width, height,
+					VG_IMAGE_QUALITY_BETTER);
+
+			while (!reset)
+			{
+				while (!m_commands.empty())
 				{
-					cmd->Execute(image, m_width, m_height);
-					eglSwapBuffers(display, surface);
-					delete cmd;
+					Lock();
+					cOvgCmd* cmd = m_commands.front();
+					m_commands.pop();
+					Unlock();
+
+					if (cmd)
+					{
+						if (cmd->Execute(image, width, height))
+							eglSwapBuffers(eglDisplay, surface);
+						else
+							reset = true;
+						delete cmd;
+					}
 				}
+				if (!reset)
+					cCondWait::SleepMs(10);
 			}
-			cCondWait::SleepMs(10);
+
+			vgDestroyImage(image);
+
+			// clear screen
+			glClear(GL_COLOR_BUFFER_BIT);
+			eglSwapBuffers(eglDisplay, surface);
+
+			// Release OpenGL resources
+			eglMakeCurrent(eglDisplay,
+					EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+			eglDestroySurface(eglDisplay, surface);
+
+			vc_dispmanx_element_remove(update, element);
+			vc_dispmanx_display_close(dDisplay);
 		}
 
-		vgDestroyImage(image);
-
-		// clear screen
-		glClear(GL_COLOR_BUFFER_BIT);
-		eglSwapBuffers(display, surface);
-
-		// Release OpenGL resources
-		eglMakeCurrent(display,
-				EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-		eglDestroySurface(display, surface);
-		eglDestroyContext(display, context);
-		eglTerminate(display);
+		eglDestroyContext(eglDisplay, context);
+		eglTerminate(eglDisplay);
 
 		DLOG("cOvg() thread ended");
 	}
 
 private:
-
-	int m_width;
-	int m_height;
-	double m_aspect;
 
 	std::queue<cOvgCmd*> m_commands;
 };
@@ -316,6 +345,7 @@ cOvgOsd::cOvgOsd(int Left, int Top, uint Level, cOvg *ovg) :
 	cOsd(Left, Top, Level),
 	m_ovg(ovg)
 {
+	m_ovg->DoCmd(new cOvgReset());
 }
 
 cOvgOsd::~cOvgOsd()
