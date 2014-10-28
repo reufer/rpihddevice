@@ -44,6 +44,7 @@ extern "C" {
 #  define AV_CODEC_ID_AC3  CODEC_ID_AC3
 #  define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
 #  define AV_CODEC_ID_AAC  CODEC_ID_AAC
+#  define AV_CODEC_ID_DTS  CODEC_ID_DTS
 #endif
 
 #if LIBAVCODEC_VERSION_MAJOR < 54
@@ -117,6 +118,17 @@ public:
 
 		m_mutex->Unlock();
 		return m_samplingRate;
+	}
+
+	unsigned int GetFrameSize(void)
+	{
+		m_mutex->Lock();
+
+		if (!m_parsed)
+			Parse();
+
+		m_mutex->Unlock();
+		return m_packet.size;
 	}
 
 	uint64_t GetPts(void)
@@ -263,12 +275,12 @@ private:
 		unsigned int frameSize = 0;
 		unsigned int samplingRate = 0;
 
-		while (m_size - offset >= 3)
+		while (m_size - offset >= 4)
 		{
-			// 4 bytes 0xFFExxxxx MPEG audio
-			// 5 bytes 0x0B77xxxxxx AC-3 audio
-			// 6 bytes 0x0B77xxxxxxxx E-AC-3 audio
-			// 7/9 bytes 0xFFFxxxxxxxxxxx AAC audio
+			// 0xFFE...      MPEG audio
+			// 0x0B77...     (E)AC-3 audio
+			// 0xFFF...      AAC audio
+			// 0x7FFE8001... DTS audio
 			// PCM audio can't be found
 
 			const uint8_t *p = m_packet.data + offset;
@@ -294,6 +306,11 @@ private:
 					codec = cAudioCodec::eAAC;
 				break;
 
+			case cAudioCodec::eDTS:
+				if (DtsCheck(p, n, frameSize, channels, samplingRate))
+					codec = cAudioCodec::eDTS;
+				break;
+
 			default:
 				break;
 			}
@@ -302,7 +319,7 @@ private:
 			{
 				// if there is enough data in buffer, check if predicted next
 				// frame start is valid
-				if (n < frameSize + 3 ||
+				if (n < frameSize + 4 ||
 						FastCheck(p + frameSize) != cAudioCodec::eInvalid)
 				{
 					// if codec has been detected but buffer does not yet
@@ -364,19 +381,21 @@ private:
 	static const uint32_t Mpeg4SampleRateTable[16];
 	static const uint16_t Ac3SampleRateTable[4];
 	static const uint16_t Ac3FrameSizeTable[38][3];
+	static const uint32_t DtsSampleRateTable[16];
 
 	static cAudioCodec::eCodec FastCheck(const uint8_t *p)
 	{
 		return 	FastMpegCheck(p)  ? cAudioCodec::eMPG :
 				FastAc3Check (p)  ? cAudioCodec::eAC3 :
 				FastAdtsCheck(p)  ? cAudioCodec::eAAC :
+				FastDtsCheck (p)  ? cAudioCodec::eDTS :
 									cAudioCodec::eInvalid;
 	}
 
 	///
 	///	Fast check for MPEG audio.
 	///
-	///	4 bytes 0xFFExxxxx MPEG audio
+	///	0xFFE... MPEG audio
 	///
 	static bool FastMpegCheck(const uint8_t *p)
 	{
@@ -466,7 +485,7 @@ private:
 	///
 	///	Fast check for (E-)AC-3 audio.
 	///
-	///	5 bytes 0x0B77xxxxxx AC-3 audio
+	///	0x0B77... AC-3 audio
 	///
 	static bool FastAc3Check(const uint8_t *p)
 	{
@@ -578,7 +597,7 @@ private:
 	///
 	///	Fast check for AAC LATM audio.
 	///
-	///	3 bytes 0x56Exxx AAC LATM audio
+	///	0x56E... AAC LATM audio
 	///
 	static bool FastLatmCheck(const uint8_t *p)
 	{
@@ -618,7 +637,7 @@ private:
 	///
 	///	Fast check for ADTS Audio Data Transport Stream.
 	///
-	///	7/9 bytes 0xFFFxxxxxxxxxxx(xxxx)  ADTS audio
+	///	0xFFF...  ADTS audio
 	///
 	static bool FastAdtsCheck(const uint8_t *p)
 	{
@@ -681,6 +700,91 @@ private:
 
 	    return true;
 	}
+
+	///
+	///	Fast check for DTS Audio Data Transport Stream.
+	///
+	///	0x7FFE8001....  DTS audio
+	///
+	static bool FastDtsCheck(const uint8_t *p)
+	{
+		if (p[0] != 0x7F)			// 32bit sync
+			return false;
+		if (p[1] != 0xFE)
+			return false;
+		if (p[2] != 0x80)
+			return false;
+		if (p[3] != 0x01)
+			return false;
+		return true;
+	}
+
+	///
+	///	Check for DTS Audio Data Transport Stream.
+	///
+	///	0x7FFE8001 already checked.
+	///
+	///	AAAAAAAA AAAAAAAA AAAAAAAA AAAAAAAA BCCCCCDE EEEEEEFF FFFFFFFF FFFFGGGG
+	/// GGHHHHII IIIJKLMN OOOPQRRS TTTTTTTT TTTTTTTT UVVVVWWX XXYZaaaa
+	///
+	///	o A*32	sync word 0x7FFE8001
+	///	o B*1   frame type
+	///	o C*5   deficit sample count
+	///	o D*1   CRC present flag
+	///	o E*7   number of PCM sample blocks
+	///	o F*14  primary frame size
+	///	o G*6   audio channel arrangement
+	///	o H*4   core audio sampling frequency
+	///	o I*5   transmission bit rate
+	///	o J*1   embedded downmix enabled
+	///	o K*1   embedded dynamic range flag
+	///	o L*1   embedded time stamp flag
+	///	o M*1   auxiliary data flag
+	///	o N*1   HDCD
+	///	o O*3   extension audio descriptor flag
+	///	o P*1   extended coding flag
+	///	o Q*1   audio sync word insertion flag
+	///	o R*2   low frequency effects flag
+	///	o S*1   predictor history flag
+	///	o T*16  header CRC check (if CRC present flag set)
+	///	o U*1   multi rate interpolator switch
+	///	o V*4   encoder software revision
+	///	o W*2   copy history
+	///	o X*3   source PCM resolution
+	///	o Y*1   front sum/difference flag
+	///	o Z*1   surrounds sum/difference flag
+	///	o a*4   dialog normalization parameter
+	///
+	static bool DtsCheck(const uint8_t *p, unsigned int size,
+			unsigned int &frameSize, unsigned int &channels,
+			unsigned int &samplingRate)
+	{
+		frameSize = size;
+		if (size < 11)
+			return true;
+
+		frameSize = ((p[5] & 0x03) << 12) + (p[6] << 4) + ((p[7] & 0xF0) >> 4);
+		frameSize++;
+
+		samplingRate = DtsSampleRateTable[(p[8] & 0x3C) >> 2];
+
+		int amode = ((p[7] & 0x0F) << 2) + ((p[8] & 0xC0) >> 6);
+		channels =
+			amode == 0x00 ? 1 : 	// mono
+			amode == 0x02 ? 2 : 	// L, R
+			amode == 0x03 ? 2 : 	// (L + R), (L - R)
+			amode == 0x04 ? 2 : 	// LT, RT
+			amode == 0x05 ? 3 : 	// L, R, C
+			amode == 0x06 ? 3 : 	// L, R, S
+			amode == 0x08 ? 4 : 	// L, R, RL, RR
+			amode == 0x09 ? 5 : 0;	// L, C, R, RL, RR
+
+		if (!samplingRate || !channels)
+			return false;
+
+		if (p[10] & 0x06) channels++;
+		return true;
+	}
 };
 
 ///
@@ -741,6 +845,14 @@ const uint16_t cRpiAudioDecoder::cParser::Ac3FrameSizeTable[38][3] =
 	{1152, 1254, 1728}, {1280, 1393, 1920}, {1280, 1394, 1920},
 };
 
+///
+///	DTS sample rate table.
+///
+const uint32_t cRpiAudioDecoder::cParser::DtsSampleRateTable[16] =
+	{ 0,  8000, 16000, 32000, 64000,
+	  0, 11025, 22050, 44100, 88200,
+	  0, 12000, 24000, 48000, 96000, 0 };
+
 /* ------------------------------------------------------------------------- */
 
 #define AV_CH_LAYOUT(ch) ( \
@@ -799,6 +911,7 @@ int cRpiAudioDecoder::Init(void)
 	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(AV_CODEC_ID_AC3);
 	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(AV_CODEC_ID_EAC3);
 	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
+	m_codecs[cAudioCodec::eDTS ].codec = avcodec_find_decoder(AV_CODEC_ID_DTS);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{
@@ -934,7 +1047,8 @@ void cRpiAudioDecoder::Action(void)
 			samplingRate = m_parser->GetSamplingRate();
 
 			outputChannels = channels;
-			SetCodec(codec, outputChannels, samplingRate);
+			SetCodec(codec, outputChannels, samplingRate,
+					m_parser->GetFrameSize());
 
 			av_frame_unref(frame);
 			m_setupChanged = false;
@@ -1127,7 +1241,7 @@ void cRpiAudioDecoder::Action(void)
 	DLOG("cAudioDecoder() thread ended");
 }
 
-void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate)
+void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channels, unsigned int samplingRate, unsigned int frameSize)
 {
 	m_omx->StopAudio();
 
@@ -1168,7 +1282,7 @@ void cRpiAudioDecoder::SetCodec(cAudioCodec::eCodec codec, unsigned int &channel
 #if FF_API_REQUEST_CHANNELS
 		m_codecs[codec].context->request_channels = channels;
 #endif
-		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate);
+		m_omx->SetupAudioRender(outputFormat, channels,	outputPort, samplingRate, frameSize);
 		ILOG("set %s audio output format to %dch %s, %d.%dkHz%s",
 				cRpiAudioPort::Str(outputPort), channels, cAudioCodec::Str(outputFormat),
 				samplingRate / 1000, (samplingRate % 1000) / 100,

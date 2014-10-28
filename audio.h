@@ -33,7 +33,7 @@ protected:
 
 	virtual void Action(void);
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels,
-			unsigned int samplingRate);
+			unsigned int samplingRate, unsigned int frameSize = 0);
 
 	static void OnAudioSetupChanged(void *data)
 		{ (static_cast <cRpiAudioDecoder*> (data))->HandleAudioSetupChanged(); }

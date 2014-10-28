@@ -944,8 +944,9 @@ void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
 }
 
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
-		cRpiAudioPort::ePort audioPort, int samplingRate)
+		cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
 {
+	ELOG("%d", frameSize);
 	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
 	OMX_INIT_STRUCT(format);
 	format.nPortIndex = 100;
@@ -959,7 +960,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		outputFormat == cAudioCodec::eAC3  ? OMX_AUDIO_CodingDDP :
 		outputFormat == cAudioCodec::eEAC3 ? OMX_AUDIO_CodingDDP :
 		outputFormat == cAudioCodec::eAAC  ? OMX_AUDIO_CodingAAC :
-		outputFormat == cAudioCodec::eAAC ? OMX_AUDIO_CodingAAC :
+		outputFormat == cAudioCodec::eDTS  ? OMX_AUDIO_CodingDTS :
 				OMX_AUDIO_CodingAutoDetect;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
@@ -1007,6 +1008,22 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 				OMX_IndexParamAudioAac, &aac) != OMX_ErrorNone)
 			ELOG("failed to set audio render aac parameters!");
+		break;
+
+	case cAudioCodec::eDTS:
+		OMX_AUDIO_PARAM_DTSTYPE dts;
+		OMX_INIT_STRUCT(dts);
+		dts.nPortIndex = 100;
+		dts.nChannels = channels;
+		dts.nSampleRate = samplingRate;
+		dts.nDtsType = 1;
+		dts.nFormat = 3; /* 16bit, LE */
+		dts.nDtsFrameSizeBytes = frameSize;
+		OMX_AUDIO_CHANNEL_MAPPING(dts, channels);
+
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
+				OMX_IndexParamAudioDts, &dts) != OMX_ErrorNone)
+			ELOG("failed to set audio render dts parameters!");
 		break;
 
 	case cAudioCodec::ePCM:

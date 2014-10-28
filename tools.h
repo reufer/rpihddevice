@@ -96,6 +96,7 @@ public:
 		eAC3,
 		eEAC3,
 		eAAC,
+		eDTS,
 		eNumCodecs,
 		eInvalid
 	};
@@ -105,7 +106,8 @@ public:
 				(codec == eMPG)  ? "MPEG"  :
 				(codec == eAC3)  ? "AC3"   :
 				(codec == eEAC3) ? "E-AC3" :
-				(codec == eAAC)  ? "AAC"   : "unknown";
+				(codec == eAAC)  ? "AAC"   :
+				(codec == eDTS)  ? "DTS"   : "unknown";
 	}
 };
 
