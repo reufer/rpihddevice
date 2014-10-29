@@ -13,6 +13,7 @@ VDR Plugin 'rpihddevice' Revision History
   - implemented proper command queue for OVG-OSD
 - fixed:
   - increased latency target for live mode to 500ms
+  - reworked OVG image processing for low level OSD
   - upmix mono audio channels to stereo when using PCM output on HDMI
   - skip non-video packets in StillPicture(), fixes artifacts in PES recordings
   - skip audio substream header for PES recordings with AC3 audio track

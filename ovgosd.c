@@ -45,7 +45,23 @@ public:
 	cOvgCmd() { }
 	virtual ~cOvgCmd() { }
 
-	virtual bool Execute(VGImage image, int width, int height) = 0;
+	virtual bool Execute(EGLDisplay display, EGLSurface surface,
+			int width, int height) = 0;
+};
+
+class cOvgFlush : public cOvgCmd
+{
+public:
+
+	cOvgFlush() : cOvgCmd() { }
+	virtual ~cOvgFlush() { }
+
+	virtual bool Execute(EGLDisplay display, EGLSurface surface,
+			int width, int height)
+	{
+		eglSwapBuffers(display, surface);
+		return true;
+	}
 };
 
 class cOvgReset : public cOvgCmd
@@ -53,9 +69,10 @@ class cOvgReset : public cOvgCmd
 public:
 
 	cOvgReset() : cOvgCmd() { }
-	~cOvgReset() { }
+	virtual ~cOvgReset() { }
 
-	virtual bool Execute(VGImage image, int width, int height)
+	virtual bool Execute(EGLDisplay display, EGLSurface surface,
+			int width, int height)
 	{
 		return false;
 	}
@@ -66,21 +83,25 @@ class cOvgClear : public cOvgCmd
 public:
 
 	cOvgClear() : cOvgCmd() { }
-	~cOvgClear() { }
+	virtual ~cOvgClear() { }
 
-	virtual bool Execute(VGImage image, int width, int height)
+	virtual bool Execute(EGLDisplay display, EGLSurface surface,
+			int width, int height)
 	{
-		vgClearImage(image, 0, 0, width, height);
-		vgDrawImage(image);
+		float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	    vgSetfv(VG_CLEAR_COLOR, 4, color);
+	    vgClear(0, 0, width, height);
+		eglSwapBuffers(display, surface);
+
 		return true;
 	}
 };
 
-class cOvgDrawBitmap : public cOvgCmd
+class cOvgDrawImage : public cOvgCmd
 {
 public:
 
-	cOvgDrawBitmap(int x, int y, int w, int h, int stride, uint8_t *argb) :
+	cOvgDrawImage(int x, int y, int w, int h, int stride, const uint8_t *argb) :
 		cOvgCmd(),
 		m_x(x),
 		m_y(y),
@@ -89,16 +110,25 @@ public:
 		m_d(stride),
 		m_argb(argb) { }
 
-	~cOvgDrawBitmap()
+	virtual bool Execute(EGLDisplay display, EGLSurface surface,
+			int width, int height)
 	{
-		free(m_argb);
-	}
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
+		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
+		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
+		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 
-	virtual bool Execute(VGImage image, int width, int height)
-	{
-		vgClearImage(image, m_x, m_y, m_w, m_h);
-		vgImageSubData(image, m_argb, m_d, VG_sARGB_8888, m_x, m_y, m_w, m_h);
+		vgLoadIdentity();
+		vgScale(1.0f, -1.0f);
+		vgTranslate(m_x, m_y - height);
+
+		VGImage image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
+				VG_IMAGE_QUALITY_BETTER);
+
+		vgImageSubData(image, m_argb, m_d, VG_sARGB_8888, 0, 0, m_w, m_h);
 		vgDrawImage(image);
+
+		vgDestroyImage(image);
 		return true;
 	}
 
@@ -109,42 +139,46 @@ protected:
 	int m_w;
 	int m_h;
 	int m_d;
-	uint8_t *m_argb;
+	const uint8_t* m_argb;
+
 };
 
-class cOvgDrawPixmap : public cOvgCmd
+class cOvgDrawBitmap : public cOvgDrawImage
+{
+public:
+
+	cOvgDrawBitmap(int x, int y, int w, int h, int stride, uint8_t *bitmap) :
+		cOvgDrawImage(x, y, w, h, stride, bitmap),
+		m_bitmap(bitmap) { }
+
+	virtual ~cOvgDrawBitmap()
+	{
+		free(m_bitmap);
+	}
+
+
+protected:
+
+	uint8_t *m_bitmap;
+};
+
+class cOvgDrawPixmap : public cOvgDrawImage
 {
 public:
 
 	cOvgDrawPixmap(int x, int y, cPixmapMemory* pixmap) :
-		cOvgCmd(),
-		m_x(x),
-		m_y(y),
+		cOvgDrawImage(x + pixmap->ViewPort().X(), y + pixmap->ViewPort().Y(),
+				pixmap->ViewPort().Width(), pixmap->ViewPort().Height(),
+				pixmap->ViewPort().Width() * sizeof(tColor), pixmap->Data()),
 		m_pixmap(pixmap) { }
 
-	~cOvgDrawPixmap()
+	virtual ~cOvgDrawPixmap()
 	{
 		delete m_pixmap;
 	}
 
-	virtual bool Execute(VGImage image, int width, int height)
-	{
-		int x = m_x + m_pixmap->ViewPort().X();
-		int y = m_y + m_pixmap->ViewPort().Y();
-		int w = m_pixmap->ViewPort().Width();
-		int h = m_pixmap->ViewPort().Height();
-		int d = m_pixmap->ViewPort().Width() * sizeof(tColor);
-
-		vgClearImage(image, x, y, w, h);
-		vgImageSubData(image, m_pixmap->Data(), d, VG_sARGB_8888, x, y, w, h);
-		vgDrawImage(image);
-		return true;
-	}
-
 protected:
 
-	int m_x;
-	int m_y;
 	cPixmapMemory* m_pixmap;
 };
 
@@ -182,11 +216,11 @@ protected:
 	{
 		DLOG("cOvg() thread started");
 
-		EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-		if (eglDisplay == EGL_NO_DISPLAY)
+		EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+		if (display == EGL_NO_DISPLAY)
 			ELOG("failed to get EGL display connection!");
 
-		if (eglInitialize(eglDisplay, NULL, NULL) == EGL_FALSE)
+		if (eglInitialize(display, NULL, NULL) == EGL_FALSE)
 			ELOG("failed to init EGL display connection!");
 
 		eglBindAPI(EGL_OPENVG_API);
@@ -205,12 +239,12 @@ protected:
 		EGLint nConfig;
 
 		// get an appropriate EGL frame buffer configuration
-		if (eglChooseConfig(eglDisplay, attr, &config, 1, &nConfig)
+		if (eglChooseConfig(display, attr, &config, 1, &nConfig)
 				== EGL_FALSE)
 			ELOG("failed to get EGL frame buffer config!");
 
 		// create an EGL rendering context
-		EGLContext context = eglCreateContext(eglDisplay, config, NULL, NULL);
+		EGLContext context = eglCreateContext(display, config, NULL, NULL);
 		if (context == EGL_NO_CONTEXT)
 			ELOG("failed to create EGL rendering context!");
 
@@ -243,32 +277,20 @@ protected:
 				EGL_NONE
 			};
 
-			EGLSurface surface = eglCreateWindowSurface(eglDisplay, config,
+			EGLSurface surface = eglCreateWindowSurface(display, config,
 					&nativewindow, windowAttr);
 			if (surface == EGL_NO_SURFACE)
 				ELOG("failed to create EGL window surface!");
 
 			// connect the context to the surface
-			if (eglMakeCurrent(eglDisplay, surface, surface, context)
+			if (eglMakeCurrent(display, surface, surface, context)
 					== EGL_FALSE)
 				ELOG("failed to connect context to surface!");
 
 			float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 		    vgSetfv(VG_CLEAR_COLOR, 4, color);
 		    vgClear(0, 0, width, height);
-			eglSwapBuffers(eglDisplay, surface);
-
-			vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
-			vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
-			vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
-			vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
-
-			vgLoadIdentity();
-			vgScale(1.0f, -1.0f);
-			vgTranslate(0.0f, -height);
-
-			VGImage image = vgCreateImage(VG_sARGB_8888, width, height,
-					VG_IMAGE_QUALITY_BETTER);
+			eglSwapBuffers(display, surface);
 
 			while (!reset)
 			{
@@ -281,10 +303,7 @@ protected:
 
 					if (cmd)
 					{
-						if (cmd->Execute(image, width, height))
-							eglSwapBuffers(eglDisplay, surface);
-						else
-							reset = true;
+						reset = !cmd->Execute(display, surface, width, height);
 						delete cmd;
 					}
 				}
@@ -292,23 +311,21 @@ protected:
 					cCondWait::SleepMs(10);
 			}
 
-			vgDestroyImage(image);
-
 			// clear screen
 			glClear(GL_COLOR_BUFFER_BIT);
-			eglSwapBuffers(eglDisplay, surface);
+			eglSwapBuffers(display, surface);
 
 			// Release OpenGL resources
-			eglMakeCurrent(eglDisplay,
+			eglMakeCurrent(display,
 					EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-			eglDestroySurface(eglDisplay, surface);
+			eglDestroySurface(display, surface);
 
 			vc_dispmanx_element_remove(update, element);
 			vc_dispmanx_display_close(dDisplay);
 		}
 
-		eglDestroyContext(eglDisplay, context);
-		eglTerminate(eglDisplay);
+		eglDestroyContext(display, context);
+		eglTerminate(display);
 
 		DLOG("cOvg() thread ended");
 	}
@@ -367,33 +384,31 @@ void cOvgOsd::Flush(void)
 
 		while (cPixmapMemory *pm = RenderPixmaps())
 			m_ovg->DoCmd(new cOvgDrawPixmap(Left(), Top(), pm));
-
-		return;
 	}
-
-	for (int i = 0; cBitmap *bitmap = GetBitmap(i); ++i)
+	else
 	{
-		int x1, y1, x2, y2;
-		if (bitmap->Dirty(x1, y1, x2, y2))
+		for (int i = 0; cBitmap *bitmap = GetBitmap(i); ++i)
 		{
-			int w = x2 - x1 + 1;
-			int h = y2 - y1 + 1;
-			uint8_t *argb = (uint8_t *) malloc(w * h * sizeof(uint32_t));
-
-			for (int y = y1; y <= y2; ++y)
+			int x1, y1, x2, y2;
+			if (bitmap->Dirty(x1, y1, x2, y2))
 			{
-				for (int x = x1; x <= x2; ++x)
-				{
-					((uint32_t *) argb)[x - x1 + (y - y1) * w] =
-					bitmap->GetColor(x, y);
-				}
-			}
-			m_ovg->DoCmd(new cOvgDrawBitmap(Left() + bitmap->X0() + x1,
-				Top() + bitmap->Y0() + y1, w, h, w * sizeof(tColor), argb));
+				int w = x2 - x1 + 1;
+				int h = y2 - y1 + 1;
+				uint8_t *argb = (uint8_t *) malloc(w * h * sizeof(tColor));
 
-			bitmap->Clean();
+				for (int y = y1; y <= y2; ++y)
+					for (int x = x1; x <= x2; ++x)
+						((uint32_t *) argb)[x - x1 + (y - y1) * w] =
+								bitmap->GetColor(x, y);
+
+				m_ovg->DoCmd(new cOvgDrawBitmap(Left() + bitmap->X0() + x1,
+					Top() + bitmap->Y0() + y1, w, h, w * sizeof(tColor), argb));
+
+				bitmap->Clean();
+			}
 		}
 	}
+	m_ovg->DoCmd(new cOvgFlush());
 }
 
 eOsdError cOvgOsd::SetAreas(const tArea *Areas, int NumAreas)
