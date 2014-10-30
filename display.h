@@ -37,7 +37,7 @@ protected:
 	int Update(int width, int height, int frameRate, bool interlaced);
 
 	virtual int SetMode(int width, int height, int frameRate, bool interlaced) {
-		return 0;
+		return -1;
 	}
 
 	int m_width;
