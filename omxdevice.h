@@ -26,6 +26,8 @@ public:
 	virtual int Init(void);
 	virtual int DeInit(void);
 
+	virtual bool Start(void);
+
 	virtual bool HasDecoder(void) const { return true; }
 	virtual bool CanReplay(void)  const { return true; }
 	virtual bool HasIBPTrickSpeed(void);

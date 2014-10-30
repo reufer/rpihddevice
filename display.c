@@ -9,6 +9,7 @@
 #include "setup.h"
 
 #include <vdr/tools.h>
+#include <vdr/osd.h>
 
 extern "C" {
 #include "interface/vmcs_host/vc_tvservice.h"
@@ -205,7 +206,14 @@ int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
 		break;
 	}
 
-	return SetMode(newWidth, newHeight, newFrameRate, newInterlaced);
+	// set new mode only if necessary
+	if (newWidth != m_width || newHeight != m_height ||
+			newFrameRate != m_frameRate || newInterlaced != m_interlaced)
+	{
+		if (!SetMode(newWidth, newHeight, newFrameRate, newInterlaced))
+			cOsdProvider::UpdateOsdSize(true);
+	}
+	return 0;
 }
 
 /* ------------------------------------------------------------------------- */

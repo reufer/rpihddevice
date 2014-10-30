@@ -3,6 +3,7 @@ VDR Plugin 'rpihddevice' Revision History
 
 - new:
   - added DTS audio codec support
+  - add setup options to control video mode and its behaviour on stream changes
   - set HDMI speaker layout to fix channel mapping for multi channel PCM output
   - support building against external ffmpeg/libav by setting EXT_LIBAV
   - support for >=ffmpeg-1.2 and >=libav-0.8 with resampling

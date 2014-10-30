@@ -81,7 +81,6 @@ int cOmxDevice::Init(void)
 	m_omx->SetStreamStartCallback(&OnStreamStart, this);
 
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
-	HandleVideoSetupChanged();
 
 	return 0;
 }
@@ -101,6 +100,12 @@ int cOmxDevice::DeInit(void)
 		return -1;
 	}
 	return 0;
+}
+
+bool cOmxDevice::Start(void)
+{
+	HandleVideoSetupChanged();
+	return true;
 }
 
 void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
