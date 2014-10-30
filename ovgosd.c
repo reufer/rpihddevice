@@ -194,7 +194,7 @@ public:
 		Start();
 	}
 
-	~cOvg()
+	virtual ~cOvg()
 	{
 		Cancel(-1);
 		DoCmd(new cOvgReset());
@@ -303,7 +303,9 @@ protected:
 
 					if (cmd)
 					{
-						reset = !cmd->Execute(display, surface, width, height);
+						if (!cmd->Execute(display, surface, width, height))
+							reset = true;
+
 						delete cmd;
 					}
 				}
