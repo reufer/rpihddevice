@@ -946,7 +946,6 @@ void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
 {
-	ELOG("%d", frameSize);
 	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
 	OMX_INIT_STRUCT(format);
 	format.nPortIndex = 100;
