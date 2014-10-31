@@ -154,19 +154,19 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
-		m_omx->StopClock();
-		m_omx->SetClockScale(0.0f);
-
-		if (m_hasVideo)
-			m_omx->StopVideo();
-
 		if (m_hasAudio)
 		{
 			m_audio->Reset();
 			m_omx->FlushAudio();
 		}
+		if (m_hasVideo)
+			m_omx->StopVideo();
+
+		m_omx->StopClock();
+		m_omx->SetClockScale(0.0f);
 		m_omx->SetCurrentReferenceTime(0);
 		m_omx->SetClockReference(cOmx::eClockRefVideo);
+
 		m_videoCodec = cVideoCodec::eInvalid;
 		m_hasAudio = false;
 		m_hasVideo = false;

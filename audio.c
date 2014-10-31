@@ -89,45 +89,29 @@ public:
 
 	cAudioCodec::eCodec GetCodec(void)
 	{
-		m_mutex->Lock();
-
 		if (!m_parsed)
 			Parse();
-
-		m_mutex->Unlock();
 		return m_codec;
 	}
 
 	unsigned int GetChannels(void)
 	{
-		m_mutex->Lock();
-
 		if (!m_parsed)
 			Parse();
-
-		m_mutex->Unlock();
 		return m_channels;
 	}
 
 	unsigned int GetSamplingRate(void)
 	{
-		m_mutex->Lock();
-
 		if (!m_parsed)
 			Parse();
-
-		m_mutex->Unlock();
 		return m_samplingRate;
 	}
 
 	unsigned int GetFrameSize(void)
 	{
-		m_mutex->Lock();
-
 		if (!m_parsed)
 			Parse();
-
-		m_mutex->Unlock();
 		return m_packet.size;
 	}
 
@@ -150,12 +134,8 @@ public:
 
 	bool Empty(void)
 	{
-		m_mutex->Lock();
-
 		if (!m_parsed)
 			Parse();
-
-		m_mutex->Unlock();
 		return m_packet.size == 0;
 	}
 
@@ -269,6 +249,8 @@ private:
 
 	void Parse()
 	{
+		m_mutex->Lock();
+
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		unsigned int channels = 0;
 		unsigned int offset = 0;
@@ -352,6 +334,7 @@ private:
 			m_packet.size = 0;
 
 		m_parsed = true;
+		m_mutex->Unlock();
 	}
 
 	struct Pts
