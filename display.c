@@ -5,11 +5,11 @@
  */
 
 #include "display.h"
+#include "ovgosd.h"
 #include "tools.h"
 #include "setup.h"
 
 #include <vdr/tools.h>
-#include <vdr/osd.h>
 
 extern "C" {
 #include "interface/vmcs_host/vc_tvservice.h"
@@ -209,10 +209,8 @@ int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
 	// set new mode only if necessary
 	if (newWidth != m_width || newHeight != m_height ||
 			newFrameRate != m_frameRate || newInterlaced != m_interlaced)
-	{
-		if (!SetMode(newWidth, newHeight, newFrameRate, newInterlaced))
-			cOsdProvider::UpdateOsdSize(true);
-	}
+		return SetMode(newWidth, newHeight, newFrameRate, newInterlaced);
+
 	return 0;
 }
 
@@ -237,6 +235,7 @@ cRpiHDMIDisplay::cRpiHDMIDisplay(int width, int height, int frameRate,
 	m_startMode(mode),
 	m_modified(false)
 {
+	vc_tv_register_callback(TvServiceCallback, 0);
 
 	m_modes->nModes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA,
 			m_modes->modes, HDMI_MAX_MODES, NULL, NULL);
@@ -290,6 +289,8 @@ cRpiHDMIDisplay::cRpiHDMIDisplay(int width, int height, int frameRate,
 
 cRpiHDMIDisplay::~cRpiHDMIDisplay()
 {
+	vc_tv_unregister_callback(TvServiceCallback);
+
 	// if mode has been changed, set back to previous state
 	if (m_modified)
 		SetMode(m_startGroup, m_startMode);
@@ -344,6 +345,13 @@ int cRpiHDMIDisplay::SetMode(int group, int mode)
 		}
 	}
 	return ret;
+}
+
+void cRpiHDMIDisplay::TvServiceCallback(void *data, unsigned int reason,
+		unsigned int param1, unsigned int param2)
+{
+	if (reason & VC_HDMI_DVI + VC_HDMI_HDMI)
+		cRpiOsdProvider::ResetOsd();
 }
 
 /* ------------------------------------------------------------------------- */
