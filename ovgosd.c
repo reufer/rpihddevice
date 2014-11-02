@@ -292,6 +292,8 @@ protected:
 		    vgClear(0, 0, width, height);
 			eglSwapBuffers(display, surface);
 
+			cOsdProvider::UpdateOsdSize(true);
+
 			while (!reset)
 			{
 				while (!m_commands.empty())
@@ -312,11 +314,6 @@ protected:
 				if (!reset)
 					cCondWait::SleepMs(10);
 			}
-
-			// clear screen
-			glClear(GL_COLOR_BUFFER_BIT);
-			eglSwapBuffers(display, surface);
-
 			// Release OpenGL resources
 			eglMakeCurrent(display,
 					EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -339,17 +336,21 @@ private:
 
 /* ------------------------------------------------------------------------- */
 
+cRpiOsdProvider* cRpiOsdProvider::s_instance = 0;
+
 cRpiOsdProvider::cRpiOsdProvider() :
 	cOsdProvider(),
 	m_ovg(0)
 {
 	DLOG("new cOsdProvider()");
 	m_ovg = new cOvg();
+	s_instance = this;
 }
 
 cRpiOsdProvider::~cRpiOsdProvider()
 {
 	DLOG("delete cOsdProvider()");
+	s_instance = 0;
 	delete m_ovg;
 }
 
@@ -358,14 +359,18 @@ cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 	return new cOvgOsd(Left, Top, Level, m_ovg);
 }
 
+void cRpiOsdProvider::ResetOsd(void)
+{
+	if (s_instance)
+		s_instance->m_ovg->DoCmd(new cOvgReset());
+}
+
 /* ------------------------------------------------------------------------- */
 
 cOvgOsd::cOvgOsd(int Left, int Top, uint Level, cOvg *ovg) :
 	cOsd(Left, Top, Level),
 	m_ovg(ovg)
-{
-	m_ovg->DoCmd(new cOvgReset());
-}
+{ }
 
 cOvgOsd::~cOvgOsd()
 {

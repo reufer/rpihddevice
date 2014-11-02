@@ -68,6 +68,9 @@ private:
 	virtual int SetMode(int width, int height, int frameRate, bool interlaced);
 	int SetMode(int group, int mode);
 
+	static void TvServiceCallback(void *data, unsigned int reason,
+			unsigned int param1, unsigned int param2);
+
 	class ModeList;
 	ModeList *m_modes;
 
