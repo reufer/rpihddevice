@@ -1,6 +1,8 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2014-11-02: Version 0.0.10
+--------------------------
 - new:
   - added DTS audio codec support
   - set HDMI speaker layout to fix channel mapping for multi channel PCM output
@@ -21,6 +23,8 @@ VDR Plugin 'rpihddevice' Revision History
   - play multiple video PES packets sequentially in StillPicture()
   - updated parameter when setting clock latency target according omxplayer
   - code clean up based on cppcheck's results (thanks to Rolf Ahrenberg)
+- known issues:
+  - direct switching from fast forward to fast rewind will freeze replay
 
 2014-04-24: Version 0.0.9
 -------------------------
