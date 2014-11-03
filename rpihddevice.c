@@ -71,7 +71,7 @@ bool cPluginRpiHdDevice::Initialize(void)
 
 bool cPluginRpiHdDevice::Start(void)
 {
-	return true;
+	return m_device->Start();
 }
 
 void cPluginRpiHdDevice::Stop(void)
