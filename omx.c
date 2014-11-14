@@ -4,6 +4,8 @@
  * $Id$
  */
 
+#include <queue>
+
 #include "omx.h"
 #include "display.h"
 

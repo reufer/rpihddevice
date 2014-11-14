@@ -4,6 +4,8 @@
  * $Id$
  */
 
+#include <queue>
+
 #include <VG/openvg.h>
 #include <VG/vgu.h>
 #include <EGL/egl.h>

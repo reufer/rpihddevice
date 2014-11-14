@@ -7,7 +7,6 @@
 #ifndef OMX_H
 #define OMX_H
 
-#include <queue>
 #include <vdr/thread.h>
 #include "tools.h"
 
