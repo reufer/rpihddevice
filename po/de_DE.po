@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-rpihddevice 0.0.4\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2014-10-05 23:08+0200\n"
+"POT-Creation-Date: 2014-11-08 11:42+0100\n"
 "PO-Revision-Date: 2013-10-14 13:36+0200\n"
 "Last-Translator:  <thomas@reufer.ch>\n"
 "Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
@@ -40,6 +40,9 @@ msgstr "Digitalton durchreichen"
 
 msgid "Ignore Audio EDID"
 msgstr "Audio EDID ignorieren"
+
+msgid "Use GPU accelerated OSD"
+msgstr "OSD mit GPU-Unterstützung"
 
 msgid "analog"
 msgstr "analog"

@@ -49,6 +49,18 @@ public:
 		}
 	};
 
+	struct OsdParameters
+	{
+		OsdParameters() :
+			accelerated(1) { }
+
+		int accelerated;
+
+		bool operator!=(const OsdParameters& a) {
+			return (a.accelerated != accelerated);
+		}
+	};
+
 	static bool HwInit(void);
 
 	static cRpiAudioPort::ePort GetAudioPort(void) {
@@ -96,6 +108,10 @@ public:
 			   codec == cVideoCodec::eH264 ? true : false;
 	}
 
+	static bool IsHighLevelOsd(void) {
+		return GetInstance()->m_osd.accelerated != 0;
+	}
+
 	static void SetHDMIChannelMapping(bool passthrough, int channels);
 
 	static cRpiSetup* GetInstance(void);
@@ -104,7 +120,7 @@ public:
 	class cMenuSetupPage* GetSetupPage(void);
 	bool Parse(const char *name, const char *value);
 
-	void Set(AudioParameters audio, VideoParameters video);
+	void Set(AudioParameters audio, VideoParameters video, OsdParameters osd);
 
 	static void SetAudioSetupChangedCallback(void (*callback)(void*), void* data = 0);
 	static void SetVideoSetupChangedCallback(void (*callback)(void*), void* data = 0);
@@ -125,6 +141,7 @@ private:
 
 	AudioParameters m_audio;
 	VideoParameters m_video;
+	OsdParameters   m_osd;
 
 	bool m_mpeg2Enabled;
 

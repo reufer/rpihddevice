@@ -6,6 +6,7 @@
 
 #include "setup.h"
 #include "display.h"
+#include "ovgosd.h"
 
 #include <vdr/tools.h>
 #include <vdr/menuitems.h>
@@ -23,10 +24,12 @@ public:
 
 	cRpiSetupPage(
 			cRpiSetup::AudioParameters audio,
-			cRpiSetup::VideoParameters video) :
+			cRpiSetup::VideoParameters video,
+			cRpiSetup::OsdParameters osd) :
 
 		m_audio(audio),
-		m_video(video)
+		m_video(video),
+		m_osd(osd)
 	{
 		Setup();
 	}
@@ -60,7 +63,9 @@ protected:
 		SetupStore("Resolution", m_video.resolution);
 		SetupStore("FrameRate", m_video.frameRate);
 
-		cRpiSetup::GetInstance()->Set(m_audio, m_video);
+		SetupStore("AcceleratedOsd", m_osd.accelerated);
+
+		cRpiSetup::GetInstance()->Set(m_audio, m_video, m_osd);
 }
 
 private:
@@ -95,12 +100,16 @@ private:
 						tr("Ignore Audio EDID"), &m_audio.ignoreEDID));
 		}
 
+		Add(new cMenuEditBoolItem(
+				tr("Use GPU accelerated OSD"), &m_osd.accelerated));
+
 		SetCurrent(Get(current));
 		Display();
 	}
 
 	cRpiSetup::AudioParameters m_audio;
 	cRpiSetup::VideoParameters m_video;
+	cRpiSetup::OsdParameters   m_osd;
 
 	static const char *const s_audioport[2];
 	static const char *const s_videoFraming[3];
@@ -263,7 +272,7 @@ void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)
 
 cMenuSetupPage* cRpiSetup::GetSetupPage(void)
 {
-	return new cRpiSetupPage(m_audio, m_video);
+	return new cRpiSetupPage(m_audio, m_video, m_osd);
 }
 
 bool cRpiSetup::Parse(const char *name, const char *value)
@@ -280,12 +289,15 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 		m_video.resolution = atoi(value);
 	else if (!strcasecmp(name, "FrameRate"))
 		m_video.frameRate = atoi(value);
+	else if (!strcasecmp(name, "AcceleratedOsd"))
+		m_osd.accelerated = atoi(value);
 	else return false;
 
 	return true;
 }
 
-void cRpiSetup::Set(AudioParameters audio, VideoParameters video)
+void cRpiSetup::Set(AudioParameters audio, VideoParameters video,
+		OsdParameters osd)
 {
 	if (audio != m_audio)
 	{
@@ -299,5 +311,11 @@ void cRpiSetup::Set(AudioParameters audio, VideoParameters video)
 		m_video = video;
 		if (m_onVideoSetupChanged)
 			m_onVideoSetupChanged(m_onVideoSetupChangedData);
+	}
+
+	if (osd != m_osd)
+	{
+		m_osd = osd;
+		cRpiOsdProvider::ResetOsd();
 	}
 }
