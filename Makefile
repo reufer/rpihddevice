@@ -168,4 +168,4 @@ clean:
 
 .PHONY:	cppcheck
 cppcheck:
-	@cppcheck --language=c++ --enable=all -v -f .
+	@cppcheck --language=c++ --enable=all --suppress=unusedFunction -v -f .
