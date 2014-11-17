@@ -17,8 +17,8 @@ Description:
 Features:
 
   - MPEG-2 and H264 high-profile video codec up to 1080p30
-  - MPEG-1 Layer II, (E)AC-3 and AAC audio codec at 32kHz, 44.1kHz or 48kHz with
-    2.0 (Stereo) or 5.1 channels
+  - MPEG-1 Layer II, (E)AC-3, AAC and DTS audio codec at 32kHz, 44.1kHz or 48kHz
+    with 2.0 (Stereo) or 5.1 channels
   - HDMI multi channel LPCM audio output
   - HDMI digital audio pass-through
   - Analog stereo audio output
