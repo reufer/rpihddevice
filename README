@@ -23,9 +23,8 @@ Features:
   - HDMI digital audio pass-through
   - Analog stereo audio output
   - Box (letter-box/pillar-box), Crop and Stretch video display modes
-  - True color OSD
+  - True color OSD with GPU support
   - Video scaling and grabbing support
-
 
 Requirements:
 
@@ -33,6 +32,7 @@ Requirements:
     or libav
   - libswresample when using ffmpeg-1.2 or newer
   - libavresample when using libav-9 or newer
+  - freetype2 for GPU accelerated text drawing
   - valid MPEG-2 license when watching MPEG-2 streams
   - Raspberry Pi userland libraries: https://github.com/raspberrypi/userland
   
@@ -88,4 +88,7 @@ Plugin-Setup:
   Ignore Audio EDID: In case the HDMI peer reports false audio EDID information,
   they can be ignored with this option.
   
+  Use GPU accelerated OSD: Use GPU capabilities to draw the on screen display.
+  Disable acceleration in case of OSD problems to use VDR's internal rendering
+  and report error to the author.
   

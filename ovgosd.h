@@ -9,7 +9,7 @@
 
 #include <vdr/osd.h>
 
-class cOvg;
+class cOvgThread;
 
 class cRpiOsdProvider : public cOsdProvider
 {
@@ -19,7 +19,7 @@ public:
 	cRpiOsdProvider();
 	~cRpiOsdProvider();
 
-	static void ResetOsd(void);
+	static void ResetOsd(bool cleanup = false);
 
 protected:
 
@@ -30,7 +30,7 @@ protected:
 
 private:
 
-	cOvg *m_ovg;
+	cOvgThread *m_ovg;
 	static cRpiOsdProvider *s_instance;
 };
 

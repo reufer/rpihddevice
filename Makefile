@@ -91,6 +91,9 @@ ifeq ($(call LIBAV_PKGCFG,--exists libavresample && echo 1), 1)
 endif
 endif
 
+LDLIBS   += $(shell pkg-config --libs freetype2)
+INCLUDES += $(shell pkg-config --cflags freetype2)
+
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
