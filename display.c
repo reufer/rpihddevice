@@ -43,8 +43,8 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 		}
 		else
 		{
-			ELOG("failed to get display parameters!");
-			return false;
+			ELOG("failed to get display parameters - assuming analog SDTV!");
+			s_instance = new cRpiCompositeDisplay(720, 576, 50);
 		}
 	}
 
