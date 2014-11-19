@@ -415,6 +415,9 @@ private:
 		};
 		VGfloat slopeRot[] = { 0.0f, 0.0f, 0.0f, 90.0f, 90.0f, 90.0f, 90.0f };
 
+		VGfloat backupMatrix[9];
+		vgGetMatrix(backupMatrix);
+
 		for (int i = 0; i < 8; i++)
 		{
 			s_slope[i] = vgCreatePath(VG_PATH_FORMAT_STANDARD,
@@ -434,6 +437,7 @@ private:
 			}
 		}
 
+		vgLoadMatrix(backupMatrix);
 		s_initialized = true;
 	}
 
@@ -539,8 +543,8 @@ public:
 			*m_image = vgCreateImage(VG_sARGB_8888,
 					m_rect->Width(), m_rect->Height(), VG_IMAGE_QUALITY_BETTER);
 
-			vgGetPixels(*m_image, 0, 0, m_rect->X(), height - m_rect->Bottom(),
-				m_rect->Width(), m_rect->Height());
+			vgGetPixels(*m_image, 0, 0, m_rect->X(), height - m_rect->Bottom()
+					- 1, m_rect->Width(), m_rect->Height());
 		}
 		return true;
 	}
@@ -562,8 +566,8 @@ public:
 			int width, int height)
 	{
 		if (m_image && m_rect)
-			vgSetPixels(m_rect->X(), height - m_rect->Bottom(), *m_image, 0, 0,
-					m_rect->Width(), m_rect->Height());
+			vgSetPixels(m_rect->X(), height - m_rect->Bottom() - 1, *m_image,
+					0, 0, m_rect->Width(), m_rect->Height());
 		return true;
 	}
 
@@ -783,7 +787,7 @@ public:
 		vgSetfv(VG_GLYPH_ORIGIN, 2, origin);
 
 		VGint cropArea[4] = {
-				m_width ? m_x : 0, m_height ? height - m_y - m_height : 0,
+				m_width ? m_x : 0, m_height ? height - m_y - m_height - 1 : 0,
 				m_width ? m_width : width - 1, m_height ? m_height : height - 1
 		};
 		vgSetiv(VG_SCISSOR_RECTS, 4, cropArea);
@@ -1084,7 +1088,7 @@ public:
 		if (!Active())
 			return;
 
-		m_savedRect = cRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1);
+		m_savedRect = cRect(x1 + Left(), y1 + Top(), x2 - x1 + 1, y2 - y1 + 1);
 		m_ovg->DoCmd(new cOvgCmdSaveRegion(&m_savedRect, &m_savedImage));
 	}
 
