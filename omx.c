@@ -251,20 +251,38 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		OMX_INIT_STRUCT(filterparam);
 		filterparam.nPortIndex = 191;
 		filterparam.eImageFilter = OMX_ImageFilterNone;
+
+		OMX_PARAM_U32TYPE extraBuffers;
+		OMX_INIT_STRUCT(extraBuffers);
+		extraBuffers.nPortIndex = 130;
+
 		if (cRpiDisplay::IsProgressive() && m_videoFormat.interlaced)
 		{
+			bool fastDeinterlace = portdef.format.video.nFrameWidth *
+					portdef.format.video.nFrameHeight > 576 * 720;
+
 			filterparam.nNumParams = 1;
 			filterparam.nParams[0] = 3;
-			filterparam.eImageFilter = OMX_ImageFilterDeInterlaceAdvanced;
+			filterparam.eImageFilter = fastDeinterlace ?
+					OMX_ImageFilterDeInterlaceFast :
+					OMX_ImageFilterDeInterlaceAdvanced;
+
+			if (fastDeinterlace)
+				extraBuffers.nU32 = -2;
 		}
 		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoFx]),
 				OMX_IndexConfigCommonImageFilterParameters, &filterparam) != OMX_ErrorNone)
 			ELOG("failed to set deinterlacing paramaters!");
 
+		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoFx]),
+				OMX_IndexParamBrcmExtraBuffers, &extraBuffers) != OMX_ErrorNone)
+			ELOG("failed to set video fx extra buffers!");
+
 		if (ilclient_setup_tunnel(&m_tun[eVideoDecoderToVideoFx], 0, 0) != 0)
 			ELOG("failed to setup up tunnel from video decoder to fx!");
 		if (ilclient_change_component_state(m_comp[eVideoFx], OMX_StateExecuting) != 0)
 			ELOG("failed to enable video fx!");
+
 		break;
 
 	case 11:
