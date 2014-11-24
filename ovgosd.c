@@ -93,7 +93,7 @@ public:
 
 private:
 
-	#define FTPOS2FLOAT(x) ((VGfloat)(x) / 4096.0f)
+	#define CHAR_HEIGHT (1 << 14)
 
 	cOvgFont(void) :
 		m_font(VG_INVALID_HANDLE),
@@ -117,7 +117,7 @@ private:
 			return;
 		}
 
-		FT_Set_Char_Size(face, 0, 64 * 64, 0, 0);
+		FT_Set_Char_Size(face, 0, CHAR_HEIGHT, 0, 0);
 
 		int glyphId = 0;
 		FT_UInt glyphIndex;
@@ -133,8 +133,8 @@ private:
 
 			VGfloat origin[] = { 0.0f, 0.0f };
 			VGfloat esc[] = {
-					FTPOS2FLOAT(face->glyph->advance.x),
-					FTPOS2FLOAT(face->glyph->advance.y)
+					(VGfloat)(face->glyph->advance.x) / (VGfloat)CHAR_HEIGHT,
+					(VGfloat)(face->glyph->advance.y) / (VGfloat)CHAR_HEIGHT
 			};
 
 			vgSetGlyphToPath(m_font, glyphId++, path, VG_FALSE, origin, esc);
@@ -171,7 +171,7 @@ private:
 			return VG_INVALID_HANDLE;
 
 		std::vector<VGubyte> segments;
-		std::vector<VGfloat> coord;
+		std::vector<VGshort> coord;
 		segments.reserve(256);
 		coord.reserve(1024);
 
@@ -212,18 +212,16 @@ private:
 						segments.push_back(VG_QUAD_TO);
 						int coord_size = coord.size();
 
-						VGfloat x = (coord[coord_size-2] +
-								FTPOS2FLOAT(fpoint.x)) * 0.5f;
-						VGfloat y = (coord[coord_size-1] +
-								FTPOS2FLOAT(fpoint.y)) * 0.5f;
+						VGshort x = (coord[coord_size-2] + fpoint.x) >> 1;
+						VGshort y = (coord[coord_size-1] + fpoint.y) >> 1;
 
 						coord.push_back(x);
 						coord.push_back(y);
 					}
 				}
 				lastTag = tag;
-				coord.push_back(FTPOS2FLOAT(fpoint.x));
-				coord.push_back(FTPOS2FLOAT(fpoint.y));
+				coord.push_back(fpoint.x);
+				coord.push_back(fpoint.y);
 			}
 			if (!(lastTag & 0x1))
 			{
@@ -232,14 +230,15 @@ private:
 				else
 					segments.push_back(VG_QUAD_TO);
 
-				coord.push_back(FTPOS2FLOAT(points[firstPoint].x));
-				coord.push_back(FTPOS2FLOAT(points[firstPoint].y));
+				coord.push_back(points[firstPoint].x);
+				coord.push_back(points[firstPoint].y);
 			}
 			segments.push_back(VG_CLOSE_PATH);
 		}
 
 		VGPath path = vgCreatePath(VG_PATH_FORMAT_STANDARD,
-			VG_PATH_DATATYPE_F, 1.0f, 0.0f, 0, 0, VG_PATH_CAPABILITY_ALL);
+				VG_PATH_DATATYPE_S_16, 1.0f / (VGfloat)CHAR_HEIGHT, 0.0f, 0, 0,
+				VG_PATH_CAPABILITY_APPEND_TO);
 
 		vgAppendPathData(path, segments.size(), &segments[0], &coord[0]);
 		return path;
