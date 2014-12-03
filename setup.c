@@ -31,6 +31,30 @@ public:
 		m_video(video),
 		m_osd(osd)
 	{
+		m_audioport[0] = tr("analog");
+		m_audioport[1] = tr("HDMI");
+
+		m_videoFraming[0] = tr("box");
+		m_videoFraming[1] = tr("crop");
+		m_videoFraming[2] = tr("stretch");
+
+		m_videoResolution[0] = tr("default");
+		m_videoResolution[1] = tr("follow video");
+		m_videoResolution[2] = "720x480";
+		m_videoResolution[3] = "720x576";
+		m_videoResolution[4] = "1280x720";
+		m_videoResolution[5] = "1920x1080";
+
+		m_videoFrameRate[0] = tr("default");
+		m_videoFrameRate[1] = tr("follow video");
+		m_videoFrameRate[2] = "24p";
+		m_videoFrameRate[3] = "25p";
+		m_videoFrameRate[4] = "30p";
+		m_videoFrameRate[5] = "50i";
+		m_videoFrameRate[6] = "50p";
+		m_videoFrameRate[7] = "60i";
+		m_videoFrameRate[8] = "60p";
+
 		Setup();
 	}
 
@@ -78,17 +102,17 @@ private:
 		if (cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI)
 		{
 			Add(new cMenuEditStraItem(
-				tr("Resolution"), &m_video.resolution, 6, s_videoResolution));
+				tr("Resolution"), &m_video.resolution, 6, m_videoResolution));
 
 			Add(new cMenuEditStraItem(
-				tr("Frame Rate"), &m_video.frameRate, 9, s_videoFrameRate));
+				tr("Frame Rate"), &m_video.frameRate, 9, m_videoFrameRate));
 		}
 
 		Add(new cMenuEditStraItem(
-				tr("Video Framing"), &m_video.framing, 3, s_videoFraming));
+				tr("Video Framing"), &m_video.framing, 3, m_videoFraming));
 
 		Add(new cMenuEditStraItem(
-				tr("Audio Port"), &m_audio.port, 2, s_audioport));
+				tr("Audio Port"), &m_audio.port, 2, m_audioport));
 
 		if (m_audio.port == 1)
 		{
@@ -111,25 +135,11 @@ private:
 	cRpiSetup::VideoParameters m_video;
 	cRpiSetup::OsdParameters   m_osd;
 
-	static const char *const s_audioport[2];
-	static const char *const s_videoFraming[3];
-	static const char *const s_videoResolution[6];
-	static const char *const s_videoFrameRate[9];
+	const char *m_audioport[2];
+	const char *m_videoFraming[3];
+	const char *m_videoResolution[6];
+	const char *m_videoFrameRate[9];
 };
-
-const char *const cRpiSetupPage::s_audioport[] =
-		{ tr("analog"), tr("HDMI") };
-
-const char *const cRpiSetupPage::s_videoFraming[] =
-		{ tr("box"), tr("crop"), tr("stretch") };
-
-const char *const cRpiSetupPage::s_videoResolution[] =
-		{ tr("don't change"), tr("follow video"),
-			"720x480", "720x576", "1280x720", "1920x1080" };
-
-const char *const cRpiSetupPage::s_videoFrameRate[] =
-		{ tr("don't change"), tr("follow video"),
-			"24p", "25p", "30p", "50i", "50p", "60i", "60p"	};
 
 /* ------------------------------------------------------------------------- */
 

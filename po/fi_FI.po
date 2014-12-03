@@ -22,14 +22,35 @@ msgstr "Kuvaformaatti ei ole tuettu!"
 msgid "HD output device for Raspberry Pi"
 msgstr "Raspberry Pi HD-ulostulolaite"
 
+msgid "analog"
+msgstr "analoginen"
+
+msgid "HDMI"
+msgstr "HDMI"
+
+msgid "box"
+msgstr "kehystys"
+
+msgid "crop"
+msgstr "leikkaus"
+
+msgid "stretch"
+msgstr "venytys"
+
+msgid "default"
+msgstr "oletus"
+
+msgid "follow video"
+msgstr "lähetteen mukaan"
+
 msgid "Resolution"
-msgstr ""
+msgstr "Resoluutio"
 
 msgid "Frame Rate"
-msgstr ""
+msgstr "Ruudunpäivitys"
 
 msgid "Video Framing"
-msgstr ""
+msgstr "Kuvan rajaustapa"
 
 msgid "Audio Port"
 msgstr "Äänilähtö"
@@ -40,23 +61,5 @@ msgstr "Digitaaliäänen läpivienti"
 msgid "Ignore Audio EDID"
 msgstr "Jätä äänen EDID huomioimatta"
 
-msgid "analog"
-msgstr "analoginen"
-
-msgid "HDMI"
-msgstr "HDMI"
-
-msgid "box"
-msgstr ""
-
-msgid "crop"
-msgstr ""
-
-msgid "stretch"
-msgstr ""
-
-msgid "don't change"
-msgstr ""
-
-msgid "follow video"
-msgstr ""
+msgid "Use GPU accelerated OSD"
+msgstr "Käytä GPU-kiihdytettyä OSD:tä"

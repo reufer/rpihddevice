@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - updated Finnish translations and fixed tr() usage (thanks to Rolf Ahrenberg)
   - use fast deinterlacer for HD streams
   - added high level OSD with GPU support
 

@@ -23,6 +23,27 @@ msgstr "Videoformat nicht unterstützt!"
 msgid "HD output device for Raspberry Pi"
 msgstr "HD Ausgabegerät für Raspberry Pi"
 
+msgid "analog"
+msgstr "analog"
+
+msgid "HDMI"
+msgstr "HDMI"
+
+msgid "box"
+msgstr "einrahmen"
+
+msgid "crop"
+msgstr "abschneiden"
+
+msgid "stretch"
+msgstr "dehnen"
+
+msgid "default"
+msgstr "Voreinstellung"
+
+msgid "follow video"
+msgstr "wie Video"
+
 msgid "Resolution"
 msgstr "Auflösung"
 
@@ -43,24 +64,3 @@ msgstr "Audio EDID ignorieren"
 
 msgid "Use GPU accelerated OSD"
 msgstr "OSD mit GPU-Unterstützung"
-
-msgid "analog"
-msgstr "analog"
-
-msgid "HDMI"
-msgstr "HDMI"
-
-msgid "box"
-msgstr "einrahmen"
-
-msgid "crop"
-msgstr "abschneiden"
-
-msgid "stretch"
-msgstr "dehnen"
-
-msgid "don't change"
-msgstr "nicht ändern"
-
-msgid "follow video"
-msgstr "wie Video"
