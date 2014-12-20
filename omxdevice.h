@@ -123,6 +123,8 @@ protected:
 	static int s_speeds[2][8];
 	static int s_speedCorrections[5];
 
+	static const uchar PesVideoHeader[14];
+
 private:
 
 	void (*m_onPrimaryDevice)(void);

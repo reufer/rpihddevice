@@ -35,6 +35,10 @@ int cOmxDevice::s_speedCorrections[5] = {
 	S(0.990f), S(0.999f), S(1.000f), S(1.001), S(1.010)
 };
 
+const uchar cOmxDevice::PesVideoHeader[14] = {
+	0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x80, 0x80, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
@@ -194,6 +198,30 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		cDevice::StillPicture(Data, Length);
 	else
 	{
+		int pesLength = 0;
+		uchar *pesPacket = 0;
+
+		cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
+		if (codec != cVideoCodec::eInvalid)
+		{
+			// some plugins deliver raw MPEG data, but PlayVideo() needs a
+			// complete PES packet with valid header
+			pesLength = Length + sizeof(PesVideoHeader);
+			pesPacket = MALLOC(uchar, pesLength);
+			if (!pesPacket)
+				return;
+
+			memcpy(pesPacket, PesVideoHeader, sizeof(PesVideoHeader));
+			memcpy(pesPacket + sizeof(PesVideoHeader), Data, Length);
+			PesSetPts(pesPacket, 1);
+		}
+		else
+			codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
+					Length - PesPayloadOffset(Data));
+
+		if (codec == cVideoCodec::eInvalid)
+			return;
+
 		m_mutex->Lock();
 
 		// manually restart clock and wait for video only
@@ -203,16 +231,15 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 
 		// to get a picture displayed, PlayVideo() needs to be called
 		// 4x for MPEG2 and 13x for H264... ?
-		int repeat =
-			ParseVideoCodec(Data, Length) == cVideoCodec::eMPEG2 ? 4 : 13;
+		int repeat = codec == cVideoCodec::eMPEG2 ? 4 : 13;
 
 		while (repeat--)
 		{
-			const uchar *data = Data;
-			int length = Length;
+			int length = pesPacket ? pesLength : Length;
+			const uchar *data = pesPacket ? pesPacket : Data;
 
 			// play every single PES packet, rise EOS flag on last
-			while (length)
+			while (PesLongEnough(length))
 			{
 				int pktLen = PesHasLength(data) ? PesLength(data) : length;
 
@@ -224,8 +251,10 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 				length -= pktLen;
 			}
 		}
-
 		m_mutex->Unlock();
+
+		if (pesPacket)
+			free(pesPacket);
 	}
 }
 
@@ -295,7 +324,9 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 	m_mutex->Lock();
 	int ret = Length;
 
-	cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
+	cVideoCodec::eCodec codec = PesHasPts(Data) ? ParseVideoCodec(
+			Data + PesPayloadOffset(Data), Length - PesPayloadOffset(Data)) :
+			cVideoCodec::eInvalid;
 
 	// video restart after Clear() with same codec
 	bool videoRestart = (!m_hasVideo && codec == m_videoCodec &&
@@ -427,7 +458,7 @@ uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,
 		snprintf(buf, sizeof(buf), "P6\n%d\n%d\n255\n", SizeX, SizeY);
 		int l = strlen(buf);
 		Size = l + SizeX * SizeY * 3;
-		ret = (uint8_t *)malloc(Size);
+		ret = MALLOC(uint8_t, Size);
 		if (ret)
 		{
 			memcpy(ret, buf, l);
@@ -708,15 +739,9 @@ void cOmxDevice::MakePrimaryDevice(bool On)
 
 cVideoCodec::eCodec cOmxDevice::ParseVideoCodec(const uchar *data, int length)
 {
-	if (!PesHasPts(data))
-		return cVideoCodec::eInvalid;
+	const uchar *p = data;
 
-	if (PesLength(data) - PesPayloadOffset(data) < 6)
-		return cVideoCodec::eInvalid;
-
-	const uchar *p = data + PesPayloadOffset(data);
-
-	for (int i = 0; i < 5; i++)
+	for (int i = 0; (i < 5) && (i + 4 < length); i++)
 	{
 		// find start code prefix - should be right at the beginning of payload
 		if ((!p[i] && !p[i + 1] && p[i + 2] == 0x01))
