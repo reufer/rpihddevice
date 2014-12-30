@@ -241,6 +241,17 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		m_videoFormat.interlaced = interlace.eMode != OMX_InterlaceProgressive;
 		m_videoFormat.frameRate =
 				ALIGN_UP(portdef.format.video.xFramerate, 1 << 16) >> 16;
+
+		// workaround for progressive streams detected as interlaced video by
+		// the decoder due to missing SEI parsing
+		// see: https://github.com/raspberrypi/firmware/issues/283
+		if (m_videoFormat.interlaced && m_videoFormat.frameRate >= 50)
+		{
+			DLOG("%di looks implausible, manually overriding interlaced flag",
+					m_videoFormat.frameRate * 2);
+			m_videoFormat.interlaced = false;
+		}
+
 		if (m_videoFormat.interlaced)
 			m_videoFormat.frameRate = m_videoFormat.frameRate * 2;
 
@@ -261,8 +272,14 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 			bool fastDeinterlace = portdef.format.video.nFrameWidth *
 					portdef.format.video.nFrameHeight > 576 * 720;
 
-			filterparam.nNumParams = 1;
+			filterparam.nNumParams = fastDeinterlace ? 1 : 2;
 			filterparam.nParams[0] = 3;
+
+			// explicitly set frame interval for advanced deinterlacer
+			// see: https://github.com/raspberrypi/firmware/issues/234
+			filterparam.nParams[1] = 1000000 /
+					(portdef.format.video.xFramerate >> 16);
+
 			filterparam.eImageFilter = fastDeinterlace ?
 					OMX_ImageFilterDeInterlaceFast :
 					OMX_ImageFilterDeInterlaceAdvanced;
