@@ -69,6 +69,16 @@ ifeq ($(DEBUG), 1)
     DEFINES += -DDEBUG
 endif
 
+DEBUG_LATENCY ?= 0
+ifeq ($(DEBUG_LATENCY), 1)
+    DEFINES += -DDEBUG_LATENCY
+endif
+
+DEBUG_BUFFERS ?= 0
+ifeq ($(DEBUG_BUFFERS), 1)
+    DEFINES += -DDEBUG_BUFFERS
+endif
+
 # ffmpeg/libav configuration
 ifdef EXT_LIBAV
 	LIBAV_PKGCFG = $(shell PKG_CONFIG_PATH=$(EXT_LIBAV)/lib/pkgconfig pkg-config $(1))

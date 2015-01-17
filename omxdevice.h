@@ -47,7 +47,7 @@ public:
 	virtual int PlayVideo(const uchar *Data, int Length)
 		{ return PlayVideo(Data, Length, false); }
 
-	virtual int PlayVideo(const uchar *Data, int Length, bool EndOfStream);
+	virtual int PlayVideo(const uchar *Data, int Length, bool EndOfFrame);
 
 	virtual int64_t GetSTC(void);
 
@@ -74,7 +74,8 @@ protected:
 
 	enum eDirection {
 		eForward,
-		eBackward
+		eBackward,
+		eNumDirections
 	};
 
 	static const char* DirectionStr(eDirection dir) {
@@ -82,7 +83,7 @@ protected:
 				dir == eBackward ? "backward" : "unknown";
 	}
 
-	enum eSpeed {
+	enum ePlaybackSpeed {
 		ePause,
 		eSlowest,
 		eSlower,
@@ -90,10 +91,11 @@ protected:
 		eNormal,
 		eFast,
 		eFaster,
-		eFastest
+		eFastest,
+		eNumPlaybackSpeeds
 	};
 
-	static const char* SpeedStr(eSpeed speed) {
+	static const char* PlaybackSpeedStr(ePlaybackSpeed speed) {
 		return 	speed == ePause   ? "pause"   :
 				speed == eSlowest ? "slowest" :
 				speed == eSlower  ? "slower"  :
@@ -104,15 +106,16 @@ protected:
 				speed == eFastest ? "fastest" : "unknown";
 	}
 
-	enum eSpeedCorrection {
+	enum eLiveSpeed {
 		eNegMaxCorrection,
 		eNegCorrection,
 		eNoCorrection,
 		ePosCorrection,
 		ePosMaxCorrection,
+		eNumLiveSpeeds
 	};
 
-	static const char* SpeedCorrectionStr(eSpeedCorrection corr) {
+	static const char* LiveSpeedStr(eLiveSpeed corr) {
 		return	corr == eNegMaxCorrection ? "max negative" :
 				corr == eNegCorrection    ? "negative"     :
 				corr == eNoCorrection     ? "no"           :
@@ -120,8 +123,8 @@ protected:
 				corr == ePosMaxCorrection ? "max positive" : "unknown";
 	}
 
-	static int s_speeds[2][8];
-	static int s_speedCorrections[5];
+	static const int s_playbackSpeeds[eNumDirections][eNumPlaybackSpeeds];
+	static const int s_liveSpeeds[eNumLiveSpeeds];
 
 	static const uchar PesVideoHeader[14];
 
@@ -148,11 +151,13 @@ private:
 	void HandleVideoSetupChanged();
 
 	void FlushStreams(bool flushVideoRender = false);
+	bool SubmitEOS(void);
 
 	void ApplyTrickSpeed(int trickSpeed, bool forward);
 	void PtsTracker(int64_t ptsDiff);
 
 	void UpdateLatency(int64_t pts);
+	void ResetLatency(void);
 
 	cOmx			 *m_omx;
 	cRpiAudioDecoder *m_audio;
@@ -160,8 +165,9 @@ private:
 
 	cVideoCodec::eCodec	m_videoCodec;
 
-	eSpeed		m_speed;
-	eDirection	m_direction;
+	eLiveSpeed          m_liveSpeed;
+	ePlaybackSpeed      m_playbackSpeed;
+	eDirection          m_direction;
 
 	bool	m_hasVideo;
 	bool	m_hasAudio;
@@ -172,7 +178,18 @@ private:
 
 	int64_t	m_audioPts;
 	int64_t	m_videoPts;
-	int64_t m_latency;
+
+	uchar   m_audioId;
+
+#define LATENCY_FILTER_SIZE 8
+#define LATENCY_FILTER_PREROLL 16
+
+	int     m_latency[LATENCY_FILTER_SIZE];
+	int     m_latencySamples;
+	int     m_latencyTarget;
+
+	int     m_posMaxCorrections;
+	int     m_negMaxCorrections;
 };
 
 #endif

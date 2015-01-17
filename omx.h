@@ -53,7 +53,7 @@ public:
 	void SetClockScale(OMX_S32 scale);
 	bool IsClockFreezed(void) { return m_clockScale == 0; }
 	void SetCurrentReferenceTime(uint64_t pts);
-	unsigned int GetMediaTime(void);
+	unsigned int GetAudioLatency(void);
 
 	enum eClockReference {
 		eClockRefAudio,
@@ -65,24 +65,16 @@ public:
 	void SetClockLatencyTarget(void);
 	void SetVolume(int vol);
 	void SetMute(bool mute);
-	void SendEos(void);
 	void StopVideo(void);
 	void StopAudio(void);
 
-	enum eDataUnitType {
-		eCodedPicture,
-		eArbitraryStreamSection
-	};
-
-	void SetVideoDataUnitType(eDataUnitType dataUnitType);
 	void SetVideoErrorConcealment(bool startWithValidFrame);
 	void SetVideoDecoderExtraBuffers(int extraBuffers);
 
 	void FlushAudio(void);
 	void FlushVideo(bool flushRender = false);
 
-	int SetVideoCodec(cVideoCodec::eCodec codec,
-			eDataUnitType dataUnit = eArbitraryStreamSection);
+	int SetVideoCodec(cVideoCodec::eCodec codec);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cRpiAudioPort::ePort audioPort,
 			int samplingRate = 0, int frameSize = 0);
@@ -105,6 +97,10 @@ private:
 	virtual void Action(void);
 
 	static const char* errStr(int err);
+
+#ifdef DEBUG_BUFFERS
+	static void DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix = "");
+#endif
 
 	enum eOmxComponent {
 		eClock = 0,

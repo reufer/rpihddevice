@@ -17,22 +17,19 @@
 
 #include <string.h>
 
-// latency target for transfer mode in PTS ticks (90kHz) -> 500ms
-#define LATENCY_TARGET 45000LL
-// latency window for validation where closed loop will be active (+/- 4s)
-#define LATENCY_WINDOW 360000LL
-
 #define S(x) ((int)(floor(x * pow(2, 16))))
 
 // trick speeds as defined in vdr/dvbplayer.c
-int cOmxDevice::s_speeds[2][8] = {
+const int cOmxDevice::s_playbackSpeeds[eNumDirections][eNumPlaybackSpeeds] = {
 	{ S(0.0f), S( 0.125f), S( 0.25f), S( 0.5f), S( 1.0f), S( 2.0f), S( 4.0f), S( 12.0f) },
 	{ S(0.0f), S(-0.125f), S(-0.25f), S(-0.5f), S(-1.0f), S(-2.0f), S(-4.0f), S(-12.0f) }
 };
 
-// speed correction factors for live mode, taken from omxplayer
-int cOmxDevice::s_speedCorrections[5] = {
-	S(0.990f), S(0.999f), S(1.000f), S(1.001), S(1.010)
+// speed correction factors for live mode
+// HDMI specification allows a tolerance of 1000ppm, however on the Raspberry Pi
+// it's limited to 175ppm to avoid audio drops one some A/V receivers
+const int cOmxDevice::s_liveSpeeds[eNumLiveSpeeds] = {
+	S(0.999f), S(0.99985f), S(1.000f), S(1.00015), S(1.001)
 };
 
 const uchar cOmxDevice::PesVideoHeader[14] = {
@@ -46,7 +43,8 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_audio(new cRpiAudioDecoder(m_omx)),
 	m_mutex(new cMutex()),
 	m_videoCodec(cVideoCodec::eInvalid),
-	m_speed(eNormal),
+	m_liveSpeed(eNoCorrection),
+	m_playbackSpeed(eNormal),
 	m_direction(eForward),
 	m_hasVideo(false),
 	m_hasAudio(false),
@@ -55,7 +53,11 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_trickRequest(0),
 	m_audioPts(0),
 	m_videoPts(0),
-	m_latency(0)
+	m_audioId(0),
+	m_latencySamples(0),
+	m_latencyTarget(0),
+	m_posMaxCorrections(0),
+	m_negMaxCorrections(0)
 {
 }
 
@@ -92,7 +94,6 @@ int cOmxDevice::Init(void)
 int cOmxDevice::DeInit(void)
 {
 	cRpiSetup::SetVideoSetupChangedCallback(0);
-
 	if (m_audio->DeInit() < 0)
 	{
 		ELOG("failed to deinitialize audio!");
@@ -158,6 +159,15 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
+		FlushStreams(true);
+		if (m_hasVideo)
+			m_omx->StopVideo();
+
+		m_hasAudio = false;
+		m_hasVideo = false;
+		m_videoCodec = cVideoCodec::eInvalid;
+		break;
+
 		if (m_hasAudio)
 		{
 			m_audio->Reset();
@@ -180,7 +190,7 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmAudioOnly:
 	case pmAudioOnlyBlack:
 	case pmVideoOnly:
-		m_speed = eNormal;
+		m_playbackSpeed = eNormal;
 		m_direction = eForward;
 		break;
 
@@ -198,6 +208,7 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		cDevice::StillPicture(Data, Length);
 	else
 	{
+		DBG("StillPicture()");
 		int pesLength = 0;
 		uchar *pesPacket = 0;
 
@@ -213,7 +224,6 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 
 			memcpy(pesPacket, PesVideoHeader, sizeof(PesVideoHeader));
 			memcpy(pesPacket + sizeof(PesVideoHeader), Data, Length);
-			PesSetPts(pesPacket, 1);
 		}
 		else
 			codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
@@ -223,34 +233,31 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 			return;
 
 		m_mutex->Lock();
-
-		// manually restart clock and wait for video only
-		m_omx->StopClock();
-		m_omx->SetClockScale(s_speeds[eForward][eNormal]);
-		m_omx->StartClock(true, false);
+		m_playbackSpeed = eNormal;
+		m_direction = eForward;
 
 		// to get a picture displayed, PlayVideo() needs to be called
-		// 4x for MPEG2 and 13x for H264... ?
-		int repeat = codec == cVideoCodec::eMPEG2 ? 4 : 13;
-
+		// 4x for MPEG2 and 10x for H264... ?
+		int repeat = codec == cVideoCodec::eMPEG2 ? 4 : 10;
 		while (repeat--)
 		{
 			int length = pesPacket ? pesLength : Length;
 			const uchar *data = pesPacket ? pesPacket : Data;
 
-			// play every single PES packet, rise EOS flag on last
+			// play every single PES packet, rise ENDOFFRAME flag on last
 			while (PesLongEnough(length))
 			{
 				int pktLen = PesHasLength(data) ? PesLength(data) : length;
 
 				// skip non-video packets as they may occur in PES recordings
 				if ((data[3] & 0xf0) == 0xe0)
-					PlayVideo(data, pktLen, !repeat && (pktLen == length));
+					PlayVideo(data, pktLen, pktLen == length);
 
 				data += pktLen;
 				length -= pktLen;
 			}
 		}
+		SubmitEOS();
 		m_mutex->Unlock();
 
 		if (pesPacket)
@@ -260,24 +267,21 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 
 int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
-	if (m_skipAudio)
-		return Length;
-
 	m_mutex->Lock();
 
 	if (!m_hasAudio)
 	{
 		m_hasAudio = true;
+		m_audioId = Id;
 		m_omx->SetClockReference(cOmx::eClockRefAudio);
 
-		// actually, clock should be restarted anyway, but if video is already
-		// present, decoder will get stuck after clock restart and raises a
-		// buffer stall
 		if (!m_hasVideo)
 		{
-			FlushStreams();
-			m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
+			DBG("audio first");
+			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
+			if (Transferring())
+				ResetLatency();
 		}
 	}
 
@@ -293,7 +297,14 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	}
 
 	if (Transferring() && pts)
+	{
+		if (m_audioId != Id)
+		{
+			ResetLatency();
+			m_audioId = Id;
+		}
 		UpdateLatency(pts);
+	}
 
 	int ret = Length;
 	int length = Length - PesPayloadOffset(Data);
@@ -314,12 +325,11 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		if (!m_audio->WriteData(data, length, pts))
 			ret = 0;
 	}
-
 	m_mutex->Unlock();
 	return ret;
 }
 
-int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
+int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 {
 	m_mutex->Lock();
 	int ret = Length;
@@ -346,7 +356,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 		if (cRpiSetup::IsVideoCodecSupported(codec))
 		{
 			videoRestart = true;
-			m_omx->SetVideoCodec(codec, cOmx::eArbitraryStreamSection);
+			m_omx->SetVideoCodec(codec);
 			DLOG("set video codec to %s", cVideoCodec::Str(codec));
 		}
 		else
@@ -355,10 +365,17 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 
 	if (videoRestart)
 	{
+		if (!m_hasAudio)
+		{
+			DBG("video first");
+			m_omx->SetClockReference(cOmx::eClockRefVideo);
+		}
+
 		m_hasVideo = true;
-		FlushStreams();
-		m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
+		m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 		m_omx->StartClock(m_hasVideo, m_hasAudio);
+		if (Transferring())
+			ResetLatency();
 	}
 
 	if (m_hasVideo)
@@ -366,13 +383,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 		int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
 
 		// keep track of direction in case of trick speed
-		if (m_trickRequest && pts)
-		{
-			if (m_videoPts)
-				PtsTracker(PtsDiff(m_videoPts, pts));
-
-			m_videoPts = pts;
-		}
+		if (m_trickRequest && pts && m_videoPts)
+			PtsTracker(PtsDiff(m_videoPts, pts));
 
 		if (!m_hasAudio && Transferring() && pts)
 			UpdateLatency(pts);
@@ -393,8 +405,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 				Length -= buf->nFilledLen;
 				Data += buf->nFilledLen;
 
-				if (EndOfStream && !Length)
-					buf->nFlags |= OMX_BUFFERFLAG_EOS;
+				if (EndOfFrame && !Length)
+					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
 
 				if (!m_omx->EmptyVideoBuffer(buf))
 				{
@@ -411,9 +423,18 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfStream)
 			pts = 0;
 		}
 	}
-
 	m_mutex->Unlock();
 	return ret;
+}
+
+bool cOmxDevice::SubmitEOS(void)
+{
+	DBG("SubmitEOS()");
+	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(0);
+	if (buf)
+		buf->nFlags = /*OMX_BUFFERFLAG_ENDOFFRAME | */ OMX_BUFFERFLAG_EOS;
+
+	return m_omx->EmptyVideoBuffer(buf);
 }
 
 int64_t cOmxDevice::GetSTC(void)
@@ -475,8 +496,8 @@ void cOmxDevice::Clear(void)
 	m_mutex->Lock();
 
 	FlushStreams();
-	m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
-	m_omx->StartClock(m_hasVideo, m_hasAudio);
+	m_hasAudio = false;
+	m_hasVideo = false;
 
 	m_mutex->Unlock();
 	cDevice::Clear();
@@ -487,10 +508,9 @@ void cOmxDevice::Play(void)
 	DBG("Play()");
 	m_mutex->Lock();
 
-	m_speed = eNormal;
+	m_playbackSpeed = eNormal;
 	m_direction = eForward;
-	m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
-	m_skipAudio = false;
+	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 
 	m_mutex->Unlock();
 	cDevice::Play();
@@ -501,7 +521,7 @@ void cOmxDevice::Freeze(void)
 	DBG("Freeze()");
 	m_mutex->Lock();
 
-	m_omx->SetClockScale(s_speeds[eForward][ePause]);
+	m_omx->SetClockScale(s_playbackSpeeds[eForward][ePause]);
 
 	m_mutex->Unlock();
 	cDevice::Freeze();
@@ -534,9 +554,9 @@ void cOmxDevice::TrickSpeed(int Speed)
 
 void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool forward)
 {
-	bool flush = HasIBPTrickSpeed();
+	m_direction = forward ? eForward : eBackward;
+	m_playbackSpeed =
 
-	m_speed =
 		// slow forward
 		trickSpeed ==  8 ? eSlowest :
 		trickSpeed ==  4 ? eSlower  :
@@ -552,42 +572,17 @@ void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool forward)
 		trickSpeed == 48 ? eSlower  :
 		trickSpeed == 24 ? eSlow    : eNormal;
 
-	m_direction = forward ? eForward : eBackward;
-
-	// we only need to flush when IBP trick mode has changed,
-	// for the other transitions VDR will call Clear() if necessary
-	flush ^= HasIBPTrickSpeed();
-
-	// if there is video to play, we're going to skip audio
-	// but first, we need to flush audio
-	if (!m_skipAudio && m_hasVideo && !HasIBPTrickSpeed())
-	{
-		m_audio->Reset();
-		m_omx->FlushAudio();
-		m_skipAudio = true;
-	}
-
-	if (flush)
-		FlushStreams();
-
-	m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
-
-	if (flush)
-		m_omx->StartClock(m_hasVideo, !m_skipAudio);
+	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 
 	DBG("ApplyTrickSpeed(%s, %s)",
-			SpeedStr(m_speed), DirectionStr(m_direction));
-}
-
-bool cOmxDevice::HasIBPTrickSpeed(void)
-{
-	// IBP trick speed only supported at first fast forward speed or
-	// for audio only recordings at every speed
-	return m_direction == eForward && (m_speed <= eFast || !m_hasVideo);
+			PlaybackSpeedStr(m_playbackSpeed), DirectionStr(m_direction));
+	return;
 }
 
 void cOmxDevice::PtsTracker(int64_t ptsDiff)
 {
+	DBG("PtsTracker(%lld)", ptsDiff);
+
 	if (ptsDiff < 0)
 		--m_playDirection;
 	else if (ptsDiff > 0)
@@ -600,26 +595,108 @@ void cOmxDevice::PtsTracker(int64_t ptsDiff)
 	}
 }
 
+bool cOmxDevice::HasIBPTrickSpeed(void)
+{
+	return !m_hasVideo;
+}
+
 void cOmxDevice::UpdateLatency(int64_t pts)
 {
-	// calculate and validate latency
-	uint64_t latency = pts - m_omx->GetSTC();
-	if (abs(latency > LATENCY_WINDOW))
+	if (!pts || !m_omx->IsClockRunning())
 		return;
 
-	m_latency = (7 * m_latency + latency) >> 3;
-	eSpeedCorrection corr = eNoCorrection;
+	int64_t stc = m_omx->GetSTC();
+	if (!stc || pts <= stc)
+		return;
 
-	if (m_latency < 0.5f * LATENCY_TARGET)
-		corr = eNegMaxCorrection;
-	else if (m_latency < 0.9f * LATENCY_TARGET)
-		corr = eNegCorrection;
-	else if (m_latency > 2.0f * LATENCY_TARGET)
-		corr = ePosMaxCorrection;
-	else if (m_latency > 1.1f * LATENCY_TARGET)
-		corr = ePosCorrection;
+	for (int i = LATENCY_FILTER_SIZE - 1; i > 0; i--)
+		m_latency[i] = m_latency[i - 1];
+	m_latency[0] = (pts - stc) / 90;
 
-	m_omx->SetClockScale(s_speedCorrections[corr]);
+	if (m_latencySamples < LATENCY_FILTER_SIZE - 1)
+	{
+		m_latencySamples++;
+		return;
+	}
+
+#ifdef DEBUG_LATENCY
+	eLiveSpeed oldSpeed = m_liveSpeed;
+#endif
+	int average = 0;
+
+	for (int i = 0; i < LATENCY_FILTER_SIZE; i++)
+		average += m_latency[i];
+	average = average / LATENCY_FILTER_SIZE;
+
+	if (!m_latencyTarget)
+		m_latencyTarget = 1.4f * average;
+
+	if (average > 2.0f * m_latencyTarget)
+	{
+		if (m_liveSpeed < ePosMaxCorrection)
+		{
+			m_liveSpeed = ePosMaxCorrection;
+			m_posMaxCorrections++;
+			DLOG("latency too big, speeding up...");
+		}
+	}
+	else if (average < 0.5f * m_latencyTarget)
+	{
+		if (m_liveSpeed > eNegMaxCorrection)
+		{
+			m_liveSpeed = eNegMaxCorrection;
+			m_negMaxCorrections++;
+			DLOG("latency too small, slowing down...");
+		}
+	}
+	else if (average > 1.1f * m_latencyTarget)
+	{
+		if (m_liveSpeed < ePosMaxCorrection)
+			m_liveSpeed = ePosCorrection;
+	}
+	else if (average < 0.9f * m_latencyTarget)
+	{
+		if (m_liveSpeed > eNegMaxCorrection)
+			m_liveSpeed = eNegCorrection;
+	}
+	else if (average > m_latencyTarget)
+	{
+		if (m_liveSpeed < eNoCorrection)
+			m_liveSpeed = eNoCorrection;
+	}
+	else if (average < m_latencyTarget)
+	{
+		if (m_liveSpeed > eNoCorrection)
+			m_liveSpeed = eNoCorrection;
+	} else
+		m_liveSpeed = eNoCorrection;
+
+	m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
+
+#ifdef DEBUG_LATENCY
+	if (oldSpeed != m_liveSpeed)
+	{
+		DLOG("%s%s latency = %4dms, target = %4dms, corr = %s, "
+				"max neg/pos corr = %d/%d",
+				m_hasAudio ? "A" : "-",  m_hasVideo ? "V" : "-",
+				average, m_latencyTarget,
+				m_liveSpeed == eNegMaxCorrection ? "--|  " :
+				m_liveSpeed == eNegCorrection    ? " -|  " :
+				m_liveSpeed == eNoCorrection     ? "  |  " :
+				m_liveSpeed == ePosCorrection    ? "  |+ " :
+				m_liveSpeed == ePosMaxCorrection ? "  |++" : "  ?  ",
+				m_negMaxCorrections, m_posMaxCorrections);
+	}
+#endif
+}
+
+void cOmxDevice::ResetLatency(void)
+{
+	m_latencySamples = - LATENCY_FILTER_PREROLL;
+	m_latencyTarget = 0;
+	m_liveSpeed = eNoCorrection;
+	m_posMaxCorrections = 0;
+	m_negMaxCorrections = 0;
 }
 
 void cOmxDevice::HandleBufferStall()
@@ -628,7 +705,7 @@ void cOmxDevice::HandleBufferStall()
 	m_mutex->Lock();
 
 	FlushStreams();
-	m_omx->SetClockScale(s_speeds[m_direction][m_speed]);
+	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
 
 	m_mutex->Unlock();
@@ -637,11 +714,14 @@ void cOmxDevice::HandleBufferStall()
 void cOmxDevice::HandleEndOfStream()
 {
 	DBG("HandleEndOfStream()");
+	m_mutex->Lock();
 
 	// flush pipes and restart clock after still image
 	FlushStreams();
-	m_omx->SetClockScale(s_speeds[eForward][ePause]);
+	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
+
+	m_mutex->Unlock();
 }
 
 void cOmxDevice::HandleStreamStart()
@@ -701,8 +781,6 @@ void cOmxDevice::FlushStreams(bool flushVideoRender)
 		m_audio->Reset();
 		m_omx->FlushAudio();
 	}
-
-	m_omx->SetCurrentReferenceTime(0);
 }
 
 void cOmxDevice::SetVolumeDevice(int Volume)

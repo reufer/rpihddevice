@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - reworked omxdevice and improved clock stretching for transfer mode
   - added Hungarian translations (thanks to Füley István)
   - updated Finnish translations and fixed tr() usage (thanks to Rolf Ahrenberg)
   - use fast deinterlacer for HD streams

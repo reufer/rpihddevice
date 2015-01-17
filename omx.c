@@ -18,7 +18,7 @@ extern "C" {
 
 #include "bcm_host.h"
 
-#define OMX_PRE_ROLL 50
+#define OMX_PRE_ROLL 0
 
 #define OMX_INIT_STRUCT(a) \
 	memset(&(a), 0, sizeof(a)); \
@@ -457,7 +457,7 @@ int cOmx::Init(void)
 	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
 
 	SetClockLatencyTarget();
-	SetBufferStallThreshold(1500);
+	SetBufferStallThreshold(20000);
 	SetClockReference(cOmx::eClockRefVideo);
 
 	FlushVideo();
@@ -660,19 +660,19 @@ void cOmx::SetCurrentReferenceTime(uint64_t pts)
 	}
 }
 
-unsigned int cOmx::GetMediaTime(void)
+unsigned int cOmx::GetAudioLatency(void)
 {
 	unsigned int ret = 0;
 
-	OMX_TIME_CONFIG_TIMESTAMPTYPE timestamp;
-	OMX_INIT_STRUCT(timestamp);
-	timestamp.nPortIndex = OMX_ALL;
+	OMX_PARAM_U32TYPE u32;
+	OMX_INIT_STRUCT(u32);
+	u32.nPortIndex = 100;
 
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eClock]),
-		OMX_IndexConfigTimeCurrentMediaTime, &timestamp) != OMX_ErrorNone)
-		ELOG("failed get current clock reference!");
+	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
+		OMX_IndexConfigAudioRenderingLatency, &u32) != OMX_ErrorNone)
+		ELOG("failed get audio render latency!");
 	else
-		ret = timestamp.nTimestamp.nLowPart;
+		ret = u32.nU32;
 
 	return ret;
 }
@@ -797,24 +797,6 @@ void cOmx::SetMute(bool mute)
 		ELOG("failed to set mute state!");
 }
 
-void cOmx::SendEos(void)
-{
-#if 0
-	OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 1);
-	if (buf == NULL)
-		return;
-
-	buf->nFilledLen = 0;
-	buf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN | OMX_BUFFERFLAG_EOS;
-
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf) != OMX_ErrorNone)
-		ELOG("failed to send empty packet to video decoder!");
-
-	if (!m_eosEvent->Wait(10000))
-		ELOG("time out waiting for EOS event!");
-#endif
-}
-
 void cOmx::StopVideo(void)
 {
 	// put video decoder into idle
@@ -861,22 +843,6 @@ void cOmx::StopAudio(void)
 	m_spareAudioBuffers = 0;
 }
 
-void cOmx::SetVideoDataUnitType(eDataUnitType dataUnitType)
-{
-	OMX_PARAM_DATAUNITTYPE dataUnit;
-	OMX_INIT_STRUCT(dataUnit);
-	dataUnit.nPortIndex = 130;
-
-	dataUnit.eEncapsulationType = OMX_DataEncapsulationElementaryStream;
-	dataUnit.eUnitType = dataUnitType == eCodedPicture ?
-				OMX_DataUnitCodedPicture : OMX_DataUnitArbitraryStreamSection;
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamBrcmDataUnit, &dataUnit) != OMX_ErrorNone)
-		ELOG("failed to set video decoder data unit type!");
-
-}
-
 void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
 {
 	OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE ectype;
@@ -919,7 +885,7 @@ void cOmx::FlushVideo(bool flushRender)
 	m_setVideoDiscontinuity = true;
 }
 
-int cOmx::SetVideoCodec(cVideoCodec::eCodec codec, eDataUnitType dataUnit)
+int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 {
 	if (ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle) != 0)
 		ELOG("failed to set video decoder to idle state!");
@@ -953,7 +919,6 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec, eDataUnitType dataUnit)
 
 	// start with valid frames only if codec is MPEG2
 	SetVideoErrorConcealment(codec == cVideoCodec::eMPEG2);
-	SetVideoDataUnitType(dataUnit);
 	SetVideoDecoderExtraBuffers(3);
 
 	if (ilclient_enable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL) != 0)
@@ -1103,8 +1068,8 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get audio render port parameters!");
 
-	param.nBufferSize = KILOBYTE(160);
-	param.nBufferCountActual = 4;
+	param.nBufferSize = KILOBYTE(16);
+	param.nBufferCountActual = 256;
 	m_freeAudioBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
@@ -1117,7 +1082,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateExecuting);
 
 	if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
-		ELOG("failed to setup up tunnel from clock to video scheduler!");
+		ELOG("failed to setup up tunnel from clock to audio render!");
 
 	return 0;
 }
@@ -1183,9 +1148,16 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 
 	if (buf)
 	{
+		buf->nFilledLen = 0;
+		buf->nOffset = 0;
+		buf->nFlags = 0;
+
+		if (m_setAudioStartTime)
+			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+		else if (!pts)
+			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+
 		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-		buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
-		buf->nFlags |= m_setAudioStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
 		m_setAudioStartTime = false;
 	}
 	else
@@ -1212,11 +1184,19 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 
 	if (buf)
 	{
-		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-		buf->nFlags = pts ? 0 : OMX_BUFFERFLAG_TIME_UNKNOWN;
-		buf->nFlags |= m_setVideoStartTime ? OMX_BUFFERFLAG_STARTTIME : 0;
-		buf->nFlags |= m_setVideoDiscontinuity ? OMX_BUFFERFLAG_DISCONTINUITY : 0;
+		buf->nFilledLen = 0;
+		buf->nOffset = 0;
+		buf->nFlags = 0;
 
+		if (m_setVideoStartTime)
+			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+		else if (!pts)
+			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+
+		if (m_setVideoDiscontinuity)
+			buf->nFlags |= OMX_BUFFERFLAG_DISCONTINUITY;
+
+		cOmx::PtsToTicks(pts, buf->nTimeStamp);
 		m_setVideoStartTime = false;
 		m_setVideoDiscontinuity = false;
 	}
@@ -1227,14 +1207,53 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 	return buf;
 }
 
+#ifdef DEBUG_BUFFERS
+void cOmx::DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix)
+{
+	DLOG("%s: TS=%8x%08x, LEN=%5d/%5d: %02x %02x %02x %02x... "
+			"FLAGS: %s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+		prefix,
+		buf->nTimeStamp.nHighPart, buf->nTimeStamp.nLowPart,
+		buf->nFilledLen, buf->nAllocLen,
+		buf->pBuffer[0], buf->pBuffer[1], buf->pBuffer[2], buf->pBuffer[3],
+		buf->nFlags & OMX_BUFFERFLAG_EOS             ? "EOS "           : "",
+		buf->nFlags & OMX_BUFFERFLAG_STARTTIME       ? "STARTTIME "     : "",
+		buf->nFlags & OMX_BUFFERFLAG_DECODEONLY      ? "DECODEONLY "    : "",
+		buf->nFlags & OMX_BUFFERFLAG_DATACORRUPT     ? "DATACORRUPT "   : "",
+		buf->nFlags & OMX_BUFFERFLAG_ENDOFFRAME      ? "ENDOFFRAME "    : "",
+		buf->nFlags & OMX_BUFFERFLAG_SYNCFRAME       ? "SYNCFRAME "     : "",
+		buf->nFlags & OMX_BUFFERFLAG_EXTRADATA       ? "EXTRADATA "     : "",
+		buf->nFlags & OMX_BUFFERFLAG_CODECCONFIG     ? "CODECCONFIG "   : "",
+		buf->nFlags & OMX_BUFFERFLAG_TIME_UNKNOWN    ? "TIME_UNKNOWN "  : "",
+		buf->nFlags & OMX_BUFFERFLAG_CAPTURE_PREVIEW ? "CAPTURE_PREV "  : "",
+		buf->nFlags & OMX_BUFFERFLAG_ENDOFNAL        ? "ENDOFNAL "      : "",
+		buf->nFlags & OMX_BUFFERFLAG_FRAGMENTLIST    ? "FRAGMENTLIST "  : "",
+		buf->nFlags & OMX_BUFFERFLAG_DISCONTINUITY   ? "DISCONTINUITY " : "",
+		buf->nFlags & OMX_BUFFERFLAG_CODECSIDEINFO   ? "CODECSIDEINFO " : ""
+	);
+}
+#endif
+
 bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 {
 	if (!buf)
 		return false;
 
+#ifdef DEBUG_BUFFERS
+	DumpBuffer(buf, "A");
+#endif
+
 	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eAudioRender]), buf)
 			!= OMX_ErrorNone)
 	{
+		ELOG("failed to empty OMX audio buffer");
+
+		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
+			m_setAudioStartTime = true;
+
+		if (buf->nFlags & OMX_BUFFERFLAG_DISCONTINUITY)
+			m_setVideoDiscontinuity = true;
+
 		buf->nFilledLen = 0;
 		buf->pAppPrivate = m_spareAudioBuffers;
 		m_spareAudioBuffers = buf;
@@ -1249,9 +1268,18 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 	if (!buf)
 		return false;
 
+#ifdef DEBUG_BUFFERS
+	DumpBuffer(buf, "V");
+#endif
+
 	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf)
 			!= OMX_ErrorNone)
 	{
+		ELOG("failed to empty OMX video buffer");
+
+		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
+			m_setVideoStartTime = true;
+
 		buf->nFilledLen = 0;
 		buf->pAppPrivate = m_spareVideoBuffers;
 		m_spareVideoBuffers = buf;
