@@ -12,6 +12,8 @@
 #include "tools.h"
 #include "omx.h"
 
+class cRpiAudioRender;
+
 class cRpiAudioDecoder : public cThread
 {
 
@@ -32,8 +34,6 @@ public:
 protected:
 
 	virtual void Action(void);
-	void SetCodec(cAudioCodec::eCodec codec, unsigned int &channels,
-			unsigned int samplingRate, unsigned int frameSize = 0);
 
 	static void OnAudioSetupChanged(void *data)
 		{ (static_cast <cRpiAudioDecoder*> (data))->HandleAudioSetupChanged(); }
@@ -52,14 +52,14 @@ private:
 
 	class cParser;
 
-	Codec		  m_codecs[cAudioCodec::eNumCodecs];
-	bool		  m_passthrough;
-	bool		  m_reset;
-	bool		  m_setupChanged;
+	Codec		  	m_codecs[cAudioCodec::eNumCodecs];
+	bool		  	m_passthrough;
+	bool		  	m_reset;
+	bool		  	m_setupChanged;
 
-	cCondWait	 *m_wait;
-	cParser		 *m_parser;
-	cOmx		 *m_omx;
+	cCondWait	 	*m_wait;
+	cParser		 	*m_parser;
+	cRpiAudioRender	*m_render;
 };
 
 #endif

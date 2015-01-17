@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - reworked audio decoder, increase buffering of audio samples
   - reworked omxdevice and improved clock stretching for transfer mode
   - added Hungarian translations (thanks to Füley István)
   - updated Finnish translations and fixed tr() usage (thanks to Rolf Ahrenberg)
