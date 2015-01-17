@@ -1118,8 +1118,10 @@ public:
 		bool specialColors = ColorFg || ColorBg;
 		tColor *argb = (tColor*)malloc(Bitmap.Width() * Bitmap.Height() *
 				sizeof(tColor));
-		tColor *p = argb;
+		if (!argb)
+			return;
 
+		tColor *p = argb;
 		for (int py = 0; py < Bitmap.Height(); py++)
 			for (int px = 0; px < Bitmap.Width(); px++)
 			{
@@ -1141,8 +1143,10 @@ public:
 
 		tColor *argb = (tColor*)malloc(Bitmap.Width() * Bitmap.Height() *
 				sizeof(tColor));
-		tColor *p = argb;
+		if (!argb)
+			return;
 
+		tColor *p = argb;
 		for (int py = 0; py < Bitmap.Height(); py++)
 			for (int px = 0; px < Bitmap.Width(); px++)
 				*p++ = Bitmap.Color(*Bitmap.Data(px, py));
@@ -1198,6 +1202,9 @@ public:
 		{
 			unsigned int *symbols =
 					(unsigned int*)malloc((len + 1) * sizeof(unsigned int));
+			if (!symbols)
+				return;
+
 			Utf8ToArray(s, symbols, len + 1);
 			m_ovg->DoCmd(new cOvgCmdDrawText(x + Left(), y + Top(), symbols,
 					new cString(Font->FontName()), Font->Size(), ColorFg,
@@ -1273,8 +1280,10 @@ public:
 					int w = x2 - x1 + 1;
 					int h = y2 - y1 + 1;
 					tColor *argb = (tColor*)malloc(w * h * sizeof(tColor));
-					tColor *p = argb;
+					if (!argb)
+						return;
 
+					tColor *p = argb;
 					for (int y = y1; y <= y2; ++y)
 						for (int x = x1; x <= x2; ++x)
 							*p++ = bitmap->GetColor(x, y);
