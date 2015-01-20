@@ -182,7 +182,7 @@ bool cRpiSetup::HwInit(void)
 	int width, height;
 	if (!cRpiDisplay::GetSize(width, height))
 	{
-		ILOG("HwInit() done, using %s video out at %dx%d",
+		ILOG("HwInit() done, using %s video out at %dx%d",
 		cRpiVideoPort::Str(cRpiDisplay::GetVideoPort()), width, height);
 	}
 	else
