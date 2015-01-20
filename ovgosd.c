@@ -1116,8 +1116,7 @@ public:
 			return;
 
 		bool specialColors = ColorFg || ColorBg;
-		tColor *argb = (tColor*)malloc(Bitmap.Width() * Bitmap.Height() *
-				sizeof(tColor));
+		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
 			return;
 
@@ -1141,8 +1140,7 @@ public:
 		if (!Active())
 			return;
 
-		tColor *argb = (tColor*)malloc(Bitmap.Width() * Bitmap.Height() *
-				sizeof(tColor));
+		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
 			return;
 
@@ -1200,8 +1198,7 @@ public:
 		int len = Utf8StrLen(s);
 		if (len)
 		{
-			unsigned int *symbols =
-					(unsigned int*)malloc((len + 1) * sizeof(unsigned int));
+			unsigned int *symbols = MALLOC(unsigned int, len + 1);
 			if (!symbols)
 				return;
 
@@ -1279,7 +1276,7 @@ public:
 				{
 					int w = x2 - x1 + 1;
 					int h = y2 - y1 + 1;
-					tColor *argb = (tColor*)malloc(w * h * sizeof(tColor));
+					tColor *argb = MALLOC(tColor, w * h);
 					if (!argb)
 						return;
 
