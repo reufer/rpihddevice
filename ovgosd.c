@@ -779,7 +779,7 @@ public:
 		}
 
 		vgLoadIdentity();
-		vgTranslate(m_x + offsetX, height - m_y - m_fontSize - offsetY + 1);
+		vgTranslate(m_x + offsetX, height - m_y - m_fontSize - offsetY + 2);
 		vgScale(m_fontSize, m_fontSize);
 
 		VGfloat origin[2] = { 0.0f, 0.0f };
