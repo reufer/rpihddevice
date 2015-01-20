@@ -604,7 +604,7 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		ELOG("failed to set clock state!");
+		ELOG("failed to start clock!");
 }
 
 void cOmx::StopClock()
@@ -617,7 +617,7 @@ void cOmx::StopClock()
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-		ELOG("failed to set clock state!");
+		ELOG("failed to stop clock!");
 }
 
 void cOmx::SetClockScale(OMX_S32 scale)
