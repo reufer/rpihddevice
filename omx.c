@@ -245,11 +245,12 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		// workaround for progressive streams detected as interlaced video by
 		// the decoder due to missing SEI parsing
 		// see: https://github.com/raspberrypi/firmware/issues/283
+		// update: with FW from 2015/01/18 this is not necessary anymore
 		if (m_videoFormat.interlaced && m_videoFormat.frameRate >= 50)
 		{
-			DLOG("%di looks implausible, manually overriding interlaced flag",
+			DLOG("%di looks implausible, you should use a recent firmware...",
 					m_videoFormat.frameRate * 2);
-			m_videoFormat.interlaced = false;
+			//m_videoFormat.interlaced = false;
 		}
 
 		if (m_videoFormat.interlaced)
@@ -918,7 +919,8 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 		ELOG("failed to set video decoder port parameters!");
 
 	// start with valid frames only if codec is MPEG2
-	SetVideoErrorConcealment(codec == cVideoCodec::eMPEG2);
+	// update: with FW from 2015/01/18 this is not necessary anymore
+	SetVideoErrorConcealment(true /*codec == cVideoCodec::eMPEG2*/);
 	SetVideoDecoderExtraBuffers(3);
 
 	if (ilclient_enable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL) != 0)

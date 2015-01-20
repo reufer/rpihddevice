@@ -35,6 +35,7 @@ Requirements:
   - freetype2 for GPU accelerated text drawing
   - valid MPEG-2 license when watching MPEG-2 streams
   - Raspberry Pi userland libraries: https://github.com/raspberrypi/userland
+  - Raspberry Pi firmware from 2015/01/18 or newer
   
 Install:
 

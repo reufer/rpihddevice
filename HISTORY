@@ -8,6 +8,9 @@ VDR Plugin 'rpihddevice' Revision History
   - updated Finnish translations and fixed tr() usage (thanks to Rolf Ahrenberg)
   - use fast deinterlacer for HD streams
   - added high level OSD with GPU support
+- fixed:
+  - start H.264 video with valid frame only, requires firmware from 2015/01/18 
+    or newer
 
 2014-11-02: Version 0.0.10
 --------------------------
