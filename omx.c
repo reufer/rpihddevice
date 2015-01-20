@@ -911,7 +911,9 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get video decoder port parameters!");
 
-	param.nBufferCountActual = 64;
+	// default: 20x 81920 bytes
+	param.nBufferSize = KILOBYTE(64);
+	param.nBufferCountActual = 32;
 	m_freeVideoBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
@@ -1070,8 +1072,9 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get audio render port parameters!");
 
+	// default: 16x 4096 bytes
 	param.nBufferSize = KILOBYTE(16);
-	param.nBufferCountActual = 256;
+	param.nBufferCountActual = 64;
 	m_freeAudioBuffers = true;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
