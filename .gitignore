@@ -1,0 +1,11 @@
+.dependencies
+*.a
+*.o
+*.so
+*~
+po/*.pot
+po/*.mo
+.settings
+.cproject
+.project
+

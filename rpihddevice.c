@@ -13,7 +13,7 @@
 #include "display.h"
 #include "tools.h"
 
-static const char *VERSION        = "0.0.10";
+static const char *VERSION        = "0.0.11";
 static const char *DESCRIPTION    = trNOOP("HD output device for Raspberry Pi");
 
 class cPluginRpiHdDevice : public cPlugin

@@ -1,6 +1,8 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2015-01-21: Version 0.0.11
+--------------------------
 - new:
   - reworked audio decoder, increase buffering of audio samples
   - reworked omxdevice and improved clock stretching for transfer mode
