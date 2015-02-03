@@ -637,7 +637,7 @@ void cOmxDevice::UpdateLatency(int64_t pts)
 		{
 			m_liveSpeed = ePosMaxCorrection;
 			m_posMaxCorrections++;
-			DLOG("latency too big, speeding up...");
+			DBG("latency too big, speeding up...");
 		}
 	}
 	else if (average < 0.5f * m_latencyTarget)
@@ -646,7 +646,7 @@ void cOmxDevice::UpdateLatency(int64_t pts)
 		{
 			m_liveSpeed = eNegMaxCorrection;
 			m_negMaxCorrections++;
-			DLOG("latency too small, slowing down...");
+			DBG("latency too small, slowing down...");
 		}
 	}
 	else if (average > 1.1f * m_latencyTarget)
