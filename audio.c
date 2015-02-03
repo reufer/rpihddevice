@@ -1109,11 +1109,13 @@ private:
 		{
 			av_opt_set_int(m_resample, "in_sample_rate", m_samplingRate, 0);
 			av_opt_set_int(m_resample, "in_sample_fmt", m_pcmSampleFormat, 0);
+			av_opt_set_int(m_resample, "in_channel_count", m_inChannels, 0);
 			av_opt_set_int(m_resample, "in_channel_layout",
 					AV_CH_LAYOUT(m_inChannels), 0);
 
 			av_opt_set_int(m_resample, "out_sample_rate", m_samplingRate, 0);
 			av_opt_set_int(m_resample, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+			av_opt_set_int(m_resample, "out_channel_count", m_outChannels, 0);
 			av_opt_set_int(m_resample, "out_channel_layout",
 					AV_CH_LAYOUT(m_outChannels), 0);
 
