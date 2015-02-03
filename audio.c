@@ -196,7 +196,7 @@ public:
 		return ret;
 	}
 
-	void Shrink(unsigned int length)
+	void Shrink(unsigned int length, bool retainPts = false)
 	{
 		m_mutex->Lock();
 
@@ -205,11 +205,6 @@ public:
 			memmove(m_packet.data, m_packet.data + length, m_size - length);
 			m_size -= length;
 			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-
-			// clear current PTS since it's not valid anymore after
-			// shrinking the packet
-			if (!m_ptsQueue.empty())
-				m_ptsQueue.front()->pts = 0;
 
 			while (!m_ptsQueue.empty() && length)
 			{
@@ -221,8 +216,12 @@ public:
 				}
 				else
 				{
-					m_ptsQueue.front()->pts = 0;
-					length -= m_ptsQueue.front()->length -= length;
+					// clear current PTS since it's not valid anymore after
+					// shrinking the packet
+					if (!retainPts)
+						m_ptsQueue.front()->pts = 0;
+
+					m_ptsQueue.front()->length -= length;
 					length = 0;
 				}
 			}
@@ -321,7 +320,7 @@ private:
 		if (offset)
 		{
 			DBG("audio parser skipped %u of %u bytes", offset, m_size);
-			Shrink(offset);
+			Shrink(offset, true);
 		}
 
 		if (codec != cAudioCodec::eInvalid)

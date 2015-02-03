@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- fixed:
+  - don't clear audio PTS when parser shrinks the packet buffer
+
 2015-01-21: Version 0.0.11
 --------------------------
 - new:
