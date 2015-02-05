@@ -81,6 +81,11 @@ public:
 		return index < m_escapements.size() ? m_escapements[index] : 0;
 	}
 
+	VGfloat Height(void)
+	{
+		return m_height;
+	}
+
 	VGFont Font(void)
 	{
 		return m_font;
@@ -97,7 +102,8 @@ private:
 
 	cOvgFont(void) :
 		m_font(VG_INVALID_HANDLE),
-		m_name("")
+		m_name(""),
+		m_height(0)
 	{ }
 
 	cOvgFont(FT_Library lib, const char *name) :
@@ -118,6 +124,8 @@ private:
 		}
 
 		FT_Set_Char_Size(face, 0, CHAR_HEIGHT, 0, 0);
+		m_height = (VGfloat)(face->size->metrics.ascender -
+				face->size->metrics.descender + 63) / (VGfloat)CHAR_HEIGHT;
 
 		int glyphId = 0;
 		FT_UInt glyphIndex;
@@ -246,6 +254,7 @@ private:
 
 	VGFont m_font;
 	cString m_name;
+	VGfloat m_height;
 
 	std::vector<FT_ULong> m_characters;
 	std::vector<VGfloat>  m_escapements;
@@ -264,7 +273,7 @@ class cOvgString
 public:
 
 	cOvgString(const unsigned int *symbols, cOvgFont *font) :
-		m_width(0.0f), m_font(font)
+		m_width(0.0f), m_height(font->Height()), m_font(font)
 	{
 		for (int i = 0; symbols[i]; i++)
 		{
@@ -279,12 +288,14 @@ public:
 	      VGFont   Font(void)         { return  m_font->Font();    }
 	      VGint    Length(void)       { return  m_glyphIds.size(); }
 	      VGfloat  Width(void)        { return  m_width;           }
+	      VGfloat  Height(void)       { return  m_height;          }
 	const VGuint  *GlyphIds(void)     { return &m_glyphIds[0];     }
 
 private:
 
 	std::vector<VGuint> m_glyphIds;
 	VGfloat m_width;
+	VGfloat m_height;
 	cOvgFont *m_font;
 };
 
@@ -739,7 +750,7 @@ public:
 		cOvgString *string = new cOvgString(m_symbols, font);
 
 		VGfloat strWidth = string->Width() * (VGfloat)m_fontSize;
-		VGfloat strHeight = (VGfloat)m_fontSize;
+		VGfloat strHeight = string->Height() * (VGfloat)m_fontSize;
 		VGfloat offsetX = 0;
 		VGfloat offsetY = 0;
 
