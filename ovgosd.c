@@ -1275,8 +1275,23 @@ public:
 		if (IsTrueColor())
 		{
 			LOCK_PIXMAPS;
-			while (cPixmapMemory *pm = RenderPixmaps())
-				m_ovg->DoCmd(new cOvgCmdDrawPixmap(Left(), Top(), pm));
+			while (cPixmapMemory *pm =
+					dynamic_cast<cPixmapMemory *>(RenderPixmaps()))
+			{
+				if (tColor* argb = MALLOC(tColor,
+						pm->DrawPort().Width() * pm->DrawPort().Height()))
+				{
+					memcpy(argb, pm->Data(), sizeof(tColor) *
+							pm->DrawPort().Width() * pm->DrawPort().Height());
+
+					m_ovg->DoCmd(new cOvgCmdDrawBitmap(
+							Left() + pm->ViewPort().Left(),
+							Top() + pm->ViewPort().Top(),
+							pm->DrawPort().Width(), pm->DrawPort().Height(),
+							argb));
+				}
+				DestroyPixmap(pm);
+			}
 		}
 		else
 		{
