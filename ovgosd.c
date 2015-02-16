@@ -1290,7 +1290,11 @@ public:
 							pm->DrawPort().Width(), pm->DrawPort().Height(),
 							argb));
 				}
+#if APIVERSNUM >= 20110
 				DestroyPixmap(pm);
+#else
+				delete pm;
+#endif
 			}
 		}
 		else
