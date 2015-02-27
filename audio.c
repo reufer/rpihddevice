@@ -1086,7 +1086,7 @@ private:
 			m_omx->SetupAudioRender(m_codec, m_outChannels, m_port,
 					m_samplingRate, m_frameSize);
 
-			ILOG("set %s audio output format to %dch %s, %d.%dkHz%s",
+			DLOG("set %s audio output format to %dch %s, %d.%dkHz%s",
 					cRpiAudioPort::Str(m_port), m_outChannels,
 					cAudioCodec::Str(m_codec),
 					m_samplingRate / 1000, (m_samplingRate % 1000) / 100,
