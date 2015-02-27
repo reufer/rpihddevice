@@ -326,6 +326,6 @@ void cRpiSetup::Set(AudioParameters audio, VideoParameters video,
 	if (osd != m_osd)
 	{
 		m_osd = osd;
-		cRpiOsdProvider::ResetOsd(true);
+		cRpiOsdProvider::ResetOsd(false);
 	}
 }
