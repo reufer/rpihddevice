@@ -235,6 +235,7 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		m_mutex->Lock();
 		m_playbackSpeed = eNormal;
 		m_direction = eForward;
+		m_omx->StopClock();
 
 		// to get a picture displayed, PlayVideo() needs to be called
 		// 4x for MPEG2 and 10x for H264... ?
@@ -280,9 +281,10 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			DBG("audio first");
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
-			if (Transferring())
-				ResetLatency();
 		}
+
+		if (Transferring())
+			ResetLatency();
 	}
 
 	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
@@ -365,15 +367,16 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 	if (videoRestart)
 	{
+		m_hasVideo = true;
+
 		if (!m_hasAudio)
 		{
 			DBG("video first");
 			m_omx->SetClockReference(cOmx::eClockRefVideo);
+			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
+			m_omx->StartClock(m_hasVideo, m_hasAudio);
 		}
 
-		m_hasVideo = true;
-		m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-		m_omx->StartClock(m_hasVideo, m_hasAudio);
 		if (Transferring())
 			ResetLatency();
 	}
