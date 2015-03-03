@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - fixed:
+  - improved video frame rate detection to be more tolerant to inaccurate values
   - adapted cOvgRawOsd::Flush() to new cOsd::RenderPixmaps() of vdr-2.1.10
   - fixed calculation of string height (reported by Klaus Schmidinger)
   - additionally set number of in/out channels when setting up audio resampler

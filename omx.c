@@ -239,8 +239,11 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		m_videoFormat.width = portdef.format.video.nFrameWidth;
 		m_videoFormat.height = portdef.format.video.nFrameHeight;
 		m_videoFormat.interlaced = interlace.eMode != OMX_InterlaceProgressive;
-		m_videoFormat.frameRate =
-				ALIGN_UP(portdef.format.video.xFramerate, 1 << 16) >> 16;
+
+		// discard 4 least significant bits, since there might be some deviation
+		// due to jitter in time stamps
+		m_videoFormat.frameRate = ALIGN_UP(
+				portdef.format.video.xFramerate & 0xfffffff0, 1 << 16) >> 16;
 
 		// workaround for progressive streams detected as interlaced video by
 		// the decoder due to missing SEI parsing
