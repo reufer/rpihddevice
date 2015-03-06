@@ -22,6 +22,68 @@
 #include "setup.h"
 #include "tools.h"
 
+/* ------------------------------------------------------------------------- */
+
+// glyphs containing kerning cache, based on VDR's implementation
+
+class cOvgGlyph : public cListObject
+{
+public:
+
+	cOvgGlyph(uint charCode, VGfloat advanceX, VGfloat advanceY) :
+		m_charCode(charCode), m_advanceX(advanceX), m_advanceY(advanceY) { }
+
+	virtual ~cOvgGlyph() { }
+
+	uint    CharCode(void) { return m_charCode; }
+	VGfloat AdvanceX(void) { return m_advanceX; }
+	VGfloat AdvanceY(void) { return m_advanceY; }
+
+	bool GetKerningCache(uint prevSym, VGfloat &kerning)
+	{
+		for (int i = m_kerningCache.Size(); --i > 0; )
+			if (m_kerningCache[i].m_prevSym == prevSym)
+			{
+				kerning = m_kerningCache[i].m_kerning;
+				return true;
+			}
+
+		return false;
+	}
+
+	void SetKerningCache(uint prevSym, VGfloat kerning)
+	{
+		m_kerningCache.Append(tKerning(prevSym, kerning));
+	}
+
+private:
+
+	struct tKerning
+	{
+	public:
+
+		tKerning(uint prevSym, VGfloat kerning = 0.0f)
+		{
+			m_prevSym = prevSym;
+			m_kerning = kerning;
+		}
+
+		uint m_prevSym;
+		VGfloat m_kerning;
+	};
+
+	uint m_charCode;
+
+	VGfloat m_advanceX;
+	VGfloat m_advanceY;
+
+	cVector<tKerning> m_kerningCache;
+};
+
+/* ------------------------------------------------------------------------- */
+
+#define CHAR_HEIGHT (1 << 14)
+
 class cOvgFont : public cListObject
 {
 public:
@@ -48,7 +110,7 @@ public:
 				s_fonts->Clear();
 				if (!retry)
 				{
-					ELOG("OVG out of memory - failed to load font!");
+					ELOG("[OpenVG] out of memory - failed to load font!");
 					font = new cOvgFont();
 					break;
 				}
@@ -68,42 +130,47 @@ public:
 			ELOG("failed to deinitialize FreeType library!");
 	}
 
-	VGuint GlyphIndex(uint character)
+	cOvgGlyph* Glyph(uint charCode) const
 	{
-		std::vector<FT_ULong>::iterator it =
-				std::find(m_characters.begin(), m_characters.end(), character);
+		for (cOvgGlyph *g = m_glyphs.First(); g; g = m_glyphs.Next(g))
+			if (g->CharCode() == charCode)
+				return g;
 
-		return it == m_characters.end() ? 0 : it - m_characters.begin();
+		return 0;
 	}
 
-	VGfloat Escapement(VGuint index)
+	VGfloat Kerning(cOvgGlyph *glyph, uint prevSym) const
 	{
-		return index < m_escapements.size() ? m_escapements[index] : 0;
+		VGfloat kerning = 0.0f;
+		if (glyph && prevSym)
+		{
+			if (!glyph->GetKerningCache(prevSym, kerning))
+			{
+				FT_Vector delta;
+				FT_UInt cur = FT_Get_Char_Index(m_face,	glyph->CharCode());
+				FT_UInt prev = FT_Get_Char_Index(m_face, prevSym);
+				FT_Get_Kerning(m_face, prev, cur, FT_KERNING_DEFAULT, &delta);
+
+				kerning = (VGfloat)delta.x / CHAR_HEIGHT;
+				glyph->SetKerningCache(prevSym, kerning);
+			}
+		}
+		return kerning;
 	}
 
-	VGfloat Height(void)
-	{
-		return m_height;
-	}
-
-	VGFont Font(void)
-	{
-		return m_font;
-	}
-
-	const char* Name(void)
-	{
-		return *m_name;
-	}
+	VGfloat     Height(void)    { return  m_height;    }
+	VGfloat     Descender(void) { return  m_descender; }
+	VGFont      Font(void)      { return  m_font;      }
+	const char* Name(void)      { return *m_name;      }
 
 private:
-
-	#define CHAR_HEIGHT (1 << 14)
 
 	cOvgFont(void) :
 		m_font(VG_INVALID_HANDLE),
 		m_name(""),
-		m_height(0)
+		m_height(0.0f),
+		m_descender(0.0f),
+		m_face(0)
 	{ }
 
 	cOvgFont(FT_Library lib, const char *name) :
@@ -111,56 +178,53 @@ private:
 	{
 		ILOG("loading %s ...", *m_name);
 
-		FT_Face face;
-		if (FT_New_Face(lib, name, 0, &face))
+		if (FT_New_Face(lib, name, 0, &m_face))
 			ELOG("failed to open %s!", name);
 
-		m_font = vgCreateFont(face->num_glyphs);
+		m_font = vgCreateFont(m_face->num_glyphs);
 		if (m_font == VG_INVALID_HANDLE)
 		{
-			FT_Done_Face(face);
 			ELOG("failed to allocate new OVG font!");
 			return;
 		}
 
-		FT_Set_Char_Size(face, 0, CHAR_HEIGHT, 0, 0);
-		m_height = (VGfloat)(face->size->metrics.ascender -
-				face->size->metrics.descender + 63) / (VGfloat)CHAR_HEIGHT;
+		FT_Set_Char_Size(m_face, 0, CHAR_HEIGHT, 0, 0);
+		m_height = (VGfloat)(m_face->size->metrics.height) / CHAR_HEIGHT;
+		m_descender = (VGfloat)(abs(m_face->size->metrics.descender)) /
+				CHAR_HEIGHT;
 
-		int glyphId = 0;
 		FT_UInt glyphIndex;
-		FT_ULong ch = FT_Get_First_Char(face, &glyphIndex);
+		FT_ULong ch = FT_Get_First_Char(m_face, &glyphIndex);
 
 		while (ch != 0)
 		{
-			if (FT_Load_Glyph(face, glyphIndex, FT_LOAD_DEFAULT))
+			if (FT_Load_Glyph(m_face, glyphIndex, FT_LOAD_DEFAULT))
 				break;
 
-			FT_Outline *ot = &face->glyph->outline;
+			FT_Outline *ot = &m_face->glyph->outline;
 			VGPath path = ConvertOutline(ot);
 
 			VGfloat origin[] = { 0.0f, 0.0f };
 			VGfloat esc[] = {
-					(VGfloat)(face->glyph->advance.x) / (VGfloat)CHAR_HEIGHT,
-					(VGfloat)(face->glyph->advance.y) / (VGfloat)CHAR_HEIGHT
+					(VGfloat)(m_face->glyph->advance.x) / CHAR_HEIGHT,
+					(VGfloat)(m_face->glyph->advance.y) / CHAR_HEIGHT
 			};
 
-			vgSetGlyphToPath(m_font, glyphId++, path, VG_FALSE, origin, esc);
+			vgSetGlyphToPath(m_font, ch, path, VG_FALSE, origin, esc);
 
-			m_characters.push_back(ch);
-			m_escapements.push_back(esc[0]);
+			m_glyphs.Add(new cOvgGlyph(ch, esc[0], esc[1]));
 
 			if (path != VG_INVALID_HANDLE)
 				vgDestroyPath(path);
 
-			ch = FT_Get_Next_Char(face, ch, &glyphIndex);
+			ch = FT_Get_Next_Char(m_face, ch, &glyphIndex);
 		}
-		FT_Done_Face(face);
 	}
 
 	~cOvgFont()
 	{
 		vgDestroyFont(m_font);
+		FT_Done_Face(m_face);
 	}
 
 	static void Init(void)
@@ -171,7 +235,7 @@ private:
 	}
 
 	// convert freetype outline to OpenVG path,
-	// based on Raspberry's vgfont library
+	// based on Raspberry Pi's vgfont library
 
 	VGPath ConvertOutline(FT_Outline *outline)
 	{
@@ -245,19 +309,23 @@ private:
 		}
 
 		VGPath path = vgCreatePath(VG_PATH_FORMAT_STANDARD,
-				VG_PATH_DATATYPE_S_16, 1.0f / (VGfloat)CHAR_HEIGHT, 0.0f, 0, 0,
-				VG_PATH_CAPABILITY_APPEND_TO);
+				VG_PATH_DATATYPE_S_16, 1.0f / (VGfloat)CHAR_HEIGHT, 0.0f,
+				segments.size(), coord.size(), VG_PATH_CAPABILITY_APPEND_TO);
 
-		vgAppendPathData(path, segments.size(), &segments[0], &coord[0]);
+		if (path != VG_INVALID_HANDLE)
+			vgAppendPathData(path, segments.size(), &segments[0], &coord[0]);
+
 		return path;
 	}
 
 	VGFont m_font;
 	cString m_name;
 	VGfloat m_height;
+	VGfloat m_descender;
 
-	std::vector<FT_ULong> m_characters;
-	std::vector<VGfloat>  m_escapements;
+	mutable cList<cOvgGlyph> m_glyphs;
+
+	FT_Face m_face;
 
 	static FT_Library s_ftLib;
 	static cList<cOvgFont> *s_fonts;
@@ -273,14 +341,23 @@ class cOvgString
 public:
 
 	cOvgString(const unsigned int *symbols, cOvgFont *font) :
-		m_width(0.0f), m_height(font->Height()), m_font(font)
+		m_width(0.0f), m_height(font->Height()), m_descender(font->Descender()),
+		m_font(font)
 	{
+		uint prevSym = 0;
 		for (int i = 0; symbols[i]; i++)
-		{
-			VGuint glyphId = font->GlyphIndex(symbols[i]);
-			m_glyphIds.push_back(glyphId);
-			m_width += font->Escapement(glyphId);
-		}
+			if (cOvgGlyph *g = font->Glyph(symbols[i]))
+			{
+				VGfloat kerning = 0.0f;
+				if (prevSym)
+				{
+					kerning = m_font->Kerning(g, prevSym);
+					m_kerning.push_back(kerning);
+				}
+				m_width += g->AdvanceX() + kerning;
+				m_glyphIds.push_back(symbols[i]);
+				prevSym = symbols[i];
+			}
 	}
 
 	~cOvgString() { }
@@ -289,13 +366,18 @@ public:
 	      VGint    Length(void)       { return  m_glyphIds.size(); }
 	      VGfloat  Width(void)        { return  m_width;           }
 	      VGfloat  Height(void)       { return  m_height;          }
+	      VGfloat  Descender(void)    { return  m_descender;       }
 	const VGuint  *GlyphIds(void)     { return &m_glyphIds[0];     }
+	const VGfloat *Kerning(void)      { return &m_kerning[0];      }
 
 private:
 
 	std::vector<VGuint> m_glyphIds;
+	std::vector<VGfloat> m_kerning;
+
 	VGfloat m_width;
 	VGfloat m_height;
+	VGfloat m_descender;
 	cOvgFont *m_font;
 };
 
@@ -305,17 +387,15 @@ class cOvgPaintBox
 {
 public:
 
-	static void Draw(VGPath path, tColor color)
+	static void Draw(VGPath path)
 	{
-		SetPaint(color);
 		vgDrawPath(path, VG_FILL_PATH);
 	}
 
-	static void Draw(cOvgString *string, tColor color)
+	static void Draw(cOvgString *string)
 	{
-		SetPaint(color);
 		vgDrawGlyphs(string->Font(), string->Length(), string->GlyphIds(),
-				NULL, NULL, VG_FILL_PATH, VG_TRUE);
+				string->Kerning(), NULL, VG_FILL_PATH, VG_TRUE);
 	}
 
 	static VGPath Rect(void)
@@ -353,15 +433,51 @@ public:
 		s_initialized = false;
 	}
 
-private:
-
-	static void SetPaint(tColor color)
+	static void SetColor(tColor color)
 	{
 		if (!s_initialized)
 			SetUp();
 
+		vgSetParameteri(s_paint, VG_PAINT_TYPE,	VG_PAINT_TYPE_COLOR);
 		vgSetColor(s_paint, (color << 8) + (color >> 24));
+		vgSetPaint(s_paint, VG_FILL_PATH);
 	}
+
+	static void SetAlpha(int alpha)
+	{
+		if (!s_initialized)
+			SetUp();
+
+		alpha = constrain(alpha, ALPHA_TRANSPARENT, ALPHA_OPAQUE);
+		VGfloat values[] = {
+				1.0f, 1.0f, 1.0f, alpha / 255.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+
+		vgSetfv(VG_COLOR_TRANSFORM_VALUES, 8, values);
+		vgSeti(VG_COLOR_TRANSFORM, alpha == ALPHA_OPAQUE ? VG_FALSE : VG_TRUE);
+	}
+
+	static void SetPattern(VGImage image = VG_INVALID_HANDLE)
+	{
+		if (!s_initialized)
+			SetUp();
+
+		vgPaintPattern(s_paint, image);
+		if (image == VG_INVALID_HANDLE)
+			return;
+
+		vgSetParameteri(s_paint, VG_PAINT_TYPE, VG_PAINT_TYPE_PATTERN);
+		vgSetParameteri(s_paint, VG_PAINT_PATTERN_TILING_MODE, VG_TILE_REPEAT);
+		vgSetPaint(s_paint, VG_FILL_PATH);
+	}
+
+	static void SetScissoring(int x = 0, int y = 0, int w = 0, int h = 0)
+	{
+		VGint cropArea[4] = { x, y, w, h };
+		vgSetiv(VG_SCISSOR_RECTS, 4, cropArea);
+		vgSeti(VG_SCISSORING, w && h ? VG_TRUE : VG_FALSE);
+	}
+
+private:
 
 	static void SetUp(void)
 	{
@@ -379,30 +495,30 @@ private:
 			s_ellipse[i] = vgCreatePath(VG_PATH_FORMAT_STANDARD,
 				VG_PATH_DATATYPE_F,	1.0f, 0.0f, 0, 0, VG_PATH_CAPABILITY_ALL);
 
-		vguArc(s_ellipse[0], 0.0f, 0.0f, 2.0f, 2.0f,   0,  90, VGU_ARC_OPEN);
-		vguArc(s_ellipse[1], 1.0f, 0.0f, 2.0f, 2.0f,  90,  90, VGU_ARC_OPEN);
-		vguArc(s_ellipse[2], 1.0f, 1.0f, 2.0f, 2.0f, 180,  90, VGU_ARC_OPEN);
-		vguArc(s_ellipse[3], 0.0f, 1.0f, 2.0f, 2.0f, 270,  90, VGU_ARC_OPEN);
+		vguArc(s_ellipse[0], 0.0f, 1.0f, 2.0f, 2.0f, 270,  90, VGU_ARC_OPEN);
+		vguArc(s_ellipse[1], 1.0f, 1.0f, 2.0f, 2.0f, 180,  90, VGU_ARC_OPEN);
+		vguArc(s_ellipse[2], 1.0f, 0.0f, 2.0f, 2.0f,  90,  90, VGU_ARC_OPEN);
+		vguArc(s_ellipse[3], 0.0f, 0.0f, 2.0f, 2.0f,   0,  90, VGU_ARC_OPEN);
 
 		// close path via corner opposed of center of arc for inverted arcs
 		VGubyte cornerSeg[] = { VG_LINE_TO_ABS, VG_CLOSE_PATH };
 		VGfloat cornerData[][2] = {
-				{ 1.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f }, { 1.0f, 0.0f }
+				{ 1.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f }
 		};
 		for (int i = 0; i < 4; i++)
 			vgAppendPathData(s_ellipse[i], 2, cornerSeg, cornerData[i]);
 
 		vguEllipse(s_ellipse[4], 0.5f, 0.5f, 1.0f, 1.0f);
 
-		vguArc(s_ellipse[5], 0.0f, 1.0f, 2.0f, 2.0f, 270,   90, VGU_ARC_PIE);
-		vguArc(s_ellipse[6], 1.0f, 1.0f, 2.0f, 2.0f, 180,   90, VGU_ARC_PIE);
-		vguArc(s_ellipse[7], 1.0f, 0.0f, 2.0f, 2.0f,  90,   90, VGU_ARC_PIE);
-		vguArc(s_ellipse[8], 0.0f, 0.0f, 2.0f, 2.0f,   0,   90, VGU_ARC_PIE);
+		vguArc(s_ellipse[5],  0.0f, 0.0f, 2.0f, 2.0f,   0,  90, VGU_ARC_PIE);
+		vguArc(s_ellipse[6],  1.0f, 0.0f, 2.0f, 2.0f,  90,  90, VGU_ARC_PIE);
+		vguArc(s_ellipse[7],  1.0f, 1.0f, 2.0f, 2.0f, 180,  90, VGU_ARC_PIE);
+		vguArc(s_ellipse[8],  0.0f, 1.0f, 2.0f, 2.0f, 270,  90, VGU_ARC_PIE);
 
 		vguArc(s_ellipse[9],  0.0f, 0.5f, 2.0f, 1.0f, 270, 180, VGU_ARC_PIE);
-		vguArc(s_ellipse[10], 0.5f, 1.0f, 1.0f, 2.0f, 180, 180, VGU_ARC_PIE);
+		vguArc(s_ellipse[10], 0.5f, 0.0f, 1.0f, 2.0f,   0, 180, VGU_ARC_PIE);
 		vguArc(s_ellipse[11], 1.0f, 0.5f, 2.0f, 1.0f,  90, 180, VGU_ARC_PIE);
-		vguArc(s_ellipse[12], 0.5f, 0.0f, 1.0f, 2.0f,   0, 180, VGU_ARC_PIE);
+		vguArc(s_ellipse[12], 0.5f, 1.0f, 1.0f, 2.0f, 180, 180, VGU_ARC_PIE);
 
 		// slopes
 		VGubyte slopeSeg[] = {
@@ -411,21 +527,22 @@ private:
 		// gradient of the slope: VDR uses 0.5 but 0.6 looks nicer...
 		const VGfloat s = 0.6f;
 		VGfloat slopeData[] = {
-				1.0f, 1.0f, 1.0f, 0.0f, 1.0f - s, 0.0f, s, 1.0f, 0.0f, 1.0f
+				1.0f, 0.0f, 1.0f, 1.0f, 1.0f - s, 1.0f, s, 0.0f, 0.0f, 0.0f
 		};
 		VGfloat slopeScale[][2] = {
 				{ -1.0f, -1.0f }, { -1.0f,  1.0f }, { 1.0f, -1.0f },
-				{  1.0f, -1.0f }, { -1.0f,  1.0f }, { 1.0f,  1.0f },
-				{ -1.0f, -1.0f }
+				{ -1.0f,  1.0f }, {  1.0f, -1.0f }, {-1.0f, -1.0f },
+				{  1.0f,  1.0f }
 		};
 		VGfloat slopeTrans[][2] = {
-				{ -1.0f, -1.0f }, { -1.0f,  0.0f }, { 0.0f, -1.0f },
-				{  0.0f,  0.0f }, { -1.0f, -1.0f }, { 0.0f, -1.0f },
-				{ -1.0f,  0.0f }
+				{ -1.0f, -1.0f }, { -1.0f,  0.0f }, {  0.0f, -1.0f },
+				{ -1.0f, -1.0f }, {  0.0f,  0.0f }, { -1.0f,  0.0f },
+				{  0.0f, -1.0f }
 		};
 		VGfloat slopeRot[] = { 0.0f, 0.0f, 0.0f, 90.0f, 90.0f, 90.0f, 90.0f };
 
 		VGfloat backupMatrix[9];
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
 		vgGetMatrix(backupMatrix);
 
 		for (int i = 0; i < 8; i++)
@@ -471,27 +588,125 @@ bool cOvgPaintBox::s_initialized = false;
 
 /* ------------------------------------------------------------------------- */
 
+class cEgl
+{
+public:
+
+	EGLDisplay display;
+	EGLContext context;
+	EGLConfig  config;
+	EGLint     nConfig;
+	EGLSurface surface;
+	EGLSurface currentSurface;
+	EGL_DISPMANX_WINDOW_T window;
+
+	static const char* errStr(EGLint error)
+	{
+		return 	error == EGL_SUCCESS             ? "success"             :
+				error == EGL_NOT_INITIALIZED     ? "not initialized"     :
+				error == EGL_BAD_ACCESS          ? "bad access"          :
+				error == EGL_BAD_ALLOC           ? "bad alloc"           :
+				error == EGL_BAD_ATTRIBUTE       ? "bad attribute"       :
+				error == EGL_BAD_CONTEXT         ? "bad context"         :
+				error == EGL_BAD_CONFIG          ? "bad config"          :
+				error == EGL_BAD_CURRENT_SURFACE ? "bad current surface" :
+				error == EGL_BAD_DISPLAY         ? "bad display"         :
+				error == EGL_BAD_SURFACE         ? "bad surface"         :
+				error == EGL_BAD_MATCH           ? "bad match"           :
+				error == EGL_BAD_PARAMETER       ? "bad parameter"       :
+				error == EGL_BAD_NATIVE_PIXMAP   ? "bad native pixmap"   :
+				error == EGL_BAD_NATIVE_WINDOW   ? "bad native window"   :
+				error == EGL_CONTEXT_LOST        ? "context lost"        :
+						"unknown error";
+	}
+};
+
+/* ------------------------------------------------------------------------- */
+
+class cOvgRenderTarget
+{
+public:
+
+	cOvgRenderTarget(int _width = 0, int _height = 0) :
+		surface(EGL_NO_SURFACE),
+		image(VG_INVALID_HANDLE),
+		width(_width),
+		height(_height) { }
+
+	virtual ~cOvgRenderTarget() { }
+
+	virtual bool MakeCurrent(cEgl *egl)
+	{
+		// if this is a window surface, check for an update after OSD reset
+		if (image == VG_INVALID_HANDLE && surface != egl->surface)
+		{
+			surface = egl->surface;
+			width = egl->window.width;
+			height = egl->window.height;
+		}
+
+		if (egl->currentSurface == surface)
+			return true;
+
+		if (eglMakeCurrent(egl->display, surface, surface, egl->context) ==
+				EGL_FALSE)
+		{
+			ELOG("[EGL] failed to connect context to surface: %s!",
+					cEgl::errStr(eglGetError()));
+			return false;
+		}
+		egl->currentSurface = surface;
+		return true;
+	}
+
+	EGLSurface surface;
+	VGImage    image;
+	int        width;
+	int        height;
+
+private:
+
+	cOvgRenderTarget(const cOvgRenderTarget&);
+	cOvgRenderTarget& operator= (const cOvgRenderTarget&);
+};
+
+/* ------------------------------------------------------------------------- */
+
 class cOvgCmd
 {
 public:
 
-	cOvgCmd() { }
+	cOvgCmd(cOvgRenderTarget *target) : m_target(target) { }
 	virtual ~cOvgCmd() { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height) = 0;
+	virtual bool Execute(cEgl *egl) = 0;
+	virtual const char* Description(void) = 0;
+
+protected:
+
+	cOvgRenderTarget *m_target;
+
+private:
+
+	cOvgCmd(const cOvgCmd&);
+	cOvgCmd& operator= (const cOvgCmd&);
 };
 
 class cOvgCmdFlush : public cOvgCmd
 {
 public:
 
-	cOvgCmdFlush() : cOvgCmd() { }
+	cOvgCmdFlush(cOvgRenderTarget *target) :
+		cOvgCmd(target) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "Flush"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
-		eglSwapBuffers(display, surface);
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		eglSwapBuffers(egl->display, m_target->surface);
 		return true;
 	}
 };
@@ -500,10 +715,12 @@ class cOvgCmdReset : public cOvgCmd
 {
 public:
 
-	cOvgCmdReset(bool cleanup = false) : cOvgCmd(), m_cleanup(cleanup) { }
+	cOvgCmdReset(bool cleanup = false) :
+		cOvgCmd(0), m_cleanup(cleanup) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "Reset"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
 		if (m_cleanup)
 		{
@@ -518,21 +735,115 @@ private:
 	bool m_cleanup;
 };
 
+class cOvgCmdCreatePixelBuffer : public cOvgCmd
+{
+public:
+
+	cOvgCmdCreatePixelBuffer(cOvgRenderTarget *target) :
+		cOvgCmd(target) { }
+
+	virtual const char* Description(void) { return "CreatePixelBuffer"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		int origW = m_target->width;
+		int origH = m_target->height;
+
+		m_target->width = min(m_target->width, vgGeti(VG_MAX_IMAGE_WIDTH));
+		m_target->height = min(m_target->height, vgGeti(VG_MAX_IMAGE_HEIGHT));
+
+		if (origW != m_target->width || origH != m_target->height)
+			ELOG("[OpenVG] cannot allocate pixmap of %dpx x %dpx, "
+					"clipped to %dpx x %dpx!", origW, origH,
+					m_target->width, m_target->height);
+
+		m_target->image = vgCreateImage(VG_sARGB_8888, m_target->width,
+				m_target->height, VG_IMAGE_QUALITY_BETTER);
+
+		if (m_target->image == VG_INVALID_HANDLE)
+		{
+			ELOG("[OpenVG] failed to allocate %dx%d px pixel buffer!",
+					m_target->width, m_target->height);
+			return false;
+		}
+
+		m_target->surface = eglCreatePbufferFromClientBuffer(egl->display,
+				EGL_OPENVG_IMAGE, (EGLClientBuffer)m_target->image,
+				egl->config, NULL);
+
+		if (m_target->surface == EGL_NO_SURFACE)
+		{
+			ELOG("[EGL] failed to create pixel buffer surface: %s!",
+					cEgl::errStr(eglGetError()));
+			vgDestroyImage(m_target->image);
+			return false;
+		}
+
+		if (eglSurfaceAttrib(egl->display, m_target->surface,
+				EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED) == EGL_FALSE)
+		{
+			ELOG("[EGL] failed to set surface attributes!");
+			eglDestroySurface(egl->display, m_target->surface);
+			vgDestroyImage(m_target->image);
+			return false;
+		}
+		return true;
+	}
+};
+
+class cOvgCmdDestroySurface : public cOvgCmd
+{
+public:
+
+	cOvgCmdDestroySurface(cOvgRenderTarget *target) : cOvgCmd(target) { }
+
+	virtual const char* Description(void) { return "DestroySurface"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		// only destroy pixel buffer surfaces
+		if (m_target->image != VG_INVALID_HANDLE)
+		{
+			if (eglDestroySurface(egl->display, m_target->surface) == EGL_FALSE)
+				ELOG("[EGL] failed to destroy surface: %s!",
+						cEgl::errStr(eglGetError()));
+
+			vgDestroyImage(m_target->image);
+		}
+		delete m_target;
+		return true;
+	}
+};
+
 class cOvgCmdClear : public cOvgCmd
 {
 public:
 
-	cOvgCmdClear() : cOvgCmd() { }
+	cOvgCmdClear(cOvgRenderTarget *target, tColor color = clrTransparent) :
+		cOvgCmd(target), m_color(color) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "Clear"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
-		float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		VGfloat color[4] = {
+				(m_color >> 16 & 0xff) / 255.0f,
+				(m_color >>  8 & 0xff) / 255.0f,
+				(m_color       & 0xff) / 255.0f,
+				(m_color >> 24 & 0xff) / 255.0f
+		};
+
 	    vgSetfv(VG_CLEAR_COLOR, 4, color);
-	    vgClear(0, 0, width, height);
-		eglSwapBuffers(display, surface);
+	    vgClear(0, 0, m_target->width, m_target->height);
 		return true;
 	}
+
+private:
+
+	tColor m_color;
 };
 
 class cOvgCmdSaveRegion : public cOvgCmd
@@ -540,10 +851,11 @@ class cOvgCmdSaveRegion : public cOvgCmd
 public:
 
 	cOvgCmdSaveRegion(cRect *rect, VGImage *image) :
-		cOvgCmd(), m_rect(rect), m_image(image) { }
+		cOvgCmd(0), m_rect(rect), m_image(image) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "SaveRegion"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
 		if (m_image && m_rect)
 		{
@@ -553,8 +865,15 @@ public:
 			*m_image = vgCreateImage(VG_sARGB_8888,
 					m_rect->Width(), m_rect->Height(), VG_IMAGE_QUALITY_BETTER);
 
-			vgGetPixels(*m_image, 0, 0, m_rect->X(), height - m_rect->Bottom()
-					- 1, m_rect->Width(), m_rect->Height());
+			if (*m_image == VG_INVALID_HANDLE)
+			{
+				ELOG("failed to allocate image!");
+				return false;
+			}
+
+			vgGetPixels(*m_image, 0, 0, m_rect->X(),
+					egl->window.height - m_rect->Bottom() - 1,
+					m_rect->Width(), m_rect->Height());
 		}
 		return true;
 	}
@@ -570,14 +889,15 @@ class cOvgCmdRestoreRegion : public cOvgCmd
 public:
 
 	cOvgCmdRestoreRegion(cRect *rect, VGImage *image) :
-		cOvgCmd(), m_rect(rect), m_image(image) { }
+		cOvgCmd(0), m_rect(rect), m_image(image) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "RestoreRegion"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
 		if (m_image && m_rect)
-			vgSetPixels(m_rect->X(), height - m_rect->Bottom() - 1, *m_image,
-					0, 0, m_rect->Width(), m_rect->Height());
+			vgSetPixels(m_rect->X(), egl->window.height - m_rect->Bottom() - 1,
+					*m_image, 0, 0, m_rect->Width(), m_rect->Height());
 		return true;
 	}
 
@@ -591,10 +911,12 @@ class cOvgCmdDropRegion : public cOvgCmd
 {
 public:
 
-	cOvgCmdDropRegion(VGImage *image) : cOvgCmd(), m_image(image) { }
+	cOvgCmdDropRegion(VGImage *image) :
+		cOvgCmd(0), m_image(image) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DropRegion"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
 		if (m_image && *m_image)
 			vgDestroyImage(*m_image);
@@ -610,13 +932,28 @@ class cOvgCmdDrawPixel : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawPixel(int x, int y, tColor color) :
-		cOvgCmd(), m_x(x), m_y(y), m_color(color) { }
+	cOvgCmdDrawPixel(cOvgRenderTarget *target, int x, int y, tColor color,
+			bool alphablend) :
+		cOvgCmd(target), m_x(x), m_y(y), m_color(color),
+		m_alphablend(alphablend) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DrawPixel"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
-		vgWritePixels(&m_color, 0, VG_sARGB_8888, m_x, height - m_y - 1, 1, 1);
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		if (m_alphablend)
+		{
+			tColor dstPixel;
+			vgReadPixels(&dstPixel, 0, VG_sARGB_8888,
+					m_x, m_target->height - 1 - m_y, 1, 1);
+
+			m_color = AlphaBlend(m_color, dstPixel);
+		}
+		vgWritePixels(&m_color, 0, VG_sARGB_8888,
+				m_x, m_target->height - 1 - m_y, 1, 1);
 		return true;
 	}
 
@@ -625,27 +962,33 @@ private:
 	int m_x;
 	int m_y;
 	tColor m_color;
+	bool m_alphablend;
 };
 
 class cOvgCmdDrawRectangle : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawRectangle(int x, int y, int w, int h, tColor color) :
-		cOvgCmd(), m_x(x), m_y(y), m_w(w), m_h(h), m_color(color) { }
+	cOvgCmdDrawRectangle(cOvgRenderTarget *target,
+			int x, int y, int w, int h, tColor color) :
+		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h), m_color(color) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DrawRectangle"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
 		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 
 		vgLoadIdentity();
-		vgScale(1.0f, -1.0f);
-		vgTranslate(m_x, m_y - height);
+		vgTranslate(m_x, m_target->height - m_h - m_y);
 		vgScale(m_w, m_h);
 
-		cOvgPaintBox::Draw(cOvgPaintBox::Rect(), m_color);
+		cOvgPaintBox::SetColor(m_color);
+		cOvgPaintBox::Draw(cOvgPaintBox::Rect());
 		return true;
 	}
 
@@ -662,22 +1005,27 @@ class cOvgCmdDrawEllipse : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawEllipse(int x, int y, int w, int h, tColor color, int quadrants) :
-		cOvgCmd(), m_x(x), m_y(y), m_w(w), m_h(h), m_quadrants(quadrants),
+	cOvgCmdDrawEllipse(cOvgRenderTarget *target,
+			int x, int y, int w, int h, tColor color, int quadrants) :
+		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h), m_quadrants(quadrants),
 		m_color(color) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DrawEllipse"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
 		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 
 		vgLoadIdentity();
-		vgScale(1.0f, -1.0f);
-		vgTranslate(m_x, m_y - height);
+		vgTranslate(m_x, m_target->height - m_h - m_y);
 		vgScale(m_w, m_h);
 
-		cOvgPaintBox::Draw(cOvgPaintBox::Ellipse(m_quadrants), m_color);
+		cOvgPaintBox::SetColor(m_color);
+		cOvgPaintBox::Draw(cOvgPaintBox::Ellipse(m_quadrants));
 		return true;
 	}
 
@@ -695,22 +1043,27 @@ class cOvgCmdDrawSlope : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawSlope(int x, int y, int w, int h, tColor color, int type) :
-		cOvgCmd(), m_x(x), m_y(y), m_w(w), m_h(h), m_type(type),
+	cOvgCmdDrawSlope(cOvgRenderTarget *target,
+			int x, int y, int w, int h, tColor color, int type) :
+		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h), m_type(type),
 		m_color(color) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DrawSlope"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
 		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 
 		vgLoadIdentity();
-		vgScale(1.0f, -1.0f);
-		vgTranslate(m_x, m_y - height);
+		vgTranslate(m_x, m_target->height - m_h - m_y);
 		vgScale(m_w, m_h);
 
-		cOvgPaintBox::Draw(cOvgPaintBox::Slope(m_type), m_color);
+		cOvgPaintBox::SetColor(m_color);
+		cOvgPaintBox::Draw(cOvgPaintBox::Slope(m_type));
 		return true;
 	}
 
@@ -728,11 +1081,13 @@ class cOvgCmdDrawText : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawText(int x, int y, unsigned int *symbols, cString *fontName,
-			int fontSize, tColor color, int width, int height, int alignment) :
-		cOvgCmd(), m_x(x), m_y(y), m_symbols(symbols), m_fontName(fontName),
-		m_fontSize(fontSize), m_color(color), m_width(width), m_height(height),
-		m_alignment(alignment) { }
+	cOvgCmdDrawText(cOvgRenderTarget *target,
+			int x, int y, unsigned int *symbols, cString *fontName,
+			int fontSize, tColor colorFg,	tColor colorBg, int w, int h,
+			int alignment) :
+		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h),
+		m_symbols(symbols), m_fontName(fontName), m_fontSize(fontSize),
+		m_colorFg(colorFg), m_colorBg(colorBg),	m_alignment(alignment) { }
 
 	virtual ~cOvgCmdDrawText()
 	{
@@ -740,72 +1095,100 @@ public:
 		delete m_fontName;
 	}
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual const char* Description(void) { return "DrawText"; }
+
+	virtual bool Execute(cEgl *egl)
 	{
-		vgSeti(VG_MATRIX_MODE, VG_MATRIX_GLYPH_USER_TO_SURFACE);
-		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
+		if (!m_target->MakeCurrent(egl))
+			return false;
 
 		cOvgFont *font = cOvgFont::Get(*m_fontName);
+		if (!font)
+			return false;
+
 		cOvgString *string = new cOvgString(m_symbols, font);
 
-		VGfloat strWidth = string->Width() * (VGfloat)m_fontSize;
-		VGfloat strHeight = string->Height() * (VGfloat)m_fontSize;
 		VGfloat offsetX = 0;
 		VGfloat offsetY = 0;
+		VGfloat width = string->Width() * (VGfloat)m_fontSize;
+		VGfloat height = string->Height() * (VGfloat)m_fontSize;
+		VGfloat descender = string->Descender() * (VGfloat)m_fontSize;
 
-		if (m_width)
+		if (m_w)
 		{
 			if (m_alignment & taLeft)
 			{
 				if (m_alignment & taBorder)
-					offsetX += max(strHeight / TEXT_ALIGN_BORDER, 1.0f);
+					offsetX += max(height / TEXT_ALIGN_BORDER, 1.0f);
 			}
 			else if (m_alignment & taRight)
 			{
-				if (strWidth < (VGfloat)m_width)
-					offsetX += m_width - strWidth;
+				if (width < m_w)
+					offsetX += m_w - width;
 				if (m_alignment & taBorder)
-					offsetX -= max(strHeight / TEXT_ALIGN_BORDER, 1.0f);
+					offsetX -= max(height / TEXT_ALIGN_BORDER, 1.0f);
 			}
 			else
 			{
-				if (strWidth < (VGfloat)m_width)
-					offsetX += (m_width - strWidth) / 2;
+				if (width < m_w)
+					offsetX += (m_w - width) / 2;
 			}
 		}
-		if (m_height)
+		if (m_h)
 		{
 			if (m_alignment & taTop) { }
 			else if (m_alignment & taBottom)
 			{
-				if (strHeight < (VGfloat)m_height)
-					offsetY += m_height - strHeight;
+				if (height < m_h)
+					offsetY += m_h - height;
 			}
 			else
 			{
-				if (strHeight < (VGfloat)m_height)
-					offsetY += (m_height - strHeight) / 2;
+				if (height < m_h)
+					offsetY += (m_h - height) / 2;
 			}
 		}
 
+		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_GLYPH_USER_TO_SURFACE);
+
+		// some magic offset to conform with VDR's text rendering
+		offsetY -= 0.06f * m_fontSize;
+
 		vgLoadIdentity();
-		vgTranslate(m_x + offsetX, height - m_y - m_fontSize - offsetY + 2);
+		vgTranslate(m_x + offsetX,
+				m_target->height - m_y - m_fontSize - offsetY + 1);
 		vgScale(m_fontSize, m_fontSize);
 
 		VGfloat origin[2] = { 0.0f, 0.0f };
 		vgSetfv(VG_GLYPH_ORIGIN, 2, origin);
 
-		VGint cropArea[4] = {
-				m_width ? m_x : 0, m_height ? height - m_y - m_height - 1 : 0,
-				m_width ? m_width : width - 1, m_height ? m_height : height - 1
-		};
-		vgSetiv(VG_SCISSOR_RECTS, 4, cropArea);
-		vgSeti(VG_SCISSORING, VG_TRUE);
+		cOvgPaintBox::SetScissoring(
+				m_w ? m_x : m_x + floor(offsetX),
+				m_h ? m_target->height - m_y - m_h : m_target->height - m_y -
+						m_fontSize - floor(descender) + 1,
+				m_w ? m_w : floor(width) + 1,
+				m_h ? m_h : m_fontSize + floor(descender) - 1);
 
-		cOvgPaintBox::Draw(string, m_color);
+		if (m_colorBg != clrTransparent)
+		{
+			VGfloat color[4] = {
+					(m_colorBg >> 16 & 0xff) / 255.0f,
+					(m_colorBg >>  8 & 0xff) / 255.0f,
+					(m_colorBg       & 0xff) / 255.0f,
+					(m_colorBg >> 24 & 0xff) / 255.0f
+			};
+		    vgSetfv(VG_CLEAR_COLOR, 4, color);
+		    vgClear(0, 0, m_target->width, m_target->height);
+		}
 
-		vgSeti(VG_SCISSORING, VG_FALSE);
+		if (string->Length())
+		{
+			cOvgPaintBox::SetColor(m_colorFg);
+			cOvgPaintBox::Draw(string);
+		}
+
+		cOvgPaintBox::SetScissoring();
 		delete string;
 		return true;
 	}
@@ -814,27 +1197,313 @@ private:
 
 	int m_x;
 	int m_y;
+	int m_w;
+	int m_h;
 	unsigned int *m_symbols;
 	cString *m_fontName;
 	int m_fontSize;
-	tColor m_color;
-	int m_width;
-	int m_height;
+	tColor m_colorFg;
+	tColor m_colorBg;
 	int m_alignment;
+};
+
+class cOvgCmdRenderPixels : public cOvgCmd
+{
+public:
+
+	cOvgCmdRenderPixels(cOvgRenderTarget *target, cOvgRenderTarget *source,
+			int dx, int dy, int sx, int sy, int w, int h, int alpha) :
+		cOvgCmd(target), m_source(source), m_dx(dx), m_dy(dy),
+		m_sx(sx), m_sy(sy), m_w(w), m_h(h), m_alpha(alpha) { }
+
+	virtual const char* Description(void) { return "RenderPixels"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		cOvgPaintBox::SetAlpha(m_alpha);
+		cOvgPaintBox::SetScissoring(m_dx,
+				m_target->height - m_dy - m_h, m_w, m_h);
+
+		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC_OVER);
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
+		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
+		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
+
+		vgLoadIdentity();
+		vgTranslate(m_dx - m_sx,
+				m_target->height - m_source->height - m_dy + m_sy);
+
+		vgDrawImage(m_source->image);
+
+		cOvgPaintBox::SetAlpha(255);
+		cOvgPaintBox::SetScissoring();
+		return true;
+	}
+
+private:
+
+	cOvgRenderTarget *m_source;
+	int m_dx;
+	int m_dy;
+	int m_sx;
+	int m_sy;
+	int m_w;
+	int m_h;
+	int m_alpha;
+};
+
+class cOvgCmdRenderPattern : public cOvgCmd
+{
+public:
+
+	cOvgCmdRenderPattern(cOvgRenderTarget *target, cOvgRenderTarget *source,
+			int dx, int dy, int sx, int sy, int w, int h, int alpha) :
+		cOvgCmd(target), m_source(source), m_dx(dx), m_dy(dy),
+		m_sx(sx), m_sy(sy), m_w(w), m_h(h), m_alpha(alpha) { }
+
+	virtual const char* Description(void) { return "RenderPattern"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		int sx = m_dx - m_sx;
+		int sy = m_target->height - m_dy - m_source->height  + m_sy;
+		int dy = m_target->height - m_dy - m_h;
+
+		while (sx > m_dx)
+			sx -= m_source->width;
+
+		while (sy > dy)
+			sy -= m_source->height;
+
+		int nx = (m_dx + m_w - sx) / m_source->width;
+		if ((m_dx + m_w - sx) % m_source->width) nx++;
+
+		int ny = (dy + m_h - sy) / m_source->height;
+		if ((dy + m_h - sy) % m_source->height) ny++;
+
+		cOvgPaintBox::SetAlpha(m_alpha);
+		cOvgPaintBox::SetScissoring(m_dx, dy, m_w, m_h);
+
+		VGPath path = vgCreatePath(VG_PATH_FORMAT_STANDARD,
+				VG_PATH_DATATYPE_F, 1.0f, 0.0f, 0, 0,
+				VG_PATH_CAPABILITY_TRANSFORM_TO);
+
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
+		vgLoadIdentity();
+		vgScale(m_source->width * nx, m_source->height * ny);
+		vgTransformPath(path, cOvgPaintBox::Rect());
+
+		cOvgPaintBox::SetPattern(m_source->image);
+
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
+		vgLoadIdentity();
+		vgTranslate(sx, sy);
+
+		cOvgPaintBox::Draw(path);
+
+		cOvgPaintBox::SetAlpha(255);
+		cOvgPaintBox::SetScissoring();
+		cOvgPaintBox::SetPattern();
+		vgDestroyPath(path);
+		return true;
+	}
+
+private:
+
+	cOvgRenderTarget *m_source;
+	int m_dx;
+	int m_dy;
+	int m_sx;
+	int m_sy;
+	int m_w;
+	int m_h;
+	int m_alpha;
+};
+
+class cOvgCmdCopyPixels : public cOvgCmd
+{
+public:
+
+	cOvgCmdCopyPixels(cOvgRenderTarget *target, cOvgRenderTarget *source,
+			int dx, int dy, int sx, int sy, int w, int h) :
+		cOvgCmd(target), m_source(source),
+		m_dx(dx), m_dy(dy), m_sx(sx), m_sy(sy), m_w(w), m_h(h) { }
+
+	virtual const char* Description(void) { return "CopyPixels"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		vgSetPixels(m_dx, m_target->height - m_h - m_dy, m_source->image,
+				m_sx, m_source->height - m_h - m_sy, m_w, m_h);
+		return true;
+	}
+
+private:
+
+	cOvgRenderTarget *m_source;
+	int m_dx;
+	int m_dy;
+	int m_sx;
+	int m_sy;
+	int m_w;
+	int m_h;
+};
+
+class cOvgCmdMovePixels : public cOvgCmd
+{
+public:
+
+	cOvgCmdMovePixels(cOvgRenderTarget *target,
+			int dx, int dy, int sx, int sy, int w, int h) :
+		cOvgCmd(target),
+		m_dx(dx), m_dy(dy), m_sx(sx), m_sy(sy), m_w(w), m_h(h) { }
+
+	virtual const char* Description(void) { return "MovePixels"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		vgCopyPixels(m_dx, m_target->height - m_h - m_dy,
+				m_sx, m_target->height - m_h - m_sy, m_w, m_h);
+		return true;
+	}
+
+private:
+
+	int m_dx;
+	int m_dy;
+	int m_sx;
+	int m_sy;
+	int m_w;
+	int m_h;
+};
+
+class cOvgCmdStoreImage : public cOvgCmd
+{
+public:
+
+	cOvgCmdStoreImage(VGImage *image, int w, int h, tColor *argb) :
+		cOvgCmd(0), m_image(image), m_w(w), m_h(h), m_argb(argb) { }
+
+	virtual ~cOvgCmdStoreImage()
+	{
+		free(m_argb);
+	}
+
+	virtual const char* Description(void) { return "StoreImage"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		*m_image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
+				VG_IMAGE_QUALITY_BETTER);
+
+		if (*m_image == VG_INVALID_HANDLE)
+			return false;
+
+		vgImageSubData(*m_image, m_argb, m_w * sizeof(tColor),
+						VG_sARGB_8888, 0, 0, m_w, m_h);
+		return true;
+	}
+
+private:
+
+	VGImage *m_image;
+	int m_w;
+	int m_h;
+	tColor *m_argb;
+};
+
+class cOvgCmdDropImage : public cOvgCmd
+{
+public:
+
+	cOvgCmdDropImage(VGImage *image) :
+		cOvgCmd(0), m_image(image) { }
+
+	virtual const char* Description(void) { return "DropImage"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (*m_image != VG_INVALID_HANDLE)
+			vgDestroyImage(*m_image);
+
+		*m_image = VG_INVALID_HANDLE;
+		return true;
+	}
+
+private:
+
+	VGImage *m_image;
 };
 
 class cOvgCmdDrawImage : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawImage(int x, int y, int w, int h, const tColor *argb,
-			bool overlay, double scaleX, double scaleY) :
-		cOvgCmd(), m_x(x), m_y(y), m_w(w), m_h(h), m_argb(argb),
+	cOvgCmdDrawImage(cOvgRenderTarget *target, VGImage *image, int x, int y) :
+		cOvgCmd(target), m_image(image), m_x(x), m_y(y) { }
+
+	virtual const char* Description(void) { return "DrawImage"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		VGint height = vgGetParameteri(*m_image, VG_IMAGE_WIDTH);
+
+		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
+		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
+		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
+		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
+
+		vgLoadIdentity();
+		vgTranslate(m_x, m_target->height - height - m_y);
+
+		vgDrawImage(*m_image);
+		return true;
+	}
+
+protected:
+
+	VGImage *m_image;
+	int m_x;
+	int m_y;
+};
+
+class cOvgCmdDrawBitmap : public cOvgCmd
+{
+public:
+
+	cOvgCmdDrawBitmap(cOvgRenderTarget *target,
+			int x, int y, int w, int h, tColor *argb,
+			bool overlay = false, double scaleX = 1.0f, double scaleY = 1.0f) :
+		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h), m_argb(argb),
 		m_overlay(overlay), m_scaleX(scaleX), m_scaleY(scaleY) { }
 
-	virtual bool Execute(EGLDisplay display, EGLSurface surface,
-			int width, int height)
+	virtual ~cOvgCmdDrawBitmap()
 	{
+		free(m_argb);
+	}
+
+	virtual const char* Description(void) { return "DrawBitmap"; }
+
+	virtual bool Execute(cEgl *egl)
+	{
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
 		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
 		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
@@ -842,11 +1511,17 @@ public:
 
 		vgLoadIdentity();
 		vgScale(1.0f, -1.0f);
-		vgTranslate(m_x, m_y - height);
+		vgTranslate(m_x, m_y - m_target->height);
 		vgScale(m_scaleX, m_scaleY);
 
 		VGImage image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
 				VG_IMAGE_QUALITY_BETTER);
+
+		if (image == VG_INVALID_HANDLE)
+		{
+			ELOG("failed to allocate image!");
+			return false;
+		}
 
 		vgImageSubData(image, m_argb, m_w * sizeof(tColor),
 				VG_sARGB_8888, 0, 0, m_w, m_h);
@@ -862,52 +1537,15 @@ protected:
 	int m_y;
 	int m_w;
 	int m_h;
-	const tColor* m_argb;
+	tColor *m_argb;
 	bool m_overlay;
 	double m_scaleX;
 	double m_scaleY;
 };
 
-class cOvgCmdDrawBitmap : public cOvgCmdDrawImage
-{
-public:
-
-	cOvgCmdDrawBitmap(int x, int y, int w, int h, tColor *bitmap,
-			bool overlay = false, double scaleX = 1.0f, double scaleY = 1.0f) :
-		cOvgCmdDrawImage(x, y, w, h, bitmap, overlay, scaleX, scaleY),
-		m_bitmap(bitmap) { }
-
-	virtual ~cOvgCmdDrawBitmap()
-	{
-		free(m_bitmap);
-	}
-
-protected:
-
-	tColor *m_bitmap;
-};
-
-class cOvgCmdDrawPixmap : public cOvgCmdDrawImage
-{
-public:
-
-	cOvgCmdDrawPixmap(int x, int y, cPixmapMemory* pixmap) :
-		cOvgCmdDrawImage(x + pixmap->ViewPort().X(), y + pixmap->ViewPort().Y(),
-				pixmap->ViewPort().Width(), pixmap->ViewPort().Height(),
-				(tColor*)pixmap->Data(), false, 1.0f, 1.0f),
-		m_pixmap(pixmap) { }
-
-	virtual ~cOvgCmdDrawPixmap()
-	{
-		delete m_pixmap;
-	}
-
-protected:
-
-	cPixmapMemory* m_pixmap;
-};
-
 /* ------------------------------------------------------------------------- */
+
+#define MAXOSDIMAGES_OVG 256
 
 class cOvgThread : public cThread
 {
@@ -915,6 +1553,9 @@ public:
 
 	cOvgThread() : cThread("ovgthread"), m_wait(new cCondWait())
 	{
+		for (int i = 0; i < MAXOSDIMAGES_OVG; i++)
+			m_images[i] = VG_INVALID_HANDLE;
+
 		Start();
 	}
 
@@ -939,18 +1580,65 @@ public:
 			m_wait->Signal();
 	}
 
+	VGImage *GetImageRef(int imageHandle)
+	{
+		if (0 <= imageHandle && imageHandle < MAXOSDIMAGES_OVG)
+			return &m_images[imageHandle];
+
+		return VG_INVALID_HANDLE;
+	}
+
+	virtual int StoreImageData(const cImage &image)
+	{
+		Lock();
+		int imageId = -1;
+		for (int i = 0; i < MAXOSDIMAGES_OVG && imageId < 0; i++)
+			if (m_images[i] == VG_INVALID_HANDLE)
+			{
+				tColor *argb = MALLOC(tColor, image.Width() * image.Height());
+				if (argb)
+				{
+					// mark as used - will be overwritten by OVG thread
+					m_images[i]++;
+					imageId = i;
+
+					memcpy(argb, image.Data(),
+							sizeof(tColor) * image.Width() * image.Height());
+
+					DoCmd(new cOvgCmdStoreImage(&m_images[i], image.Width(),
+							image.Height(), argb));
+				}
+			}
+
+		Unlock();
+		if (imageId < 0)
+			ELOG("failed to store OSD image!");
+
+		return imageId;
+	}
+
+	virtual void DropImageData(int imageHandle)
+	{
+		Lock();
+		if (0 <= imageHandle && imageHandle < MAXOSDIMAGES_OVG)
+			DoCmd(new cOvgCmdDropImage(&m_images[imageHandle]));
+		Unlock();
+	}
+
 protected:
 
 	virtual void Action(void)
 	{
 		DLOG("cOvgThread() thread started");
 
-		EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-		if (display == EGL_NO_DISPLAY)
-			ELOG("failed to get EGL display connection!");
+		cEgl egl;
+		egl.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 
-		if (eglInitialize(display, NULL, NULL) == EGL_FALSE)
-			ELOG("failed to init EGL display connection!");
+		if (egl.display == EGL_NO_DISPLAY)
+			ELOG("[EGL] failed to get display connection!");
+
+		if (eglInitialize(egl.display, NULL, NULL) == EGL_FALSE)
+			ELOG("[EGL] failed to init display connection!");
 
 		eglBindAPI(EGL_OPENVG_API);
 
@@ -964,67 +1652,67 @@ protected:
 			EGL_NONE
 		};
 
-		EGLConfig config;
-		EGLint nConfig;
-
 		// get an appropriate EGL frame buffer configuration
-		if (eglChooseConfig(display, attr, &config, 1, &nConfig)
+		if (eglChooseConfig(egl.display, attr, &egl.config, 1, &egl.nConfig)
 				== EGL_FALSE)
-			ELOG("failed to get EGL frame buffer config!");
+			ELOG("[EGL] failed to get frame buffer config!");
 
 		// create an EGL rendering context
-		EGLContext context = eglCreateContext(display, config, NULL, NULL);
-		if (context == EGL_NO_CONTEXT)
-			ELOG("failed to create EGL rendering context!");
+		egl.context = eglCreateContext(egl.display, egl.config, NULL, NULL);
+		if (egl.context == EGL_NO_CONTEXT)
+			ELOG("[EGL] failed to create rendering context!");
 
 		while (Running())
 		{
-			bool reset = false;
-
-			DISPMANX_DISPLAY_HANDLE_T dDisplay = vc_dispmanx_display_open(
+			DISPMANX_DISPLAY_HANDLE_T display = vc_dispmanx_display_open(
 				cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI ? 0 : 1);
 			DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
 
-			int width, height;
-			cRpiDisplay::GetSize(width, height);
+			cRpiDisplay::GetSize(egl.window.width, egl.window.height);
 
-			VC_RECT_T dstRect = { 0, 0, width, height };
-			VC_RECT_T srcRect = { 0, 0, width << 16, height << 16 };
+			VC_RECT_T srcRect = { 0, 0,
+					egl.window.width << 16, egl.window.height << 16 };
+			VC_RECT_T dstRect = { 0, 0, egl.window.width, egl.window.height };
 
-			DISPMANX_ELEMENT_HANDLE_T element = vc_dispmanx_element_add(
-					update, dDisplay, 2 /*layer*/, &dstRect, 0, &srcRect,
+			egl.window.element = vc_dispmanx_element_add(
+					update, display, 2 /*layer*/, &dstRect, 0, &srcRect,
 					DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
+
 			vc_dispmanx_update_submit_sync(update);
 
-			EGL_DISPMANX_WINDOW_T nativewindow;
-			nativewindow.element = element;
-			nativewindow.width = width;
-			nativewindow.height = height;
-
-			const EGLint windowAttr[] = {
-				EGL_RENDER_BUFFER, EGL_SINGLE_BUFFER,
+			// create background surface
+			const EGLint attr[] = {
+				EGL_RENDER_BUFFER, EGL_BACK_BUFFER,
 				EGL_NONE
 			};
 
-			EGLSurface surface = eglCreateWindowSurface(display, config,
-					&nativewindow, windowAttr);
-			if (surface == EGL_NO_SURFACE)
-				ELOG("failed to create EGL window surface!");
+			egl.surface = eglCreateWindowSurface(egl.display, egl.config,
+					&egl.window, attr);
+			if (egl.surface == EGL_NO_SURFACE)
+				ELOG("[EGL] failed to create window surface: %s!",
+						cEgl::errStr(eglGetError()));
 
-			// connect the context to the surface
-			if (eglMakeCurrent(display, surface, surface, context)
-					== EGL_FALSE)
-				ELOG("failed to connect context to surface!");
+			if (eglSurfaceAttrib(egl.display, egl.surface,
+					EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED) == EGL_FALSE)
+				ELOG("[EGL] failed to set surface attributes: %s!",
+						cEgl::errStr(eglGetError()));
+
+			if (eglMakeCurrent(egl.display, egl.surface, egl.surface,
+					egl.context) ==	EGL_FALSE)
+				ELOG("failed to connect context to surface: %s!",
+						cEgl::errStr(eglGetError()));
+
+			egl.currentSurface = egl.surface;
 
 			float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-		    vgSetfv(VG_CLEAR_COLOR, 4, color);
-		    vgClear(0, 0, width, height);
-			eglSwapBuffers(display, surface);
+			vgSetfv(VG_CLEAR_COLOR, 4, color);
+			vgClear(0, 0, egl.window.width, egl.window.height);
 
+			bool reset = false;
 			while (!reset)
 			{
 				if (m_commands.empty())
-					m_wait->Wait(100);
+					m_wait->Wait(20);
 				else
 				{
 					Lock();
@@ -1032,39 +1720,384 @@ protected:
 					m_commands.pop();
 					Unlock();
 
-					if (cmd)
-					{
-						if (!cmd->Execute(display, surface, width, height))
-							reset = true;
+					reset = cmd ? !cmd->Execute(&egl) : true;
 
-						delete cmd;
-					}
+					VGErrorCode err = vgGetError();
+					if (cmd && err != VG_NO_ERROR)
+						ELOG("[OpenVG] %s error: %s",
+								cmd->Description(), errStr(err));
+
+					//ELOG("[OpenVG] %s", cmd->Description());
+					delete cmd;
 				}
 			}
 
-			// Release OpenGL resources
-			eglMakeCurrent(display,
-					EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-			eglDestroySurface(display, surface);
+			if (eglDestroySurface(egl.display, egl.surface) == EGL_FALSE)
+				ELOG("[EGL] failed to destroy surface: %s!",
+						cEgl::errStr(eglGetError()));
 
-			vc_dispmanx_element_remove(update, element);
-			vc_dispmanx_display_close(dDisplay);
+			vc_dispmanx_element_remove(update, egl.window.element);
+			vc_dispmanx_display_close(display);
+
+			DLOG("cOvgThread() thread reset");
 		}
+
+		for (int i = 0; i < MAXOSDIMAGES_OVG; i++)
+			if (m_images[i] != VG_INVALID_HANDLE)
+				vgDestroyImage(m_images[i]);
 
 		cOvgFont::CleanUp();
 		cOvgPaintBox::CleanUp();
+		vgFinish();
 
-		eglDestroyContext(display, context);
-		eglTerminate(display);
+		eglDestroyContext(egl.display, egl.context);
+		eglTerminate(egl.display);
 
 		DLOG("cOvgThread() thread ended");
 	}
 
 private:
 
+	static const char* errStr(VGErrorCode error)
+	{
+		return
+			error == VG_NO_ERROR                       ? "no error"            :
+			error == VG_BAD_HANDLE_ERROR               ? "bad handle"          :
+			error == VG_ILLEGAL_ARGUMENT_ERROR         ? "illegal argument"    :
+			error == VG_OUT_OF_MEMORY_ERROR            ? "out of memory"       :
+			error == VG_PATH_CAPABILITY_ERROR          ? "path capability"     :
+			error == VG_UNSUPPORTED_IMAGE_FORMAT_ERROR ? "unsup. image format" :
+			error == VG_UNSUPPORTED_PATH_FORMAT_ERROR  ? "unsup. path format"  :
+			error == VG_IMAGE_IN_USE_ERROR             ? "image in use"        :
+			error == VG_NO_CONTEXT_ERROR               ? "no context"          :
+						"unknown error";
+	}
+
 	std::queue<cOvgCmd*> m_commands;
 	cCondWait *m_wait;
 
+	VGImage m_images[MAXOSDIMAGES_OVG];
+};
+
+/* ------------------------------------------------------------------------- */
+
+class cOvgPixmap : public cPixmap
+{
+public:
+
+	cOvgPixmap(int Layer, cOvgThread *ovg, const cRect &ViewPort,
+			const cRect &DrawPort = cRect::Null) :
+		cPixmap(Layer, ViewPort, DrawPort),
+		m_ovg(ovg),
+		m_buffer(0),
+		m_dirty(false)
+	{
+		m_buffer = new cOvgRenderTarget(
+				this->DrawPort().Width(), this->DrawPort().Height());
+
+		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(m_buffer));
+	}
+
+	virtual ~cOvgPixmap()
+	{
+		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_buffer));
+	}
+
+	virtual void SetAlpha(int Alpha)
+	{
+		Alpha = constrain(Alpha, ALPHA_TRANSPARENT, ALPHA_OPAQUE);
+		if (Alpha != cPixmap::Alpha())
+		{
+			cPixmap::SetAlpha(Alpha);
+			SetDirty();
+		}
+	}
+
+	virtual void SetTile(bool Tile)
+	{
+		cPixmap::SetTile(Tile);
+		SetDirty();
+	}
+
+	virtual void SetViewPort(const cRect &Rect)
+	{
+		cPixmap::SetViewPort(Rect);
+		SetDirty();
+	}
+
+	virtual void SetDrawPortPoint(const cPoint &Point, bool Dirty = true)
+	{
+		cPixmap::SetDrawPortPoint(Point, Dirty);
+		if (Dirty)
+			SetDirty();
+	}
+
+	virtual void Clear(void)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdClear(m_buffer));
+		SetDirty();
+		MarkDrawPortDirty(DrawPort());
+	}
+
+	virtual void Fill(tColor Color)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdClear(m_buffer, Color));
+		SetDirty();
+		MarkDrawPortDirty(DrawPort());
+	}
+
+	virtual void DrawImage(const cPoint &Point, const cImage &Image)
+	{
+		LOCK_PIXMAPS;
+		tColor *argb = MALLOC(tColor, Image.Width() * Image.Height());
+		if (!argb)
+			return;
+
+		memcpy(argb, Image.Data(),
+				sizeof(tColor) * Image.Width() * Image.Height());
+
+		m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_buffer, Point.X(), Point.Y(),
+				Image.Width(), Image.Height(), argb, false));
+
+		SetDirty();
+		MarkDrawPortDirty(cRect(Point, cSize(Image.Width(),
+				Image.Height())).Intersected(DrawPort().Size()));
+	}
+
+	virtual void DrawImage(const cPoint &Point, int ImageHandle)
+	{
+		m_ovg->DoCmd(new cOvgCmdDrawImage(m_buffer,
+				m_ovg->GetImageRef(ImageHandle), Point.X(), Point.Y()));
+		SetDirty();
+	}
+
+	virtual void DrawPixel(const cPoint &Point, tColor Color)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdDrawPixel(m_buffer, Point.X(), Point.Y(),
+				Color, Layer() == 0 && !IS_OPAQUE(Color)));
+
+		SetDirty();
+		MarkDrawPortDirty(Point);
+	}
+
+	virtual void DrawBitmap(const cPoint &Point, const cBitmap &Bitmap,
+			tColor ColorFg = 0, tColor ColorBg = 0, bool Overlay = false)
+	{
+		LOCK_PIXMAPS;
+		bool specialColors = ColorFg || ColorBg;
+		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
+		if (!argb)
+			return;
+
+		tColor *p = argb;
+		for (int py = 0; py < Bitmap.Height(); py++)
+			for (int px = 0; px < Bitmap.Width(); px++)
+			{
+				tIndex index = *Bitmap.Data(px, py);
+				*p++ = (!index && Overlay) ? clrTransparent : (specialColors ?
+						(index == 0 ? ColorBg :	index == 1 ? ColorFg :
+								Bitmap.Color(index)) : Bitmap.Color(index));
+			}
+
+		m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_buffer, Point.X(), Point.Y(),
+				Bitmap.Width(), Bitmap.Height(), argb, Overlay));
+
+		SetDirty();
+		MarkDrawPortDirty(cRect(Point, cSize(Bitmap.Width(),
+				Bitmap.Height())).Intersected(DrawPort().Size()));
+	}
+
+	virtual void DrawScaledBitmap(const cPoint &Point, const cBitmap &Bitmap,
+			double FactorX, double FactorY, bool AntiAlias = false)
+	{
+		LOCK_PIXMAPS;
+		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
+		if (!argb)
+			return;
+
+		tColor *p = argb;
+		for (int py = 0; py < Bitmap.Height(); py++)
+			for (int px = 0; px < Bitmap.Width(); px++)
+				*p++ = Bitmap.Color(*Bitmap.Data(px, py));
+
+		m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_buffer, Point.X(), Point.Y(),
+				Bitmap.Width(), Bitmap.Height(), argb, false,
+				FactorX, FactorY));
+
+		SetDirty();
+		MarkDrawPortDirty(cRect(Point, cSize(
+				int(round(Bitmap.Width() * FactorX)) + 1,
+				int(round(Bitmap.Height() * FactorY)) + 1)).Intersected(
+						DrawPort().Size()));
+	}
+
+	virtual void DrawText(const cPoint &Point, const char *s, tColor ColorFg,
+			tColor ColorBg, const cFont *Font, int Width = 0, int Height = 0,
+			int Alignment = taDefault)
+	{
+		LOCK_PIXMAPS;
+		int len = s ? Utf8StrLen(s) : 0;
+		unsigned int *symbols = MALLOC(unsigned int, len + 1);
+		if (!symbols)
+			return;
+
+		if (len)
+			Utf8ToArray(s, symbols, len + 1);
+		else
+			symbols[0] = 0;
+
+		m_ovg->DoCmd(new cOvgCmdDrawText(m_buffer, Point.X(), Point.Y(),
+				symbols, new cString(Font->FontName()), Font->Size(),
+				ColorFg, ColorBg, Width, Height, Alignment));
+
+		SetDirty();
+		MarkDrawPortDirty(cRect(Point.X(), Point.Y(),
+				Width ? Width : DrawPort().Width() - Point.X(),
+				Height ? Height : DrawPort().Height() - Point.Y()));
+	}
+
+	virtual void DrawRectangle(const cRect &Rect, tColor Color)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdDrawRectangle(m_buffer,
+				Rect.X(), Rect.Y(),	Rect.Width(), Rect.Height(), Color));
+
+		SetDirty();
+		MarkDrawPortDirty(Rect);
+	}
+
+	virtual void DrawEllipse(const cRect &Rect, tColor Color, int Quadrants = 0)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdDrawEllipse(m_buffer,
+				Rect.X(), Rect.Y(),	Rect.Width(), Rect.Height(),
+				Color, Quadrants));
+
+		SetDirty();
+		MarkDrawPortDirty(Rect);
+	}
+
+	virtual void DrawSlope(const cRect &Rect, tColor Color, int Type)
+	{
+		LOCK_PIXMAPS;
+		m_ovg->DoCmd(new cOvgCmdDrawSlope(m_buffer,
+				Rect.X(), Rect.Y(),	Rect.Width(), Rect.Height(), Color, Type));
+
+		SetDirty();
+		MarkDrawPortDirty(Rect);
+	}
+
+	virtual void Render(const cPixmap *Pixmap, const cRect &Source,
+			const cPoint &Dest)
+	{
+		LOCK_PIXMAPS;
+		if (Pixmap->Alpha() == ALPHA_TRANSPARENT)
+			return;
+
+		if (const cOvgPixmap *pm = dynamic_cast<const cOvgPixmap *>(Pixmap))
+		{
+			m_ovg->DoCmd(new cOvgCmdRenderPixels(m_buffer, pm->m_buffer,
+					Dest.X(), Dest.Y(), Source.X(), Source.Y(),
+					Source.Width(), Source.Height(), pm->Alpha()));
+
+			SetDirty();
+			MarkDrawPortDirty(DrawPort());
+		}
+	}
+
+	virtual void Copy(const cPixmap *Pixmap, const cRect &Source,
+			const cPoint &Dest)
+	{
+		LOCK_PIXMAPS;
+		if (const cOvgPixmap *pm = dynamic_cast<const cOvgPixmap *>(Pixmap))
+		{
+			m_ovg->DoCmd(new cOvgCmdCopyPixels(m_buffer, pm->m_buffer,
+					Dest.X(), Dest.Y(), Source.X(), Source.Y(),
+					Source.Width(), Source.Height()));
+
+			SetDirty();
+			MarkDrawPortDirty(DrawPort());
+		}
+	}
+
+	virtual void Scroll(const cPoint &Dest, const cRect &Source, bool pan)
+	{
+		LOCK_PIXMAPS;
+		cRect s;
+		if (&Source == &cRect::Null)
+			s = DrawPort().Shifted(-DrawPort().Point());
+		else
+			s = Source.Intersected(DrawPort().Size());
+
+		if (Dest != s.Point())
+		{
+			m_ovg->DoCmd(new cOvgCmdMovePixels(m_buffer, Dest.X(), Dest.Y(),
+					s.X(), s.Y(), s.Width(), s.Height()));
+
+			if (pan)
+				SetDrawPortPoint(DrawPort().Point().Shifted(s.Point() -	Dest),
+						false);
+			else
+				MarkDrawPortDirty(Dest);
+			SetDirty();
+		}
+	}
+
+	virtual void Scroll(const cPoint &Dest, const cRect &Source = cRect::Null)
+	{
+		Scroll(Dest, Source, false);
+	}
+
+	virtual void Pan(const cPoint &Dest, const cRect &Source = cRect::Null)
+	{
+		Scroll(Dest, Source, true);
+	}
+
+	virtual void CopyToTarget(cOvgRenderTarget *target, int left, int top)
+	{
+		LOCK_PIXMAPS;
+		cRect d = ViewPort().Shifted(left, top);
+		cPoint s = -DrawPort().Point();
+
+		m_ovg->DoCmd(new cOvgCmdCopyPixels(target, m_buffer,
+				d.X(), d.Y(), s.X(), s.Y(), d.Width(), d.Height()));
+
+		SetDirty(false);
+	}
+
+	virtual void RenderToTarget(cOvgRenderTarget *target, int left, int top)
+	{
+		LOCK_PIXMAPS;
+		cRect d = ViewPort().Shifted(left, top);
+		cPoint s = -DrawPort().Point();
+
+		if (Tile())
+			m_ovg->DoCmd(new cOvgCmdRenderPattern(target, m_buffer,
+					d.X(), d.Y(), s.X(), s.Y(), d.Width(), d.Height(),
+					Alpha()));
+		else
+			m_ovg->DoCmd(new cOvgCmdRenderPixels(target, m_buffer,
+					d.X(), d.Y(), s.X(), s.Y(), d.Width(), d.Height(),
+					Alpha()));
+
+		SetDirty(false);
+	}
+
+	virtual bool IsDirty(void) { return m_dirty; }
+	virtual void SetDirty(bool dirty = true) { m_dirty = dirty; }
+
+private:
+
+	cOvgPixmap(const cOvgPixmap&);
+	cOvgPixmap& operator= (const cOvgPixmap&);
+
+	cOvgThread       *m_ovg;
+	cOvgRenderTarget *m_buffer;
+
+	bool m_dirty;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1075,7 +2108,9 @@ public:
 
 	cOvgOsd(int Left, int Top, uint Level, cOvgThread *ovg) :
 		cOsd(Left, Top, Level),
-		m_ovg(ovg), m_savedImage(0)
+		m_ovg(ovg),
+		m_surface(new cOvgRenderTarget()),
+		m_savedImage(0)
 	{ }
 
 	virtual ~cOvgOsd()
@@ -1083,14 +2118,62 @@ public:
 		SetActive(false);
 		if (m_savedImage)
 			m_ovg->DoCmd(new cOvgCmdDropRegion(&m_savedImage));
+
+		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
 	}
 
 	virtual eOsdError SetAreas(const tArea *Areas, int NumAreas)
 	{
-		if (Active())
-			m_ovg->DoCmd(new cOvgCmdClear());
+		cRect r;
+		for (int i = 0; i < NumAreas; i++)
+			r.Combine(cRect(Areas[0].x1, Areas[0].y1,
+					Areas[0].x2 - Areas[0].x1 + 1,
+					Areas[0].y2 - Areas[0].y1 + 1));
 
-		return cOsd::SetAreas(Areas, NumAreas);
+		tArea area = { r.Left(), r.Top(), r.Right(), r.Bottom(), 32 };
+
+		for (int i = 0; i < m_pixmaps.Size(); i++)
+			m_pixmaps[i] = NULL;
+
+		return cOsd::SetAreas(&area, 1);
+	}
+
+	cPixmap *CreatePixmap(int Layer, const cRect &ViewPort,
+			const cRect &DrawPort)
+	{
+		LOCK_PIXMAPS;
+		cOvgPixmap *pm = new cOvgPixmap(Layer, m_ovg, ViewPort, DrawPort);
+
+		if (cOsd::AddPixmap(pm))
+		{
+			for (int i = 0; i < m_pixmaps.Size(); i++)
+				if (!m_pixmaps[i])
+					return m_pixmaps[i] = pm;
+
+			m_pixmaps.Append(pm);
+			return pm;
+		}
+
+		delete pm;
+		return NULL;
+	}
+
+	virtual void DestroyPixmap(cPixmap *Pixmap)
+	{
+		if (Pixmap)
+		{
+			LOCK_PIXMAPS;
+			for (int i = 1; i < m_pixmaps.Size(); i++)
+				if (m_pixmaps[i] == Pixmap)
+				{
+					if (Pixmap->Layer() >= 0)
+						m_pixmaps[0]->SetDirty();
+
+					m_pixmaps[i] = NULL;
+					cOsd::DestroyPixmap(Pixmap);
+					return;
+				}
+		}
 	}
 
 	virtual void SaveRegion(int x1, int y1, int x2, int y2)
@@ -1113,111 +2196,67 @@ public:
 
 	virtual void DrawPixel(int x, int y, tColor Color)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdDrawPixel(x + Left(), y + Top(), Color));
+		m_pixmaps[0]->DrawPixel(
+				cPoint(x, y) - m_pixmaps[0]->ViewPort().Point(), Color);
 	}
 
 	virtual void DrawBitmap(int x, int y, const cBitmap &Bitmap,
 			tColor ColorFg = 0, tColor ColorBg = 0,
 			bool ReplacePalette = false, bool Overlay = false)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		bool specialColors = ColorFg || ColorBg;
-		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
-		if (!argb)
-			return;
-
-		tColor *p = argb;
-		for (int py = 0; py < Bitmap.Height(); py++)
-			for (int px = 0; px < Bitmap.Width(); px++)
-			{
-				tIndex index = *Bitmap.Data(px, py);
-				*p++ = (!index && Overlay) ? clrTransparent : (specialColors ?
-						(index == 0 ? ColorBg :	index ==1 ? ColorFg :
-								Bitmap.Color(index)) : Bitmap.Color(index));
-			}
-
-		m_ovg->DoCmd(new cOvgCmdDrawBitmap(Left() + x,	Top() + y,
-				Bitmap.Width(), Bitmap.Height(), argb, Overlay));
+		m_pixmaps[0]->DrawBitmap(
+				cPoint(x, y) - m_pixmaps[0]->ViewPort().Point(),
+				Bitmap, ColorFg, ColorBg, Overlay);
 	}
 
 	virtual void DrawScaledBitmap(int x, int y, const cBitmap &Bitmap,
 			double FactorX, double FactorY, bool AntiAlias = false)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
-		if (!argb)
-			return;
-
-		tColor *p = argb;
-		for (int py = 0; py < Bitmap.Height(); py++)
-			for (int px = 0; px < Bitmap.Width(); px++)
-				*p++ = Bitmap.Color(*Bitmap.Data(px, py));
-
-		m_ovg->DoCmd(new cOvgCmdDrawBitmap(Left() + x,	Top() + y, Bitmap.Width(),
-				Bitmap.Height(), argb, false, FactorX, FactorY));
-	}
-
-	virtual void DrawRectangle(int x1, int y1, int x2, int y2, tColor Color)
-	{
-		if (!Active())
-			return;
-
-		m_ovg->DoCmd(new cOvgCmdDrawRectangle(x1 + Left(), y1 + Top(),
-				x2 - x1 + 1, y2 - y1 + 1, Color));
+		m_pixmaps[0]->DrawScaledBitmap(
+				cPoint(x, y) - m_pixmaps[0]->ViewPort().Point(),
+				Bitmap, FactorX, FactorY);
 	}
 
 	virtual void DrawEllipse(int x1, int y1, int x2, int y2, tColor Color,
 			int Quadrants = 0)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdDrawEllipse(x1 + Left(), y1 + Top(),
-				x2 - x1 + 1, y2 - y1 + 1, Color, Quadrants));
+		m_pixmaps[0]->DrawEllipse(
+				cRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1).Shifted(
+				- m_pixmaps[0]->ViewPort().Point()), Color, Quadrants);
 	}
 
 	virtual void DrawSlope(int x1, int y1, int x2, int y2, tColor Color,
 			int Type)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdDrawSlope(x1 + Left(), y1 + Top(),
-				x2 - x1 + 1, y2 - y1 + 1, Color, Type));
+		m_pixmaps[0]->DrawSlope(
+				cRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1).Shifted(
+				- m_pixmaps[0]->ViewPort().Point()), Color, Type);
 	}
 
 	virtual void DrawText(int x, int y, const char *s, tColor ColorFg,
 			tColor ColorBg, const cFont *Font, int Width = 0, int Height = 0,
 			int Alignment = taDefault)
 	{
-		if (!Active())
+		if (!m_pixmaps[0])
 			return;
 
-		if (Width && ColorBg != clrTransparent)
-			m_ovg->DoCmd(new cOvgCmdDrawRectangle(x + Left(), y + Top(),
-					Width, Height ? Height : Font->Height(), ColorBg));
-		if (!s)
-			return;
-
-		int len = Utf8StrLen(s);
-		if (len)
-		{
-			unsigned int *symbols = MALLOC(unsigned int, len + 1);
-			if (!symbols)
-				return;
-
-			Utf8ToArray(s, symbols, len + 1);
-			m_ovg->DoCmd(new cOvgCmdDrawText(x + Left(), y + Top(), symbols,
-					new cString(Font->FontName()), Font->Size(), ColorFg,
-					Width, Height, Alignment));
-		}
+		m_pixmaps[0]->DrawText(cPoint(x, y) - m_pixmaps[0]->ViewPort().Point(),
+				s, ColorFg, ColorBg, Font, Width, Height, Alignment);
 	}
 
 	virtual void Flush(void)
@@ -1225,7 +2264,40 @@ public:
 		if (!Active())
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdFlush(), true);
+		LOCK_PIXMAPS;
+
+//#define USE_VDRS_RENDERING
+#ifdef USE_VDRS_RENDERING
+		while (cOvgPixmap *pm =	dynamic_cast<cOvgPixmap *>(RenderPixmaps()))
+		{
+			pm->CopyToTarget(m_surface, Left(), Top());
+
+#if APIVERSNUM >= 20110
+			DestroyPixmap(pm);
+#else
+			delete pm;
+#endif
+		}
+#else
+		bool dirty = false;
+		for (int i = 0; i < m_pixmaps.Size() && !dirty; i++)
+			if (m_pixmaps[i] &&
+					m_pixmaps[i]->Layer() >= 0 && m_pixmaps[i]->IsDirty())
+				dirty = true;
+
+		if (!dirty)
+			return;
+
+		m_ovg->DoCmd(new cOvgCmdClear(m_surface));
+
+		for (int layer = 0; layer < MAXPIXMAPLAYERS; layer++)
+			for (int i = 0; i < m_pixmaps.Size(); i++)
+				if (m_pixmaps[i])
+					if (m_pixmaps[i]->Layer() == layer)
+						m_pixmaps[i]->RenderToTarget(m_surface, Left(), Top());
+#endif
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
+		return;
 	}
 
 protected:
@@ -1236,19 +2308,26 @@ protected:
 		{
 			cOsd::SetActive(On);
 			if (!On)
-				m_ovg->DoCmd(new cOvgCmdClear());
+				Clear();
 			else
 				if (GetBitmap(0))
 					Flush();
 		}
 	}
 
+	virtual void Clear(void)
+	{
+		m_ovg->DoCmd(new cOvgCmdClear(m_surface));
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface));
+	}
+
 private:
 
-	cOvgThread *m_ovg;
-	cRect m_savedRect;
-	VGImage m_savedImage;
-
+	cOvgThread           *m_ovg;
+	cOvgRenderTarget     *m_surface;
+	cVector<cOvgPixmap *> m_pixmaps;
+	cRect                 m_savedRect;
+	VGImage               m_savedImage;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1259,12 +2338,14 @@ public:
 
 	cOvgRawOsd(int Left, int Top, uint Level, cOvgThread *ovg) :
 		cOsd(Left, Top, Level),
-		m_ovg(ovg)
+		m_ovg(ovg),
+		m_surface(new cOvgRenderTarget())
 	{ }
 
 	virtual ~cOvgRawOsd()
 	{
 		SetActive(false);
+		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
 	}
 
 	virtual void Flush(void)
@@ -1284,7 +2365,7 @@ public:
 					memcpy(argb, pm->Data(), sizeof(tColor) *
 							pm->DrawPort().Width() * pm->DrawPort().Height());
 
-					m_ovg->DoCmd(new cOvgCmdDrawBitmap(
+					m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_surface,
 							Left() + pm->ViewPort().Left(),
 							Top() + pm->ViewPort().Top(),
 							pm->DrawPort().Width(), pm->DrawPort().Height(),
@@ -1315,14 +2396,15 @@ public:
 						for (int x = x1; x <= x2; ++x)
 							*p++ = bitmap->GetColor(x, y);
 
-					m_ovg->DoCmd(new cOvgCmdDrawBitmap(Left() + bitmap->X0()
-							+ x1, Top() + bitmap->Y0() + y1, w, h, argb));
+					m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_surface,
+							Left() + bitmap->X0() + x1,
+							Top() + bitmap->Y0() + y1, w, h, argb));
 
 					bitmap->Clean();
 				}
 			}
 		}
-		m_ovg->DoCmd(new cOvgCmdFlush(), true);
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
 	}
 
 	virtual eOsdError SetAreas(const tArea *Areas, int NumAreas)
@@ -1331,7 +2413,7 @@ public:
 		cBitmap *bitmap;
 
 		if (Active())
-			m_ovg->DoCmd(new cOvgCmdClear());
+			Clear();
 
 		error = cOsd::SetAreas(Areas, NumAreas);
 
@@ -1349,16 +2431,23 @@ protected:
 		{
 			cOsd::SetActive(On);
 			if (!On)
-				m_ovg->DoCmd(new cOvgCmdClear());
+				Clear();
 			else
 				if (GetBitmap(0))
 					Flush();
 		}
 	}
 
+	virtual void Clear(void)
+	{
+		m_ovg->DoCmd(new cOvgCmdClear(m_surface));
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface));
+	}
+
 private:
 
-	cOvgThread *m_ovg;
+	cOvgThread       *m_ovg;
+	cOvgRenderTarget *m_surface;
 
 };
 
@@ -1388,6 +2477,16 @@ cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 		return new cOvgOsd(Left, Top, Level, m_ovg);
 	else
 		return new cOvgRawOsd(Left, Top, Level, m_ovg);
+}
+
+int cRpiOsdProvider::StoreImageData(const cImage &Image)
+{
+	return m_ovg->StoreImageData(Image);
+}
+
+void cRpiOsdProvider::DropImageData(int ImageHandle)
+{
+	m_ovg->DropImageData(ImageHandle);
 }
 
 void cRpiOsdProvider::ResetOsd(bool cleanup)

@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- new:
+  - added font kerning
+  - support for GPU accelerated pixmaps
 - fixed:
   - improved video frame rate detection to be more tolerant to inaccurate values
   - adapted cOvgRawOsd::Flush() to new cOsd::RenderPixmaps() of vdr-2.1.10

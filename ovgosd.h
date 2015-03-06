@@ -25,8 +25,8 @@ protected:
 
 	virtual cOsd *CreateOsd(int Left, int Top, uint Level);
 	virtual bool ProvidesTrueColor(void) { return true; }
-	virtual int StoreImageData(const cImage &Image) { return 0; }
-	virtual void DropImageData(int ImageHandle) { }
+	virtual int StoreImageData(const cImage &Image);
+	virtual void DropImageData(int ImageHandle);
 
 private:
 
