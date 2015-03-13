@@ -623,6 +623,14 @@ public:
 
 /* ------------------------------------------------------------------------- */
 
+struct tOvgImageRef
+{
+	VGImage image;
+	bool used;
+};
+
+/* ------------------------------------------------------------------------- */
+
 class cOvgRenderTarget
 {
 public:
@@ -631,7 +639,8 @@ public:
 		surface(EGL_NO_SURFACE),
 		image(VG_INVALID_HANDLE),
 		width(_width),
-		height(_height) { }
+		height(_height),
+		initialized(false) { }
 
 	virtual ~cOvgRenderTarget() { }
 
@@ -663,6 +672,7 @@ public:
 	VGImage    image;
 	int        width;
 	int        height;
+	bool       initialized;
 
 private:
 
@@ -739,54 +749,44 @@ class cOvgCmdCreatePixelBuffer : public cOvgCmd
 {
 public:
 
-	cOvgCmdCreatePixelBuffer(cOvgRenderTarget *target) :
-		cOvgCmd(target) { }
+	cOvgCmdCreatePixelBuffer(cOvgRenderTarget *target) : cOvgCmd(target) { }
 
 	virtual const char* Description(void) { return "CreatePixelBuffer"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		int origW = m_target->width;
-		int origH = m_target->height;
-
-		m_target->width = min(m_target->width, vgGeti(VG_MAX_IMAGE_WIDTH));
-		m_target->height = min(m_target->height, vgGeti(VG_MAX_IMAGE_HEIGHT));
-
-		if (origW != m_target->width || origH != m_target->height)
-			ELOG("[OpenVG] cannot allocate pixmap of %dpx x %dpx, "
-					"clipped to %dpx x %dpx!", origW, origH,
-					m_target->width, m_target->height);
-
 		m_target->image = vgCreateImage(VG_sARGB_8888, m_target->width,
 				m_target->height, VG_IMAGE_QUALITY_BETTER);
 
 		if (m_target->image == VG_INVALID_HANDLE)
-		{
-			ELOG("[OpenVG] failed to allocate %dx%d px pixel buffer!",
+			ELOG("[OpenVG] failed to allocate %dpx x %dpx pixel buffer!",
 					m_target->width, m_target->height);
-			return false;
-		}
-
-		m_target->surface = eglCreatePbufferFromClientBuffer(egl->display,
-				EGL_OPENVG_IMAGE, (EGLClientBuffer)m_target->image,
-				egl->config, NULL);
-
-		if (m_target->surface == EGL_NO_SURFACE)
+		else
 		{
-			ELOG("[EGL] failed to create pixel buffer surface: %s!",
-					cEgl::errStr(eglGetError()));
-			vgDestroyImage(m_target->image);
-			return false;
-		}
+			m_target->surface = eglCreatePbufferFromClientBuffer(egl->display,
+					EGL_OPENVG_IMAGE, (EGLClientBuffer)m_target->image,
+					egl->config, NULL);
 
-		if (eglSurfaceAttrib(egl->display, m_target->surface,
-				EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED) == EGL_FALSE)
-		{
-			ELOG("[EGL] failed to set surface attributes!");
-			eglDestroySurface(egl->display, m_target->surface);
-			vgDestroyImage(m_target->image);
-			return false;
+			if (m_target->surface == EGL_NO_SURFACE)
+			{
+				ELOG("[EGL] failed to create pixel buffer surface: %s!",
+						cEgl::errStr(eglGetError()));
+				vgDestroyImage(m_target->image);
+				m_target->image = VG_INVALID_HANDLE;
+			}
+			else
+			{
+				if (eglSurfaceAttrib(egl->display, m_target->surface,
+						EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED) == EGL_FALSE)
+				{
+					ELOG("[EGL] failed to set surface attributes!");
+					eglDestroySurface(egl->display, m_target->surface);
+					vgDestroyImage(m_target->image);
+					m_target->image = VG_INVALID_HANDLE;
+				}
+			}
 		}
+		m_target->initialized = true;
 		return true;
 	}
 };
@@ -1393,7 +1393,7 @@ class cOvgCmdStoreImage : public cOvgCmd
 {
 public:
 
-	cOvgCmdStoreImage(VGImage *image, int w, int h, tColor *argb) :
+	cOvgCmdStoreImage(tOvgImageRef *image, int w, int h, tColor *argb) :
 		cOvgCmd(0), m_image(image), m_w(w), m_h(h), m_argb(argb) { }
 
 	virtual ~cOvgCmdStoreImage()
@@ -1405,20 +1405,23 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
-		*m_image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
+		m_image->image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
 				VG_IMAGE_QUALITY_BETTER);
 
-		if (*m_image == VG_INVALID_HANDLE)
-			return false;
-
-		vgImageSubData(*m_image, m_argb, m_w * sizeof(tColor),
-						VG_sARGB_8888, 0, 0, m_w, m_h);
+		if (m_image->image != VG_INVALID_HANDLE)
+			vgImageSubData(m_image->image, m_argb, m_w * sizeof(tColor),
+					VG_sARGB_8888, 0, 0, m_w, m_h);
+		else
+		{
+			m_image->used = false;
+			ELOG("[OpenVG] failed to allocate %dpx x %dpx image!", m_w, m_h);
+		}
 		return true;
 	}
 
 private:
 
-	VGImage *m_image;
+	tOvgImageRef *m_image;
 	int m_w;
 	int m_h;
 	tColor *m_argb;
@@ -1428,23 +1431,23 @@ class cOvgCmdDropImage : public cOvgCmd
 {
 public:
 
-	cOvgCmdDropImage(VGImage *image) :
+	cOvgCmdDropImage(tOvgImageRef *image) :
 		cOvgCmd(0), m_image(image) { }
 
 	virtual const char* Description(void) { return "DropImage"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (*m_image != VG_INVALID_HANDLE)
-			vgDestroyImage(*m_image);
+		if (m_image->image != VG_INVALID_HANDLE)
+			vgDestroyImage(m_image->image);
 
-		*m_image = VG_INVALID_HANDLE;
+		m_image->used = false;
 		return true;
 	}
 
 private:
 
-	VGImage *m_image;
+	tOvgImageRef *m_image;
 };
 
 class cOvgCmdDrawImage : public cOvgCmd
@@ -1545,16 +1548,18 @@ protected:
 
 /* ------------------------------------------------------------------------- */
 
-#define MAXOSDIMAGES_OVG 256
+#define OVG_MAX_OSDIMAGES 256
+#define OVG_CMDQUEUE_SIZE 2048
 
 class cOvgThread : public cThread
 {
 public:
 
-	cOvgThread() : cThread("ovgthread"), m_wait(new cCondWait())
+	cOvgThread() :
+		cThread("ovgthread"), m_wait(new cCondWait()), m_stalled(false)
 	{
-		for (int i = 0; i < MAXOSDIMAGES_OVG; i++)
-			m_images[i] = VG_INVALID_HANDLE;
+		for (int i = 0; i < OVG_MAX_OSDIMAGES; i++)
+			m_images[i].used = false;
 
 		Start();
 	}
@@ -1572,60 +1577,114 @@ public:
 
 	void DoCmd(cOvgCmd* cmd, bool signal = false)
 	{
+		while (m_stalled)
+			cCondWait::SleepMs(10);
+
 		Lock();
 		m_commands.push(cmd);
 		Unlock();
+
+		if (m_commands.size() > OVG_CMDQUEUE_SIZE)
+		{
+			m_stalled = true;
+			ILOG("[OpenVG] command queue stalled!");
+		}
 
 		if (signal)
 			m_wait->Signal();
 	}
 
-	VGImage *GetImageRef(int imageHandle)
-	{
-		if (0 <= imageHandle && imageHandle < MAXOSDIMAGES_OVG)
-			return &m_images[imageHandle];
-
-		return VG_INVALID_HANDLE;
-	}
-
 	virtual int StoreImageData(const cImage &image)
 	{
-		Lock();
-		int imageId = -1;
-		for (int i = 0; i < MAXOSDIMAGES_OVG && imageId < 0; i++)
-			if (m_images[i] == VG_INVALID_HANDLE)
+		if (image.Width() > m_maxImageSize.Width() ||
+				image.Height() > m_maxImageSize.Height())
+		{
+			ELOG("[OpenVG] cannot store image of %dpx x %dpx, "
+					"maximum size is %dpx x %dpx!",
+					image.Width(), image.Height(),
+					m_maxImageSize.Width(), m_maxImageSize.Height());
+			return 0;
+		}
+
+		int imageHandle = GetFreeImageHandle();
+		if (imageHandle)
+		{
+			tColor *argb = MALLOC(tColor, image.Width() * image.Height());
+			if (!argb)
 			{
-				tColor *argb = MALLOC(tColor, image.Width() * image.Height());
-				if (argb)
+				FreeImageHandle(imageHandle);
+				imageHandle = 0;
+			}
+			else
+			{
+				memcpy(argb, image.Data(),
+						sizeof(tColor) * image.Width() * image.Height());
+
+				tOvgImageRef *imageRef = GetImageRef(imageHandle);
+				DoCmd(new cOvgCmdStoreImage(imageRef,
+						image.Width(), image.Height(), argb));
+
+				cTimeMs timer(1000);
+				while (imageRef->used && imageRef->image == VG_INVALID_HANDLE
+						&& !timer.TimedOut())
+					cCondWait::SleepMs(5);
+
+				if (imageRef->image == VG_INVALID_HANDLE)
 				{
-					// mark as used - will be overwritten by OVG thread
-					m_images[i]++;
-					imageId = i;
-
-					memcpy(argb, image.Data(),
-							sizeof(tColor) * image.Width() * image.Height());
-
-					DoCmd(new cOvgCmdStoreImage(&m_images[i], image.Width(),
-							image.Height(), argb));
+					DropImageData(imageHandle);
+					imageHandle = 0;
 				}
 			}
+		}
 
-		Unlock();
-		if (imageId < 0)
+		if (!imageHandle)
 			ELOG("failed to store OSD image!");
 
-		return imageId;
+		return imageHandle;
 	}
 
 	virtual void DropImageData(int imageHandle)
 	{
-		Lock();
-		if (0 <= imageHandle && imageHandle < MAXOSDIMAGES_OVG)
-			DoCmd(new cOvgCmdDropImage(&m_images[imageHandle]));
-		Unlock();
+		DoCmd(new cOvgCmdDropImage(GetImageRef(imageHandle)));
+	}
+
+	virtual const cSize &MaxImageSize(void) const
+	{
+		return m_maxImageSize;
+	}
+
+	tOvgImageRef *GetImageRef(int imageHandle)
+	{
+		int i = -imageHandle - 1;
+		if (0 <= i && i < OVG_MAX_OSDIMAGES)
+			return &m_images[i];
+
+		return 0;
 	}
 
 protected:
+
+	virtual int GetFreeImageHandle(void)
+	{
+		Lock();
+		int imageHandle = 0;
+		for (int i = 0; i < OVG_MAX_OSDIMAGES && !imageHandle; i++)
+			if (!m_images[i].used)
+			{
+				m_images[i].used = true;
+				m_images[i].image = VG_INVALID_HANDLE;
+				imageHandle = -i - 1;
+			}
+		Unlock();
+		return imageHandle;
+	}
+
+	virtual void FreeImageHandle(int imageHandle)
+	{
+		int i = -imageHandle - 1;
+		if (i >= 0 && i < OVG_MAX_OSDIMAGES)
+			m_images[i].used = false;
+	}
 
 	virtual void Action(void)
 	{
@@ -1704,6 +1763,9 @@ protected:
 
 			egl.currentSurface = egl.surface;
 
+			m_maxImageSize.Set(vgGeti(VG_MAX_IMAGE_WIDTH),
+					vgGeti(VG_MAX_IMAGE_HEIGHT));
+
 			float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 			vgSetfv(VG_CLEAR_COLOR, 4, color);
 			vgClear(0, 0, egl.window.width, egl.window.height);
@@ -1729,6 +1791,9 @@ protected:
 
 					//ELOG("[OpenVG] %s", cmd->Description());
 					delete cmd;
+
+					if (m_stalled && m_commands.size() < OVG_CMDQUEUE_SIZE / 2)
+						m_stalled = false;
 				}
 			}
 
@@ -1742,9 +1807,9 @@ protected:
 			DLOG("cOvgThread() thread reset");
 		}
 
-		for (int i = 0; i < MAXOSDIMAGES_OVG; i++)
-			if (m_images[i] != VG_INVALID_HANDLE)
-				vgDestroyImage(m_images[i]);
+		for (int i = 0; i < OVG_MAX_OSDIMAGES; i++)
+			if (m_images[i].used)
+				vgDestroyImage(m_images[i].image);
 
 		cOvgFont::CleanUp();
 		cOvgPaintBox::CleanUp();
@@ -1775,8 +1840,11 @@ private:
 
 	std::queue<cOvgCmd*> m_commands;
 	cCondWait *m_wait;
+	bool m_stalled;
 
-	VGImage m_images[MAXOSDIMAGES_OVG];
+	tOvgImageRef m_images[OVG_MAX_OSDIMAGES];
+
+	cSize m_maxImageSize;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1785,18 +1853,13 @@ class cOvgPixmap : public cPixmap
 {
 public:
 
-	cOvgPixmap(int Layer, cOvgThread *ovg, const cRect &ViewPort,
-			const cRect &DrawPort = cRect::Null) :
+	cOvgPixmap(int Layer, cOvgThread *ovg, cOvgRenderTarget *buffer,
+			const cRect &ViewPort, const cRect &DrawPort) :
 		cPixmap(Layer, ViewPort, DrawPort),
 		m_ovg(ovg),
-		m_buffer(0),
+		m_buffer(buffer),
 		m_dirty(false)
-	{
-		m_buffer = new cOvgRenderTarget(
-				this->DrawPort().Width(), this->DrawPort().Height());
-
-		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(m_buffer));
-	}
+	{ }
 
 	virtual ~cOvgPixmap()
 	{
@@ -1851,6 +1914,17 @@ public:
 	virtual void DrawImage(const cPoint &Point, const cImage &Image)
 	{
 		LOCK_PIXMAPS;
+		if (Image.Width() > m_ovg->MaxImageSize().Width() ||
+				Image.Height() > m_ovg->MaxImageSize().Height())
+		{
+			ELOG("[OpenVG] cannot handle image of %dpx x %dpx, "
+					"maximum size is %dpx x %dpx!",
+					Image.Width(), Image.Height(),
+					m_ovg->MaxImageSize().Width(),
+					m_ovg->MaxImageSize().Height());
+			return;
+		}
+
 		tColor *argb = MALLOC(tColor, Image.Width() * Image.Height());
 		if (!argb)
 			return;
@@ -1868,8 +1942,14 @@ public:
 
 	virtual void DrawImage(const cPoint &Point, int ImageHandle)
 	{
-		m_ovg->DoCmd(new cOvgCmdDrawImage(m_buffer,
-				m_ovg->GetImageRef(ImageHandle), Point.X(), Point.Y()));
+		if (ImageHandle < 0 && m_ovg->GetImageRef(ImageHandle))
+			m_ovg->DoCmd(new cOvgCmdDrawImage(m_buffer,
+					&m_ovg->GetImageRef(ImageHandle)->image,
+					Point.X(), Point.Y()));
+		else
+			if (cRpiOsdProvider::GetImageData(ImageHandle))
+				DrawImage(Point, *cRpiOsdProvider::GetImageData(ImageHandle));
+
 		SetDirty();
 	}
 
@@ -1887,6 +1967,17 @@ public:
 			tColor ColorFg = 0, tColor ColorBg = 0, bool Overlay = false)
 	{
 		LOCK_PIXMAPS;
+		if (Bitmap.Width() > m_ovg->MaxImageSize().Width() ||
+				Bitmap.Height() > m_ovg->MaxImageSize().Height())
+		{
+			ELOG("[OpenVG] cannot handle bitmap of %dpx x %dpx, "
+					"maximum size is %dpx x %dpx!",
+					Bitmap.Width(), Bitmap.Height(),
+					m_ovg->MaxImageSize().Width(),
+					m_ovg->MaxImageSize().Height());
+			return;
+		}
+
 		bool specialColors = ColorFg || ColorBg;
 		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
@@ -1914,6 +2005,17 @@ public:
 			double FactorX, double FactorY, bool AntiAlias = false)
 	{
 		LOCK_PIXMAPS;
+		if (Bitmap.Width() > m_ovg->MaxImageSize().Width() ||
+				Bitmap.Height() > m_ovg->MaxImageSize().Height())
+		{
+			ELOG("[OpenVG] cannot handle bitmap of %dpx x %dpx, "
+					"maximum size is %dpx x %dpx!",
+					Bitmap.Width(), Bitmap.Height(),
+					m_ovg->MaxImageSize().Width(),
+					m_ovg->MaxImageSize().Height());
+			return;
+		}
+
 		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
 			return;
@@ -2138,23 +2240,71 @@ public:
 		return cOsd::SetAreas(&area, 1);
 	}
 
-	cPixmap *CreatePixmap(int Layer, const cRect &ViewPort,
-			const cRect &DrawPort)
+	virtual const cSize &MaxPixmapSize(void) const
+	{
+		return m_ovg->MaxImageSize();
+	}
+
+	virtual cPixmap *CreatePixmap(int Layer, const cRect &ViewPort,
+			const cRect &DrawPort = cRect::Null)
 	{
 		LOCK_PIXMAPS;
-		cOvgPixmap *pm = new cOvgPixmap(Layer, m_ovg, ViewPort, DrawPort);
+		int width = DrawPort.IsEmpty() ? ViewPort.Width() : DrawPort.Width();
+		int height = DrawPort.IsEmpty() ? ViewPort.Height() : DrawPort.Height();
 
-		if (cOsd::AddPixmap(pm))
+#if APIVERSNUM >= 20301
+		if (width > m_ovg->MaxImageSize().Width() ||
+				height > m_ovg->MaxImageSize().Height())
 		{
-			for (int i = 0; i < m_pixmaps.Size(); i++)
-				if (!m_pixmaps[i])
-					return m_pixmaps[i] = pm;
+			ELOG("[OpenVG] cannot allocate pixmap of %dpx x %dpx, "
+					"maximum size is %dpx x %dpx!", width, height,
+					m_ovg->MaxImageSize().Width(),
+					m_ovg->MaxImageSize().Height());
 
-			m_pixmaps.Append(pm);
-			return pm;
+			return NULL;
 		}
+#else
+		if (width > m_ovg->MaxImageSize().Width() ||
+				height > m_ovg->MaxImageSize().Height())
+		{
+			ELOG("[OpenVG] cannot allocate pixmap of %dpx x %dpx, "
+					"clipped to %dpx x %dpx!", width, height,
+					min(width, m_ovg->MaxImageSize().Width()),
+					min(height, m_ovg->MaxImageSize().Height()));
 
-		delete pm;
+			width = min(width, m_ovg->MaxImageSize().Width());
+			height = min(height, m_ovg->MaxImageSize().Height());
+		}
+#endif
+		// create pixel buffer and wait until command has been completed
+		cOvgRenderTarget *buffer = new cOvgRenderTarget(width, height);
+		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer));
+
+		cTimeMs timer(1000);
+		while (!buffer->initialized && !timer.TimedOut())
+			cCondWait::SleepMs(5);
+
+		if (buffer->initialized && buffer->image != VG_INVALID_HANDLE)
+		{
+			cOvgPixmap *pm = new cOvgPixmap(Layer, m_ovg, buffer,
+					ViewPort, DrawPort);
+
+			if (cOsd::AddPixmap(pm))
+			{
+				for (int i = 0; i < m_pixmaps.Size(); i++)
+					if (!m_pixmaps[i])
+						return m_pixmaps[i] = pm;
+
+				m_pixmaps.Append(pm);
+				return pm;
+			}
+			delete pm;
+		}
+		else
+		{
+			ELOG("[OpenVG] failed to allocate pixmap buffer!");
+			m_ovg->DoCmd(new cOvgCmdDestroySurface(buffer));
+		}
 		return NULL;
 	}
 
@@ -2481,12 +2631,21 @@ cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 
 int cRpiOsdProvider::StoreImageData(const cImage &Image)
 {
-	return m_ovg->StoreImageData(Image);
+	int id = m_ovg->StoreImageData(Image);
+	return id ? id : cOsdProvider::StoreImageData(Image);
 }
 
 void cRpiOsdProvider::DropImageData(int ImageHandle)
 {
-	m_ovg->DropImageData(ImageHandle);
+	if (ImageHandle < 0)
+		m_ovg->DropImageData(ImageHandle);
+	else
+		cOsdProvider::DropImageData(ImageHandle);
+}
+
+const cImage *cRpiOsdProvider::GetImageData(int ImageHandle)
+{
+	return cOsdProvider::GetImageData(ImageHandle);
 }
 
 void cRpiOsdProvider::ResetOsd(bool cleanup)

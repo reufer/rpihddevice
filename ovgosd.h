@@ -20,6 +20,7 @@ public:
 	~cRpiOsdProvider();
 
 	static void ResetOsd(bool cleanup = false);
+	static const cImage *GetImageData(int ImageHandle);
 
 protected:
 
