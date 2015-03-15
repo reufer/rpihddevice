@@ -111,6 +111,23 @@ public:
 	}
 };
 
+class cAudioFormat
+{
+public:
+
+	enum eFormat {
+		ePassThrough,
+		eMultiChannelPCM,
+		eStereoPCM
+	};
+
+	static const char* Str(eFormat format) {
+		return  (format == ePassThrough)     ? "pass through"      :
+				(format == eMultiChannelPCM) ? "multi channel PCM" :
+				(format == eStereoPCM)       ? "stereo PCM"        : "unknown";
+	}
+};
+
 class cVideoCodec
 {
 public:

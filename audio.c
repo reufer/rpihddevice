@@ -1007,8 +1007,7 @@ public:
 				newPort = cRpiAudioPort::eHDMI;
 
 				// check if pass through is possible
-				if (cRpiSetup::IsAudioPassthrough() &&
-					cRpiSetup::IsAudioFormatSupported(codec, channels,
+				if (cRpiSetup::IsAudioFormatSupported(codec, channels,
 							samplingRate))
 					newCodec = codec;
 

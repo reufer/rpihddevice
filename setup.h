@@ -19,16 +19,13 @@ public:
 	{
 		AudioParameters() :
 			port(0),
-			passthrough(0),
-			ignoreEDID(0) { }
+			format(0) { }
 
 		int port;
-		int passthrough;
-		int ignoreEDID;
+		int format;
 
 		bool operator!=(const AudioParameters& a) {
-			return (a.port != port) || (a.passthrough != passthrough) ||
-					(a.ignoreEDID != ignoreEDID);
+			return (a.port != port) || (a.format != format);
 		}
 	};
 
@@ -67,11 +64,11 @@ public:
 		return (GetInstance()->m_audio.port) ?
 				cRpiAudioPort::eHDMI : cRpiAudioPort::eLocal; }
 
-	static bool IsAudioPassthrough(void) {
-		return GetInstance()->m_audio.passthrough; }
-
-	static bool IgnoreAudioEDID(void) {
-		return GetInstance()->m_audio.ignoreEDID; }
+	static cAudioFormat::eFormat GetAudioFormat(void) {
+		return  GetInstance()->m_audio.format == 0 ? cAudioFormat::ePassThrough :
+				GetInstance()->m_audio.format == 1 ? cAudioFormat::eMultiChannelPCM :
+						cAudioFormat::eStereoPCM;
+	}
 
 	static cVideoFraming::eFraming GetVideoFraming(void) {
 		return GetInstance()->m_video.framing == 0 ? cVideoFraming::eFrame :

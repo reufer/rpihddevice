@@ -31,8 +31,12 @@ public:
 		m_video(video),
 		m_osd(osd)
 	{
-		m_audioport[0] = tr("analog");
-		m_audioport[1] = tr("HDMI");
+		m_audioPort[0] = tr("analog");
+		m_audioPort[1] = tr("HDMI");
+
+		m_audioFormat[0] = tr("pass through");
+		m_audioFormat[1] = tr("multi channel PCM");
+		m_audioFormat[2] = tr("stereo PCM");
 
 		m_videoFraming[0] = tr("box");
 		m_videoFraming[1] = tr("crop");
@@ -61,14 +65,11 @@ public:
 	eOSState ProcessKey(eKeys Key)
 	{
 		int newAudioPort = m_audio.port;
-		int newPassthrough = m_audio.passthrough;
-
 		eOSState state = cMenuSetupPage::ProcessKey(Key);
 
 		if (Key != kNone)
 		{
-			if ((newAudioPort != m_audio.port) ||
-					(newPassthrough != m_audio.passthrough))
+			if (newAudioPort != m_audio.port)
 				Setup();
 		}
 
@@ -80,8 +81,7 @@ protected:
 	virtual void Store(void)
 	{
 		SetupStore("AudioPort", m_audio.port);
-		SetupStore("PassThrough", m_audio.passthrough);
-		SetupStore("IgnoreAudioEDID", m_audio.ignoreEDID);
+		SetupStore("AudioFormat", m_audio.format);
 
 		SetupStore("VideoFraming", m_video.framing);
 		SetupStore("Resolution", m_video.resolution);
@@ -112,16 +112,12 @@ private:
 				tr("Video Framing"), &m_video.framing, 3, m_videoFraming));
 
 		Add(new cMenuEditStraItem(
-				tr("Audio Port"), &m_audio.port, 2, m_audioport));
+				tr("Audio Port"), &m_audio.port, 2, m_audioPort));
 
 		if (m_audio.port == 1)
 		{
-			Add(new cMenuEditBoolItem(
-					tr("Digital Audio Pass-Through"), &m_audio.passthrough));
-
-			if (m_audio.passthrough)
-				Add(new cMenuEditBoolItem(
-						tr("Ignore Audio EDID"), &m_audio.ignoreEDID));
+			Add(new cMenuEditStraItem(tr("Digital Audio Format"),
+					&m_audio.format, 3, m_audioFormat));
 		}
 
 		Add(new cMenuEditBoolItem(
@@ -135,7 +131,8 @@ private:
 	cRpiSetup::VideoParameters m_video;
 	cRpiSetup::OsdParameters   m_osd;
 
-	const char *m_audioport[2];
+	const char *m_audioPort[2];
+	const char *m_audioFormat[3];
 	const char *m_videoFraming[3];
 	const char *m_videoResolution[6];
 	const char *m_videoFrameRate[9];
@@ -211,30 +208,31 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 	if (codec == cAudioCodec::eMPG || codec == cAudioCodec::eAAC)
 		return false;
 
-	if (GetInstance()->m_audio.ignoreEDID)
-		return true;
+	switch (GetAudioFormat())
+	{
+	case cAudioFormat::ePassThrough:
+		return (vc_tv_hdmi_audio_supported(
+					codec == cAudioCodec::eMPG  ? EDID_AudioFormat_eMPEG1 :
+					codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
+					codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
+					codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
+							EDID_AudioFormat_ePCM, channels,
+					samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
+					samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
+					samplingRate ==  88200 ? EDID_AudioSampleRate_e88KHz  :
+					samplingRate ==  96000 ? EDID_AudioSampleRate_e96KHz  :
+					samplingRate == 176000 ? EDID_AudioSampleRate_e176KHz :
+					samplingRate == 192000 ? EDID_AudioSampleRate_e192KHz :
+							EDID_AudioSampleRate_e48KHz,
+							EDID_AudioSampleSize_16bit) == 0);
 
-	if (vc_tv_hdmi_audio_supported(
-			codec == cAudioCodec::eMPG  ? EDID_AudioFormat_eMPEG1 :
-			codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
-			codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
-			codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
-					EDID_AudioFormat_ePCM, channels,
-			samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
-			samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
-			samplingRate ==  88200 ? EDID_AudioSampleRate_e88KHz  :
-			samplingRate ==  96000 ? EDID_AudioSampleRate_e96KHz  :
-			samplingRate == 176000 ? EDID_AudioSampleRate_e176KHz :
-			samplingRate == 192000 ? EDID_AudioSampleRate_e192KHz :
-					EDID_AudioSampleRate_e48KHz,
-					EDID_AudioSampleSize_16bit) == 0)
-		return true;
+	case cAudioFormat::eMultiChannelPCM:
+		return codec == cAudioCodec::ePCM;
 
-	DLOG("%dch %s, %d.%dkHz not supported by HDMI device",
-			channels, cAudioCodec::Str(codec),
-			samplingRate / 1000, (samplingRate % 1000) / 100);
-
-	return false;
+	default:
+	case cAudioFormat::eStereoPCM:
+		return codec == cAudioCodec::ePCM && channels == 2;
+	}
 }
 
 void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)
@@ -289,10 +287,8 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 {
 	if (!strcasecmp(name, "AudioPort"))
 		m_audio.port = atoi(value);
-	else if (!strcasecmp(name, "PassThrough"))
-		m_audio.passthrough = atoi(value);
-	else if (!strcasecmp(name, "IgnoreAudioEDID"))
-		m_audio.ignoreEDID = atoi(value);
+	else if (!strcasecmp(name, "AudioFormat"))
+		m_audio.format = atoi(value);
 	else if (!strcasecmp(name, "VideoFraming"))
 		m_video.framing = atoi(value);
 	else if (!strcasecmp(name, "Resolution"))
