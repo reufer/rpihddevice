@@ -1622,24 +1622,22 @@ public:
 
 				tOvgImageRef *imageRef = GetImageRef(imageHandle);
 				DoCmd(new cOvgCmdStoreImage(imageRef,
-						image.Width(), image.Height(), argb));
+						image.Width(), image.Height(), argb), true);
 
-				cTimeMs timer(1000);
+				cTimeMs timer(5000);
 				while (imageRef->used && imageRef->image == VG_INVALID_HANDLE
 						&& !timer.TimedOut())
-					cCondWait::SleepMs(5);
+					cCondWait::SleepMs(2);
 
 				if (imageRef->image == VG_INVALID_HANDLE)
 				{
+					ELOG("failed to store OSD image! (%s)",	timer.TimedOut() ?
+							"timed out" : "allocation failed");
 					DropImageData(imageHandle);
 					imageHandle = 0;
 				}
 			}
 		}
-
-		if (!imageHandle)
-			ELOG("failed to store OSD image!");
-
 		return imageHandle;
 	}
 
@@ -2278,11 +2276,11 @@ public:
 #endif
 		// create pixel buffer and wait until command has been completed
 		cOvgRenderTarget *buffer = new cOvgRenderTarget(width, height);
-		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer));
+		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer), true);
 
-		cTimeMs timer(1000);
+		cTimeMs timer(5000);
 		while (!buffer->initialized && !timer.TimedOut())
-			cCondWait::SleepMs(5);
+			cCondWait::SleepMs(2);
 
 		if (buffer->initialized && buffer->image != VG_INVALID_HANDLE)
 		{
@@ -2302,7 +2300,8 @@ public:
 		}
 		else
 		{
-			ELOG("[OpenVG] failed to allocate pixmap buffer!");
+			ELOG("[OpenVG] failed to create pixmap! (%s)",
+					timer.TimedOut() ? "timed out" : "allocation failed");
 			m_ovg->DoCmd(new cOvgCmdDestroySurface(buffer));
 		}
 		return NULL;
