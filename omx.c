@@ -926,7 +926,9 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 	// start with valid frames only if codec is MPEG2
 	// update: with FW from 2015/01/18 this is not necessary anymore
 	SetVideoErrorConcealment(true /*codec == cVideoCodec::eMPEG2*/);
-	SetVideoDecoderExtraBuffers(3);
+
+	// update: with FW from 2014/02/04 this is not necessary anymore
+	//SetVideoDecoderExtraBuffers(3);
 
 	if (ilclient_enable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL) != 0)
 		ELOG("failed to enable port buffer on video decoder!");
