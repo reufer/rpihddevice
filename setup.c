@@ -11,6 +11,8 @@
 #include <vdr/tools.h>
 #include <vdr/menuitems.h>
 
+#include <getopt.h>
+
 #include <bcm_host.h>
 #include "interface/vchiq_arm/vchiq_if.h"
 #include "interface/vmcs_host/vc_tvservice.h"
@@ -324,4 +326,29 @@ void cRpiSetup::Set(AudioParameters audio, VideoParameters video,
 		m_osd = osd;
 		cRpiOsdProvider::ResetOsd(false);
 	}
+}
+
+bool cRpiSetup::ProcessArgs(int argc, char *argv[])
+{
+	static struct option long_options[] = {
+			{ "disable-osd", no_argument, NULL, 'd' },
+	};
+	int c;
+	while ((c = getopt_long(argc, argv, "d", long_options, NULL)) != -1)
+	{
+		switch (c)
+		{
+		case 'd':
+			m_plugin.hasOsd = false;
+			break;
+		default:
+			return false;
+		}
+	}
+	return true;
+}
+
+const char *cRpiSetup::CommandLineHelp(void)
+{
+	return "  -d,       --disable-osd  disable OSD\n";
 }

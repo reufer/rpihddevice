@@ -58,6 +58,14 @@ public:
 		}
 	};
 
+	struct PluginParameters
+	{
+		PluginParameters() :
+			hasOsd(true) { }
+
+		bool hasOsd;
+	};
+
 	static bool HwInit(void);
 
 	static cRpiAudioPort::ePort GetAudioPort(void) {
@@ -109,6 +117,10 @@ public:
 		return GetInstance()->m_osd.accelerated != 0;
 	}
 
+	static bool HasOsd(void) {
+		return GetInstance()->m_plugin.hasOsd;
+	}
+
 	static void SetHDMIChannelMapping(bool passthrough, int channels);
 
 	static cRpiSetup* GetInstance(void);
@@ -121,6 +133,9 @@ public:
 
 	static void SetAudioSetupChangedCallback(void (*callback)(void*), void* data = 0);
 	static void SetVideoSetupChangedCallback(void (*callback)(void*), void* data = 0);
+
+	bool ProcessArgs(int argc, char *argv[]);
+	const char *CommandLineHelp(void);
 
 private:
 
@@ -136,9 +151,10 @@ private:
 
 	static cRpiSetup* s_instance;
 
-	AudioParameters m_audio;
-	VideoParameters m_video;
-	OsdParameters   m_osd;
+	AudioParameters  m_audio;
+	VideoParameters  m_video;
+	OsdParameters    m_osd;
+	PluginParameters m_plugin;
 
 	bool m_mpeg2Enabled;
 

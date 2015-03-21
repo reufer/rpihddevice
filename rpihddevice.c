@@ -22,15 +22,19 @@ private:
 
 	cOmxDevice *m_device;
 
-	static void OnPrimaryDevice(void) { new cRpiOsdProvider(); }
+	static void OnPrimaryDevice(void)
+	{
+		if (cRpiSetup::HasOsd())
+			new cRpiOsdProvider();
+	}
 
 public:
 	cPluginRpiHdDevice(void);
 	virtual ~cPluginRpiHdDevice();
 	virtual const char *Version(void) { return VERSION; }
 	virtual const char *Description(void) { return tr(DESCRIPTION); }
-	virtual const char *CommandLineHelp(void) { return NULL; }
-	virtual bool ProcessArgs(int argc, char *argv[]) { return true; }
+	virtual const char *CommandLineHelp(void);
+	virtual bool ProcessArgs(int argc, char *argv[]);
 	virtual bool Initialize(void);
 	virtual bool Start(void);
 	virtual void Stop(void);
@@ -86,6 +90,16 @@ cMenuSetupPage* cPluginRpiHdDevice::SetupMenu(void)
 bool cPluginRpiHdDevice::SetupParse(const char *Name, const char *Value)
 {
 	return cRpiSetup::GetInstance()->Parse(Name, Value);
+}
+
+bool cPluginRpiHdDevice::ProcessArgs(int argc, char *argv[])
+{
+	return cRpiSetup::GetInstance()->ProcessArgs(argc, argv);
+}
+
+const char *cPluginRpiHdDevice::CommandLineHelp(void)
+{
+	return cRpiSetup::GetInstance()->CommandLineHelp();
 }
 
 VDRPLUGINCREATOR(cPluginRpiHdDevice); // Don't touch this! okay.

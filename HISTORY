@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - added command line argument to disable OSD
   - combined digital audio format options to one single setup option
   - added font kerning
   - support for GPU accelerated pixmaps
