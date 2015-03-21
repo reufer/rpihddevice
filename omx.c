@@ -93,16 +93,15 @@ public:
 		Event* event = 0;
 		while (true)
 		{
-			m_mutex->Lock();
 			if (!m_events.empty())
 			{
+				m_mutex->Lock();
 				event = m_events.front();
 				m_events.pop();
 				m_mutex->Unlock();
 				break;
 			}
-			m_mutex->Unlock();
-			m_signal->Wait();
+			m_signal->Wait(10);
 		}
 		return event;
 	}
@@ -1143,15 +1142,15 @@ void cOmx::SetDisplayRegion(int x, int y, int width, int height)
 
 OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 {
-	Lock();
-
 	OMX_BUFFERHEADERTYPE* buf = 0;
 	if (m_spareAudioBuffers)
 	{
+		Lock();
 		buf = m_spareAudioBuffers;
 		m_spareAudioBuffers =
 				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
 		buf->pAppPrivate = 0;
+		Unlock();
 	}
 	else
 		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
@@ -1173,21 +1172,20 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 	else
 		m_freeAudioBuffers = false;
 
-	Unlock();
 	return buf;
 }
 
 OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 {
-	Lock();
-
 	OMX_BUFFERHEADERTYPE* buf = 0;
 	if (m_spareVideoBuffers)
 	{
+		Lock();
 		buf = m_spareVideoBuffers;
 		m_spareVideoBuffers =
 				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
 		buf->pAppPrivate = 0;
+		Unlock();
 	}
 	else
 		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
@@ -1213,7 +1211,6 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 	else
 		m_freeVideoBuffers = false;
 
-	Unlock();
 	return buf;
 }
 
@@ -1265,11 +1262,13 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 			m_setVideoDiscontinuity = true;
 
 		buf->nFilledLen = 0;
+
+		Lock();
 		buf->pAppPrivate = m_spareAudioBuffers;
 		m_spareAudioBuffers = buf;
+		Unlock();
 		return false;
 	}
-
 	return true;
 }
 
@@ -1291,10 +1290,12 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 			m_setVideoStartTime = true;
 
 		buf->nFilledLen = 0;
+
+		Lock();
 		buf->pAppPrivate = m_spareVideoBuffers;
 		m_spareVideoBuffers = buf;
+		Unlock();
 		return false;
 	}
-
 	return true;
 }
