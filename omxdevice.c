@@ -766,6 +766,7 @@ void cOmxDevice::FlushStreams(bool flushVideoRender)
 		m_audio->Reset();
 		m_omx->FlushAudio();
 	}
+	m_omx->SetCurrentReferenceTime(0);
 }
 
 void cOmxDevice::SetVolumeDevice(int Volume)
