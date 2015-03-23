@@ -149,6 +149,7 @@ private:
 	OMX_S32 m_clockScale;
 
 	cOmxEvents *m_portEvents;
+	bool m_handlePortEvents;
 
 	void (*m_onBufferStall)(void*);
 	void *m_onBufferStallData;

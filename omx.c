@@ -184,7 +184,8 @@ void cOmx::Action(void)
 			switch (event->event)
 			{
 			case cOmxEvents::ePortSettingsChanged:
-				HandlePortSettingsChanged(event->data);
+				if (m_handlePortEvents)
+					HandlePortSettingsChanged(event->data);
 				break;
 
 			case cOmxEvents::eConfigChanged:
@@ -363,6 +364,7 @@ cOmx::cOmx() :
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
 	m_portEvents(new cOmxEvents()),
+	m_handlePortEvents(false),
 	m_onBufferStall(0),
 	m_onBufferStallData(0),
 	m_onEndOfStream(0),
@@ -832,6 +834,8 @@ void cOmx::StopVideo(void)
 	m_videoFormat.height = 0;
 	m_videoFormat.frameRate = 0;
 	m_videoFormat.interlaced = false;
+
+	m_handlePortEvents = false;
 }
 
 void cOmx::StopAudio(void)
@@ -938,6 +942,8 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 	// setup clock tunnels first
 	if (ilclient_setup_tunnel(&m_tun[eClockToVideoScheduler], 0, 0) != 0)
 		ELOG("failed to setup up tunnel from clock to video scheduler!");
+
+	m_handlePortEvents = true;
 
 	return 0;
 }
