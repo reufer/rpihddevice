@@ -210,6 +210,7 @@ void cOmx::Action(void)
 
 void cOmx::HandlePortSettingsChanged(unsigned int portId)
 {
+	Lock();
 	DBG("HandlePortSettingsChanged(%d)", portId);
 
 	switch (portId)
@@ -313,6 +314,8 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 			ELOG("failed to enable video render!");
 		break;
 	}
+
+	Unlock();
 }
 
 void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
@@ -804,6 +807,8 @@ void cOmx::SetMute(bool mute)
 
 void cOmx::StopVideo(void)
 {
+	Lock();
+
 	// put video decoder into idle
 	ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
 
@@ -836,6 +841,7 @@ void cOmx::StopVideo(void)
 	m_videoFormat.interlaced = false;
 
 	m_handlePortEvents = false;
+	Unlock();
 }
 
 void cOmx::StopAudio(void)
@@ -874,6 +880,8 @@ void cOmx::FlushAudio(void)
 
 void cOmx::FlushVideo(bool flushRender)
 {
+	Lock();
+
 	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eVideoDecoder]), OMX_CommandFlush, 130, NULL) != OMX_ErrorNone)
 		ELOG("failed to flush video decoder!");
 
@@ -890,10 +898,13 @@ void cOmx::FlushVideo(bool flushRender)
 	ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
 
 	m_setVideoDiscontinuity = true;
+	Unlock();
 }
 
 int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 {
+	Lock();
+
 	if (ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle) != 0)
 		ELOG("failed to set video decoder to idle state!");
 
@@ -945,6 +956,7 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 
 	m_handlePortEvents = true;
 
+	Unlock();
 	return 0;
 }
 
@@ -962,6 +974,8 @@ void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
 {
+	Lock();
+
 	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
 	OMX_INIT_STRUCT(format);
 	format.nPortIndex = 100;
@@ -1099,6 +1113,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 	if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
 		ELOG("failed to setup up tunnel from clock to audio render!");
 
+	Unlock();
 	return 0;
 }
 
