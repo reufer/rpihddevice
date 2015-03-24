@@ -2226,9 +2226,8 @@ public:
 	{
 		cRect r;
 		for (int i = 0; i < NumAreas; i++)
-			r.Combine(cRect(Areas[0].x1, Areas[0].y1,
-					Areas[0].x2 - Areas[0].x1 + 1,
-					Areas[0].y2 - Areas[0].y1 + 1));
+			r.Combine(cRect(Areas[i].x1, Areas[i].y1,
+					Areas[i].Width(), Areas[i].Height()));
 
 		tArea area = { r.Left(), r.Top(), r.Right(), r.Bottom(), 32 };
 
