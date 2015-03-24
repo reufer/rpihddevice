@@ -2375,6 +2375,34 @@ public:
 				Bitmap, FactorX, FactorY);
 	}
 
+	virtual void DrawImage(const cPoint &Point, int ImageHandle)
+	{
+		if (!m_pixmaps[0])
+			return;
+
+		m_pixmaps[0]->DrawImage(Point - m_pixmaps[0]->ViewPort().Point(),
+				ImageHandle);
+	}
+
+	virtual void DrawImage(const cPoint &Point, const cImage &Image)
+	{
+		if (!m_pixmaps[0])
+			return;
+
+		m_pixmaps[0]->DrawImage(Point - m_pixmaps[0]->ViewPort().Point(),
+				Image);
+	}
+
+	virtual void DrawRectangle(int x1, int y1, int x2, int y2, tColor Color)
+	{
+		if (!m_pixmaps[0])
+			return;
+
+		m_pixmaps[0]->DrawRectangle(
+				cRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1).Shifted(
+				- m_pixmaps[0]->ViewPort().Point()), Color);
+	}
+
 	virtual void DrawEllipse(int x1, int y1, int x2, int y2, tColor Color,
 			int Quadrants = 0)
 	{
