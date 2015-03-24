@@ -1590,7 +1590,7 @@ public:
 			ILOG("[OpenVG] command queue stalled!");
 		}
 
-		if (signal)
+		if (signal || m_stalled)
 			m_wait->Signal();
 	}
 
