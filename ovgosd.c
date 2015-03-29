@@ -631,6 +631,17 @@ struct tOvgImageRef
 
 /* ------------------------------------------------------------------------- */
 
+class cOvgSavedRegion
+{
+public:
+
+	cOvgSavedRegion() : image(VG_INVALID_HANDLE), rect(cRect()) { }
+	VGImage image;
+	cRect rect;
+};
+
+/* ------------------------------------------------------------------------- */
+
 class cOvgRenderTarget
 {
 public:
@@ -853,82 +864,100 @@ class cOvgCmdSaveRegion : public cOvgCmd
 {
 public:
 
-	cOvgCmdSaveRegion(cRect *rect, VGImage *image) :
-		cOvgCmd(0), m_rect(rect), m_image(image) { }
+	cOvgCmdSaveRegion(cOvgRenderTarget *target, cOvgSavedRegion *savedRegion,
+			int x, int y, int w, int h) : cOvgCmd(target),
+			m_x(x), m_y(y), m_w(w), m_h(h), m_savedRegion(savedRegion)
+	{ }
 
 	virtual const char* Description(void) { return "SaveRegion"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (m_image && m_rect)
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		if (m_savedRegion->image != VG_INVALID_HANDLE)
+			vgDestroyImage(m_savedRegion->image);
+
+		if (m_w && m_h)
 		{
-			if (*m_image)
-				vgDestroyImage(*m_image);
+			m_savedRegion->image = vgCreateImage(VG_sARGB_8888,
+					m_w, m_h, VG_IMAGE_QUALITY_BETTER);
 
-			*m_image = vgCreateImage(VG_sARGB_8888,
-					m_rect->Width(), m_rect->Height(), VG_IMAGE_QUALITY_BETTER);
-
-			if (*m_image == VG_INVALID_HANDLE)
+			if (m_savedRegion->image == VG_INVALID_HANDLE)
 			{
 				ELOG("failed to allocate image!");
 				return false;
 			}
 
-			vgGetPixels(*m_image, 0, 0, m_rect->X(),
-					egl->window.height - m_rect->Bottom() - 1,
-					m_rect->Width(), m_rect->Height());
+			m_savedRegion->rect.Set(m_x, m_y, m_w, m_h);
+			vgGetPixels(m_savedRegion->image, 0, 0,
+					m_x, m_target->height - m_h - m_y - 1, m_w, m_h);
 		}
 		return true;
 	}
 
 private:
 
-	cRect *m_rect;
-	VGImage *m_image;
+	int m_x;
+	int m_y;
+	int m_w;
+	int m_h;
+	cOvgSavedRegion *m_savedRegion;
 };
 
 class cOvgCmdRestoreRegion : public cOvgCmd
 {
 public:
 
-	cOvgCmdRestoreRegion(cRect *rect, VGImage *image) :
-		cOvgCmd(0), m_rect(rect), m_image(image) { }
+	cOvgCmdRestoreRegion(cOvgRenderTarget *target, cOvgSavedRegion *savedRegion)
+		: cOvgCmd(target), m_savedRegion(savedRegion) { }
 
 	virtual const char* Description(void) { return "RestoreRegion"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (m_image && m_rect)
-			vgSetPixels(m_rect->X(), egl->window.height - m_rect->Bottom() - 1,
-					*m_image, 0, 0, m_rect->Width(), m_rect->Height());
+		if (!m_target->MakeCurrent(egl))
+			return false;
+
+		if (m_savedRegion && m_savedRegion->image != VG_INVALID_HANDLE)
+			vgSetPixels(m_savedRegion->rect.X(),
+					m_target->height - m_savedRegion->rect.Bottom() - 1,
+					m_savedRegion->image, 0, 0, m_savedRegion->rect.Width(),
+					m_savedRegion->rect.Height());
+
 		return true;
 	}
 
 private:
 
-	cRect *m_rect;
-	VGImage *m_image;
+	cOvgSavedRegion *m_savedRegion;
 };
 
 class cOvgCmdDropRegion : public cOvgCmd
 {
 public:
 
-	cOvgCmdDropRegion(VGImage *image) :
-		cOvgCmd(0), m_image(image) { }
+	cOvgCmdDropRegion(cOvgSavedRegion *savedRegion) :
+		cOvgCmd(0), m_savedRegion(savedRegion) { }
 
 	virtual const char* Description(void) { return "DropRegion"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (m_image && *m_image)
-			vgDestroyImage(*m_image);
+		if (m_savedRegion)
+		{
+			if (m_savedRegion->image != VG_INVALID_HANDLE)
+				vgDestroyImage(m_savedRegion->image);
+
+			delete m_savedRegion;
+		}
 		return true;
 	}
 
 private:
 
-	VGImage *m_image;
+	cOvgSavedRegion *m_savedRegion;
 };
 
 class cOvgCmdDrawPixel : public cOvgCmd
@@ -2213,15 +2242,13 @@ public:
 		cOsd(Left, Top, Level),
 		m_ovg(ovg),
 		m_surface(new cOvgRenderTarget()),
-		m_savedImage(0)
+		m_savedRegion(new cOvgSavedRegion())
 	{ }
 
 	virtual ~cOvgOsd()
 	{
 		SetActive(false);
-		if (m_savedImage)
-			m_ovg->DoCmd(new cOvgCmdDropRegion(&m_savedImage));
-
+		m_ovg->DoCmd(new cOvgCmdDropRegion(m_savedRegion));
 		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
 	}
 
@@ -2332,8 +2359,8 @@ public:
 		if (!Active())
 			return;
 
-		m_savedRect = cRect(x1 + Left(), y1 + Top(), x2 - x1 + 1, y2 - y1 + 1);
-		m_ovg->DoCmd(new cOvgCmdSaveRegion(&m_savedRect, &m_savedImage));
+		m_ovg->DoCmd(new cOvgCmdSaveRegion(m_surface, m_savedRegion,
+				x1 + Left(), y1 + Top(), x2 - x1 + 1, y2 - y1 + 1));
 	}
 
 	virtual void RestoreRegion(void)
@@ -2341,8 +2368,8 @@ public:
 		if (!Active())
 			return;
 
-		if (m_savedImage)
-			m_ovg->DoCmd(new cOvgCmdRestoreRegion(&m_savedRect, &m_savedImage));
+		m_ovg->DoCmd(new cOvgCmdRestoreRegion(m_surface, m_savedRegion));
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
 	}
 
 	virtual void DrawPixel(int x, int y, tColor Color)
@@ -2505,8 +2532,7 @@ private:
 	cOvgThread           *m_ovg;
 	cOvgRenderTarget     *m_surface;
 	cVector<cOvgPixmap *> m_pixmaps;
-	cRect                 m_savedRect;
-	VGImage               m_savedImage;
+	cOvgSavedRegion      *m_savedRegion;
 };
 
 /* ------------------------------------------------------------------------- */
