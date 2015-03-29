@@ -2277,7 +2277,7 @@ public:
 		cOvgRenderTarget *buffer = new cOvgRenderTarget(width, height);
 		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer), true);
 
-		cTimeMs timer(5000);
+		cTimeMs timer(10000);
 		while (!buffer->initialized && !timer.TimedOut())
 			cCondWait::SleepMs(2);
 
