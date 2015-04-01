@@ -1509,7 +1509,7 @@ public:
 		if (!m_target->MakeCurrent(egl))
 			return false;
 
-		VGint height = vgGetParameteri(*m_image, VG_IMAGE_WIDTH);
+		VGint height = vgGetParameteri(*m_image, VG_IMAGE_HEIGHT);
 
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
 		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
