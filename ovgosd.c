@@ -1549,6 +1549,18 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
+		int w = min((m_x < 0 ? m_w + m_x : m_w), m_target->width);
+		int h = min((m_y < 0 ? m_h + m_y : m_h), m_target->height);
+
+		int x = m_x < 0 ? 0 : m_x;
+		int y = m_y < 0 ? 0 : m_y;
+
+		w = min(w, m_target->width - x);
+		h = min(h, m_target->height - y);
+
+		if (w <= 0 || h <= 0)
+			return true;
+
 		if (!m_target->MakeCurrent(egl))
 			return false;
 
@@ -1559,10 +1571,10 @@ public:
 
 		vgLoadIdentity();
 		vgScale(1.0f, -1.0f);
-		vgTranslate(m_x, m_y - m_target->height);
+		vgTranslate(x, y - m_target->height);
 		vgScale(m_scaleX, m_scaleY);
 
-		VGImage image = vgCreateImage(VG_sARGB_8888, m_w, m_h,
+		VGImage image = vgCreateImage(VG_sARGB_8888, w, h,
 				VG_IMAGE_QUALITY_BETTER);
 
 		if (image == VG_INVALID_HANDLE)
@@ -1571,8 +1583,11 @@ public:
 			return false;
 		}
 
-		vgImageSubData(image, m_argb, m_w * sizeof(tColor),
-				VG_sARGB_8888, 0, 0, m_w, m_h);
+		int offsetX = m_x < 0 ? -m_x : 0;
+		int offsetY = m_y < 0 ? -m_y : 0;
+
+		vgImageSubData(image, m_argb + offsetY * m_w + offsetX,
+				m_w * sizeof(tColor), VG_sARGB_8888, 0, 0, w, h);
 		vgDrawImage(image);
 
 		vgDestroyImage(image);
@@ -1957,17 +1972,6 @@ public:
 	virtual void DrawImage(const cPoint &Point, const cImage &Image)
 	{
 		LOCK_PIXMAPS;
-		if (Image.Width() > m_ovg->MaxImageSize().Width() ||
-				Image.Height() > m_ovg->MaxImageSize().Height())
-		{
-			ELOG("[OpenVG] cannot handle image of %dpx x %dpx, "
-					"maximum size is %dpx x %dpx!",
-					Image.Width(), Image.Height(),
-					m_ovg->MaxImageSize().Width(),
-					m_ovg->MaxImageSize().Height());
-			return;
-		}
-
 		tColor *argb = MALLOC(tColor, Image.Width() * Image.Height());
 		if (!argb)
 			return;
@@ -2010,17 +2014,6 @@ public:
 			tColor ColorFg = 0, tColor ColorBg = 0, bool Overlay = false)
 	{
 		LOCK_PIXMAPS;
-		if (Bitmap.Width() > m_ovg->MaxImageSize().Width() ||
-				Bitmap.Height() > m_ovg->MaxImageSize().Height())
-		{
-			ELOG("[OpenVG] cannot handle bitmap of %dpx x %dpx, "
-					"maximum size is %dpx x %dpx!",
-					Bitmap.Width(), Bitmap.Height(),
-					m_ovg->MaxImageSize().Width(),
-					m_ovg->MaxImageSize().Height());
-			return;
-		}
-
 		bool specialColors = ColorFg || ColorBg;
 		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
@@ -2048,17 +2041,6 @@ public:
 			double FactorX, double FactorY, bool AntiAlias = false)
 	{
 		LOCK_PIXMAPS;
-		if (Bitmap.Width() > m_ovg->MaxImageSize().Width() ||
-				Bitmap.Height() > m_ovg->MaxImageSize().Height())
-		{
-			ELOG("[OpenVG] cannot handle bitmap of %dpx x %dpx, "
-					"maximum size is %dpx x %dpx!",
-					Bitmap.Width(), Bitmap.Height(),
-					m_ovg->MaxImageSize().Width(),
-					m_ovg->MaxImageSize().Height());
-			return;
-		}
-
 		tColor *argb = MALLOC(tColor, Bitmap.Width() * Bitmap.Height());
 		if (!argb)
 			return;
