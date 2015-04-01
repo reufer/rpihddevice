@@ -655,6 +655,19 @@ public:
 
 	virtual ~cOvgRenderTarget() { }
 
+	static bool MakeDefault(cEgl *egl)
+	{
+		if (eglMakeCurrent(egl->display, egl->surface, egl->surface,
+				egl->context) == EGL_FALSE)
+		{
+			ELOG("[EGL] failed to connect context to surface: %s!",
+					cEgl::errStr(eglGetError()));
+			return false;
+		}
+		egl->currentSurface = egl->surface;
+		return true;
+	}
+
 	virtual bool MakeCurrent(cEgl *egl)
 	{
 		// if this is a window surface, check for an update after OSD reset
@@ -812,6 +825,9 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
+		if (!cOvgRenderTarget::MakeDefault(egl))
+			return false;
+
 		// only destroy pixel buffer surfaces
 		if (m_target->image != VG_INVALID_HANDLE)
 		{
