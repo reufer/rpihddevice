@@ -766,9 +766,6 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (!m_target->MakeCurrent(egl))
-			return false;
-
 		m_target->image = vgCreateImage(VG_sARGB_8888, m_target->width,
 				m_target->height, VG_IMAGE_QUALITY_BETTER);
 
