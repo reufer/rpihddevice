@@ -321,8 +321,8 @@ int ilclient_create_component(ILCLIENT_T *client, COMPONENT_T **comp, char *name
    (*comp)->flags = flags;
 
    callbacks.EventHandler = ilclient_event_handler;
-   callbacks.EmptyBufferDone = flags & ILCLIENT_ENABLE_INPUT_BUFFERS ? ilclient_empty_buffer_done : ilclient_empty_buffer_done_error;
-   callbacks.FillBufferDone = flags & ILCLIENT_ENABLE_OUTPUT_BUFFERS ? ilclient_fill_buffer_done : ilclient_fill_buffer_done_error;
+   callbacks.EmptyBufferDone = (flags & ILCLIENT_ENABLE_INPUT_BUFFERS) ? ilclient_empty_buffer_done : ilclient_empty_buffer_done_error;
+   callbacks.FillBufferDone = (flags & ILCLIENT_ENABLE_OUTPUT_BUFFERS) ? ilclient_fill_buffer_done : ilclient_fill_buffer_done_error;
 
    error = OMX_GetHandle(&(*comp)->comp, component_name, *comp, &callbacks);
 
@@ -1015,7 +1015,6 @@ int ilclient_setup_tunnel(TUNNEL_T *tunnel, unsigned int portStream, int timeout
    OMX_ERRORTYPE error;
    OMX_PARAM_U32TYPE param;
    OMX_STATETYPE state;
-   int32_t status;
    int enable_error;
 
    // source component must at least be idle, not loaded
@@ -1027,7 +1026,7 @@ int ilclient_setup_tunnel(TUNNEL_T *tunnel, unsigned int portStream, int timeout
    // wait for the port parameter changed from the source port
    if(timeout)
    {
-      status = ilclient_wait_for_event(tunnel->source, OMX_EventPortSettingsChanged,
+	   int32_t status = ilclient_wait_for_event(tunnel->source, OMX_EventPortSettingsChanged,
                                        tunnel->source_port, 0, -1, 1,
                                        ILCLIENT_PARAMETER_CHANGED | ILCLIENT_EVENT_ERROR, timeout);
       
@@ -1112,7 +1111,6 @@ int ilclient_wait_for_event(COMPONENT_T *comp, OMX_EVENTTYPE event,
                             OMX_U32 nData1, int ignore1, OMX_IN OMX_U32 nData2, int ignore2,
                             int event_flag, int suspend)
 {
-   int32_t status;
    uint32_t set;
 
    while (ilclient_remove_event(comp, event, nData1, ignore1, nData2, ignore2) < 0)
@@ -1152,7 +1150,7 @@ int ilclient_wait_for_event(COMPONENT_T *comp, OMX_EVENTTYPE event,
             return ilclient_remove_event(comp, event, nData1, ignore1, nData2, ignore2) == 0 ? 0 : -3;
       }
 
-      status = vcos_event_flags_get(&comp->event, event_flag, VCOS_OR_CONSUME, 
+      int32_t status = vcos_event_flags_get(&comp->event, event_flag, VCOS_OR_CONSUME,
                                     suspend, &set);
       if (status != 0)
          return -1;

@@ -846,6 +846,8 @@ void cOmx::StopVideo(void)
 
 void cOmx::StopAudio(void)
 {
+	Lock();
+
 	// put audio render onto idle
 	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
 	ilclient_disable_tunnel(&m_tun[eClockToAudioRender]);
@@ -854,6 +856,7 @@ void cOmx::StopAudio(void)
 			m_spareAudioBuffers, NULL, NULL);
 
 	m_spareAudioBuffers = 0;
+	Unlock();
 }
 
 void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
@@ -868,6 +871,8 @@ void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
 
 void cOmx::FlushAudio(void)
 {
+	Lock();
+
 	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eAudioRender]), OMX_CommandFlush, 100, NULL) != OMX_ErrorNone)
 		ELOG("failed to flush audio render!");
 
@@ -876,6 +881,7 @@ void cOmx::FlushAudio(void)
 		VCOS_EVENT_FLAGS_SUSPEND);
 
 	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
+	Unlock();
 }
 
 void cOmx::FlushVideo(bool flushRender)
@@ -1163,15 +1169,14 @@ void cOmx::SetDisplayRegion(int x, int y, int width, int height)
 
 OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 {
+	Lock();
 	OMX_BUFFERHEADERTYPE* buf = 0;
 	if (m_spareAudioBuffers)
 	{
-		Lock();
 		buf = m_spareAudioBuffers;
 		m_spareAudioBuffers =
 				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
 		buf->pAppPrivate = 0;
-		Unlock();
 	}
 	else
 		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
@@ -1193,20 +1198,20 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 	else
 		m_freeAudioBuffers = false;
 
+	Unlock();
 	return buf;
 }
 
 OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 {
+	Lock();
 	OMX_BUFFERHEADERTYPE* buf = 0;
 	if (m_spareVideoBuffers)
 	{
-		Lock();
 		buf = m_spareVideoBuffers;
 		m_spareVideoBuffers =
 				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
 		buf->pAppPrivate = 0;
-		Unlock();
 	}
 	else
 		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
@@ -1232,6 +1237,7 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 	else
 		m_freeVideoBuffers = false;
 
+	Unlock();
 	return buf;
 }
 
@@ -1267,6 +1273,8 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 	if (!buf)
 		return false;
 
+	Lock();
+	bool ret = true;
 #ifdef DEBUG_BUFFERS
 	DumpBuffer(buf, "A");
 #endif
@@ -1283,14 +1291,12 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 			m_setVideoDiscontinuity = true;
 
 		buf->nFilledLen = 0;
-
-		Lock();
 		buf->pAppPrivate = m_spareAudioBuffers;
 		m_spareAudioBuffers = buf;
-		Unlock();
-		return false;
+		ret = false;
 	}
-	return true;
+	Unlock();
+	return ret;
 }
 
 bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
@@ -1298,6 +1304,8 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 	if (!buf)
 		return false;
 
+	Lock();
+	bool ret = true;
 #ifdef DEBUG_BUFFERS
 	DumpBuffer(buf, "V");
 #endif
@@ -1311,12 +1319,10 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 			m_setVideoStartTime = true;
 
 		buf->nFilledLen = 0;
-
-		Lock();
 		buf->pAppPrivate = m_spareVideoBuffers;
 		m_spareVideoBuffers = buf;
-		Unlock();
-		return false;
+		ret = false;
 	}
-	return true;
+	Unlock();
+	return ret;
 }
