@@ -762,10 +762,8 @@ void cOmxDevice::FlushStreams(bool flushVideoRender)
 		m_omx->FlushVideo(flushVideoRender);
 
 	if (m_hasAudio)
-	{
 		m_audio->Reset();
-		m_omx->FlushAudio();
-	}
+
 	m_omx->SetCurrentReferenceTime(0);
 }
 
