@@ -132,11 +132,16 @@ public:
 
 	cOvgGlyph* Glyph(uint charCode) const
 	{
-		for (cOvgGlyph *g = m_glyphs.First(); g; g = m_glyphs.Next(g))
-			if (g->CharCode() == charCode)
-				return g;
+		cOvgGlyph *glyph = 0;
+		for (glyph = m_glyphs.First(); glyph; glyph = m_glyphs.Next(glyph))
+			if (glyph->CharCode() == charCode)
+				return glyph;
 
-		return 0;
+		glyph = ConvertChar(charCode);
+		if (glyph)
+			m_glyphs.Add(glyph);
+
+		return glyph;
 	}
 
 	VGfloat Kerning(cOvgGlyph *glyph, uint prevSym) const
@@ -192,7 +197,7 @@ private:
 		m_height = (VGfloat)(m_face->size->metrics.height) / CHAR_HEIGHT;
 		m_descender = (VGfloat)(abs(m_face->size->metrics.descender)) /
 				CHAR_HEIGHT;
-
+#if 0
 		FT_UInt glyphIndex;
 		FT_ULong ch = FT_Get_First_Char(m_face, &glyphIndex);
 
@@ -219,6 +224,7 @@ private:
 
 			ch = FT_Get_Next_Char(m_face, ch, &glyphIndex);
 		}
+#endif
 	}
 
 	~cOvgFont()
@@ -234,10 +240,32 @@ private:
 			ELOG("failed to initialize FreeType library!");
 	}
 
+	cOvgGlyph *ConvertChar(uint charCode) const
+	{
+		FT_UInt glyphIndex = FT_Get_Char_Index(m_face, charCode);
+		if (FT_Load_Glyph(m_face, glyphIndex, FT_LOAD_DEFAULT))
+			return 0;
+
+		FT_Outline *ot = &m_face->glyph->outline;
+		VGPath path = ConvertOutline(ot);
+
+		VGfloat origin[] = { 0.0f, 0.0f };
+		VGfloat esc[] = {
+				(VGfloat)(m_face->glyph->advance.x) / CHAR_HEIGHT,
+				(VGfloat)(m_face->glyph->advance.y) / CHAR_HEIGHT
+		};
+
+		vgSetGlyphToPath(m_font, charCode, path, VG_FALSE, origin, esc);
+		if (path != VG_INVALID_HANDLE)
+			vgDestroyPath(path);
+
+		return new cOvgGlyph(charCode, esc[0], esc[1]);
+	}
+
 	// convert freetype outline to OpenVG path,
 	// based on Raspberry Pi's vgfont library
 
-	VGPath ConvertOutline(FT_Outline *outline)
+	VGPath ConvertOutline(FT_Outline *outline) const
 	{
 		if (outline->n_contours == 0)
 			return VG_INVALID_HANDLE;
