@@ -1381,7 +1381,8 @@ void cRpiAudioDecoder::Action(void)
 				else
 				{
 					ELOG("failed to decode audio frame!");
-					m_reset = true;
+					m_parser->Reset();
+					av_frame_unref(frame);
 					continue;
 				}
 			}
