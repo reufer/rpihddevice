@@ -20,6 +20,14 @@ extern "C" {
 
 #define OMX_PRE_ROLL 0
 
+// default: 20x 81920 bytes, now 128x 64k (8M)
+#define OMX_VIDEO_BUFFERS 128
+#define OMX_VIDEO_BUFFERSIZE KILOBYTE(64);
+
+// default: 16x 4096 bytes, now 128x 16k (2M)
+#define OMX_AUDIO_BUFFERS 128
+#define OMX_AUDIO_BUFFERSIZE KILOBYTE(16);
+
 #define OMX_INIT_STRUCT(a) \
 	memset(&(a), 0, sizeof(a)); \
 	(a).nSize = sizeof(a); \
@@ -61,7 +69,8 @@ public:
 	enum eEvent {
 		ePortSettingsChanged,
 		eConfigChanged,
-		eEndOfStream
+		eEndOfStream,
+		eBufferEmptied
 	};
 
 	struct Event
@@ -88,20 +97,15 @@ public:
 		delete m_mutex;
 	}
 
-	Event* Wait(void)
+	Event* Get(void)
 	{
 		Event* event = 0;
-		while (true)
+		if (!m_events.empty())
 		{
-			if (!m_events.empty())
-			{
-				m_mutex->Lock();
-				event = m_events.front();
-				m_events.pop();
-				m_mutex->Unlock();
-				break;
-			}
-			m_signal->Wait(10);
+			m_mutex->Lock();
+			event = m_events.front();
+			m_events.pop();
+			m_mutex->Unlock();
 		}
 		return event;
 	}
@@ -176,10 +180,10 @@ const char* cOmx::errStr(int err)
 
 void cOmx::Action(void)
 {
+	cTimeMs timer;
 	while (Running())
 	{
-		cOmxEvents::Event* event = m_portEvents->Wait();
-		if (event)
+		while (cOmxEvents::Event* event = m_portEvents->Get())
 		{
 			switch (event->event)
 			{
@@ -199,13 +203,71 @@ void cOmx::Action(void)
 					m_onEndOfStream(m_onEndOfStreamData);
 				break;
 
+			case cOmxEvents::eBufferEmptied:
+				HandlePortBufferEmptied((eOmxComponent)event->data);
+				break;
+
 			default:
 				break;
 			}
 
 			delete event;
 		}
+		cCondWait::SleepMs(10);
+
+		if (timer.TimedOut())
+		{
+			timer.Set(100);
+			Lock();
+			for (int i = BUFFERSTAT_FILTER_SIZE - 1; i > 0; i--)
+			{
+				m_usedAudioBuffers[i] = m_usedAudioBuffers[i - 1];
+				m_usedVideoBuffers[i] = m_usedVideoBuffers[i - 1];
+			}
+			Unlock();
+		}
 	}
+}
+
+bool cOmx::Poll(void)
+{
+	int freeAudioBuffers = 0, freeVideoBuffers = 0;
+	GetBufferUsage(freeAudioBuffers, freeVideoBuffers);
+	return freeAudioBuffers < 90 && freeVideoBuffers < 90;
+}
+
+void cOmx::GetBufferUsage(int &audio, int &video)
+{
+	audio = 0;
+	video = 0;
+	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+	{
+		audio += m_usedAudioBuffers[i];
+		video += m_usedVideoBuffers[i];
+	}
+	audio = audio * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
+	video = video * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
+}
+
+void cOmx::HandlePortBufferEmptied(eOmxComponent component)
+{
+	Lock();
+
+	switch (component)
+	{
+	case eVideoDecoder:
+		m_usedVideoBuffers[0]--;
+		break;
+
+	case eAudioRender:
+		m_usedAudioBuffers[0]--;
+		break;
+
+	default:
+		ELOG("HandlePortBufferEmptied: invalid component!");
+		break;
+	}
+	Unlock();
 }
 
 void cOmx::HandlePortSettingsChanged(unsigned int portId)
@@ -321,10 +383,11 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)
 {
 	cOmx* omx = static_cast <cOmx*> (instance);
-	if (comp == omx->m_comp[eVideoDecoder])
-		omx->m_freeVideoBuffers = true;
-	else if (comp == omx->m_comp[eAudioRender])
-		omx->m_freeAudioBuffers = true;
+	omx->m_portEvents->Add(
+			new cOmxEvents::Event(cOmxEvents::eBufferEmptied,
+					comp == omx->m_comp[eVideoDecoder] ? eVideoDecoder :
+					comp == omx->m_comp[eAudioRender] ? eAudioRender :
+							eInvalidComponent));
 }
 
 void cOmx::OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data)
@@ -360,8 +423,6 @@ cOmx::cOmx() :
 	m_setAudioStartTime(false),
 	m_setVideoStartTime(false),
 	m_setVideoDiscontinuity(false),
-	m_freeAudioBuffers(true),
-	m_freeVideoBuffers(true),
 	m_spareAudioBuffers(0),
 	m_spareVideoBuffers(0),
 	m_clockReference(eClockRefNone),
@@ -934,10 +995,10 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get video decoder port parameters!");
 
-	// default: 20x 81920 bytes, now 64x 64k (4M)
-	param.nBufferSize = KILOBYTE(64);
-	param.nBufferCountActual = 64;
-	m_freeVideoBuffers = true;
+	param.nBufferSize = OMX_VIDEO_BUFFERSIZE;
+	param.nBufferCountActual = OMX_VIDEO_BUFFERS;
+	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		m_usedVideoBuffers[i] = 0;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -1102,10 +1163,10 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
 		ELOG("failed to get audio render port parameters!");
 
-	// default: 16x 4096 bytes, now 128x 16k (2M)
-	param.nBufferSize = KILOBYTE(16);
-	param.nBufferCountActual = 128;
-	m_freeAudioBuffers = true;
+	param.nBufferSize = OMX_AUDIO_BUFFERSIZE;
+	param.nBufferCountActual = OMX_AUDIO_BUFFERS;
+	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		m_usedAudioBuffers[i] = 0;
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -1179,7 +1240,11 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 		buf->pAppPrivate = 0;
 	}
 	else
+	{
 		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
+		if (buf)
+			m_usedAudioBuffers[0]++;
+	}
 
 	if (buf)
 	{
@@ -1195,9 +1260,6 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 		cOmx::PtsToTicks(pts, buf->nTimeStamp);
 		m_setAudioStartTime = false;
 	}
-	else
-		m_freeAudioBuffers = false;
-
 	Unlock();
 	return buf;
 }
@@ -1214,7 +1276,11 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 		buf->pAppPrivate = 0;
 	}
 	else
+	{
 		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
+		if (buf)
+			m_usedVideoBuffers[0]++;
+	}
 
 	if (buf)
 	{
@@ -1234,9 +1300,6 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 		m_setVideoStartTime = false;
 		m_setVideoDiscontinuity = false;
 	}
-	else
-		m_freeVideoBuffers = false;
-
 	Unlock();
 	return buf;
 }

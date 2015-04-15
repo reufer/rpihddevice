@@ -156,12 +156,12 @@ private:
 	void ApplyTrickSpeed(int trickSpeed, bool forward);
 	void PtsTracker(int64_t ptsDiff);
 
-	void UpdateLatency(int64_t pts);
-	void ResetLatency(void);
+	void AdjustLiveSpeed(void);
 
 	cOmx			 *m_omx;
 	cRpiAudioDecoder *m_audio;
 	cMutex			 *m_mutex;
+	cTimeMs 		 *m_timer;
 
 	cVideoCodec::eCodec	m_videoCodec;
 
@@ -178,18 +178,6 @@ private:
 
 	int64_t	m_audioPts;
 	int64_t	m_videoPts;
-
-	uchar   m_audioId;
-
-#define LATENCY_FILTER_SIZE 8
-#define LATENCY_FILTER_PREROLL 16
-
-	int     m_latency[LATENCY_FILTER_SIZE];
-	int     m_latencySamples;
-	int     m_latencyTarget;
-
-	int     m_posMaxCorrections;
-	int     m_negMaxCorrections;
 };
 
 #endif

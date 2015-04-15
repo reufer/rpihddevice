@@ -86,11 +86,13 @@ public:
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
-	bool inline PollVideoBuffers() { return m_freeVideoBuffers; }
-	bool inline PollAudioBuffers() { return m_freeAudioBuffers; }
+
+	bool Poll(void);
 
 	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf);
 	bool EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf);
+
+	void GetBufferUsage(int &audio, int &video);
 
 private:
 
@@ -109,7 +111,8 @@ private:
 		eVideoScheduler,
 		eVideoRender,
 		eAudioRender,
-		eNumComponents
+		eNumComponents,
+		eInvalidComponent
 	};
 
 	enum eOmxTunnel {
@@ -139,8 +142,10 @@ private:
 	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
 
-	bool m_freeAudioBuffers;
-	bool m_freeVideoBuffers;
+#define BUFFERSTAT_FILTER_SIZE 64
+
+	int m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
+	int m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
 
 	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
 	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers;
@@ -160,6 +165,7 @@ private:
 	void (*m_onStreamStart)(void*);
 	void *m_onStreamStartData;
 
+	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);
 	void SetBufferStallThreshold(int delayMs);
 	bool IsBufferStall(void);

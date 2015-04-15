@@ -42,6 +42,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_omx(new cOmx()),
 	m_audio(new cRpiAudioDecoder(m_omx)),
 	m_mutex(new cMutex()),
+	m_timer(new cTimeMs()),
 	m_videoCodec(cVideoCodec::eInvalid),
 	m_liveSpeed(eNoCorrection),
 	m_playbackSpeed(eNormal),
@@ -52,12 +53,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_playDirection(0),
 	m_trickRequest(0),
 	m_audioPts(0),
-	m_videoPts(0),
-	m_audioId(0),
-	m_latencySamples(0),
-	m_latencyTarget(0),
-	m_posMaxCorrections(0),
-	m_negMaxCorrections(0)
+	m_videoPts(0)
 {
 }
 
@@ -68,6 +64,7 @@ cOmxDevice::~cOmxDevice()
 	delete m_omx;
 	delete m_audio;
 	delete m_mutex;
+	delete m_timer;
 }
 
 int cOmxDevice::Init(void)
@@ -255,7 +252,6 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	if (!m_hasAudio)
 	{
 		m_hasAudio = true;
-		m_audioId = Id;
 		m_omx->SetClockReference(cOmx::eClockRefAudio);
 
 		if (!m_hasVideo)
@@ -264,9 +260,6 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
 		}
-
-		if (Transferring())
-			ResetLatency();
 	}
 
 	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
@@ -278,16 +271,6 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			PtsTracker(PtsDiff(m_audioPts, pts));
 
 		m_audioPts = pts;
-	}
-
-	if (Transferring() && pts)
-	{
-		if (m_audioId != Id)
-		{
-			ResetLatency();
-			m_audioId = Id;
-		}
-		UpdateLatency(pts);
 	}
 
 	int ret = Length;
@@ -310,6 +293,13 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			ret = 0;
 	}
 	m_mutex->Unlock();
+
+	if (Transferring() && !ret)
+		DBG("failed to write %d bytes of audio packet!", Length);
+
+	if (ret && Transferring())
+		AdjustLiveSpeed();
+
 	return ret;
 }
 
@@ -358,9 +348,6 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
 		}
-
-		if (Transferring())
-			ResetLatency();
 	}
 
 	if (m_hasVideo)
@@ -370,9 +357,6 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		// keep track of direction in case of trick speed
 		if (m_trickRequest && pts && m_videoPts)
 			PtsTracker(PtsDiff(m_videoPts, pts));
-
-		if (!m_hasAudio && Transferring() && pts)
-			UpdateLatency(pts);
 
 		// skip PES header, proceed with payload towards OMX
 		Length -= PesPayloadOffset(Data);
@@ -409,6 +393,13 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		}
 	}
 	m_mutex->Unlock();
+
+	if (Transferring() && !ret)
+		DBG("failed to write %d bytes of video packet!", Length);
+
+	if (ret && Transferring())
+		AdjustLiveSpeed();
+
 	return ret;
 }
 
@@ -585,103 +576,36 @@ bool cOmxDevice::HasIBPTrickSpeed(void)
 	return !m_hasVideo;
 }
 
-void cOmxDevice::UpdateLatency(int64_t pts)
+void cOmxDevice::AdjustLiveSpeed(void)
 {
-	if (!pts || !m_omx->IsClockRunning())
-		return;
-
-	int64_t stc = m_omx->GetSTC();
-	if (!stc || pts <= stc)
-		return;
-
-	for (int i = LATENCY_FILTER_SIZE - 1; i > 0; i--)
-		m_latency[i] = m_latency[i - 1];
-	m_latency[0] = (pts - stc) / 90;
-
-	if (m_latencySamples < LATENCY_FILTER_SIZE - 1)
+	if (m_timer->TimedOut())
 	{
-		m_latencySamples++;
-		return;
-	}
+		int usedBuffers, usedAudioBuffers, usedVideoBuffers;
+		m_omx->GetBufferUsage(usedAudioBuffers, usedVideoBuffers);
+		usedBuffers = m_hasAudio ? usedAudioBuffers : usedVideoBuffers;
 
-#ifdef DEBUG_LATENCY
-	eLiveSpeed oldSpeed = m_liveSpeed;
-#endif
-	int average = 0;
-
-	for (int i = 0; i < LATENCY_FILTER_SIZE; i++)
-		average += m_latency[i];
-	average = average / LATENCY_FILTER_SIZE;
-
-	if (!m_latencyTarget)
-		m_latencyTarget = 1.4f * average;
-
-	if (average > 2.0f * m_latencyTarget)
-	{
-		if (m_liveSpeed < ePosMaxCorrection)
-		{
-			m_liveSpeed = ePosMaxCorrection;
-			m_posMaxCorrections++;
-			DBG("latency too big, speeding up...");
-		}
-	}
-	else if (average < 0.5f * m_latencyTarget)
-	{
-		if (m_liveSpeed > eNegMaxCorrection)
-		{
-			m_liveSpeed = eNegMaxCorrection;
-			m_negMaxCorrections++;
-			DBG("latency too small, slowing down...");
-		}
-	}
-	else if (average > 1.1f * m_latencyTarget)
-	{
-		if (m_liveSpeed < ePosMaxCorrection)
-			m_liveSpeed = ePosCorrection;
-	}
-	else if (average < 0.9f * m_latencyTarget)
-	{
-		if (m_liveSpeed > eNegMaxCorrection)
+		if (usedBuffers < 5)
 			m_liveSpeed = eNegCorrection;
-	}
-	else if (average > m_latencyTarget)
-	{
-		if (m_liveSpeed < eNoCorrection)
-			m_liveSpeed = eNoCorrection;
-	}
-	else if (average < m_latencyTarget)
-	{
-		if (m_liveSpeed > eNoCorrection)
-			m_liveSpeed = eNoCorrection;
-	} else
-		m_liveSpeed = eNoCorrection;
 
-	m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
+		else if (usedBuffers > 15)
+			m_liveSpeed = ePosCorrection;
 
-#ifdef DEBUG_LATENCY
-	if (oldSpeed != m_liveSpeed)
-	{
-		DLOG("%s%s latency = %4dms, target = %4dms, corr = %s, "
-				"max neg/pos corr = %d/%d",
-				m_hasAudio ? "A" : "-",  m_hasVideo ? "V" : "-",
-				average, m_latencyTarget,
-				m_liveSpeed == eNegMaxCorrection ? "--|  " :
-				m_liveSpeed == eNegCorrection    ? " -|  " :
-				m_liveSpeed == eNoCorrection     ? "  |  " :
-				m_liveSpeed == ePosCorrection    ? "  |+ " :
-				m_liveSpeed == ePosMaxCorrection ? "  |++" : "  ?  ",
-				m_negMaxCorrections, m_posMaxCorrections);
-	}
+		else if ((usedBuffers > 10 && m_liveSpeed == eNegCorrection) ||
+				(usedBuffers < 10 && m_liveSpeed == ePosCorrection))
+			m_liveSpeed = eNoCorrection;
+
+#ifdef DEBUG_BUFFERSTAT
+		DLOG("buffer usage: A=%3d%%, V=%3d%%, Corr=%d",
+				usedAudioBuffers, usedVideoBuffers,
+				m_liveSpeed == eNegMaxCorrection ? -2 :
+				m_liveSpeed == eNegCorrection    ? -1 :
+				m_liveSpeed == eNoCorrection     ?  0 :
+				m_liveSpeed == ePosCorrection    ?  1 :
+				m_liveSpeed == ePosMaxCorrection ?  2 : 0);
 #endif
-}
-
-void cOmxDevice::ResetLatency(void)
-{
-	m_latencySamples = - LATENCY_FILTER_PREROLL;
-	m_latencyTarget = 0;
-	m_liveSpeed = eNoCorrection;
-	m_posMaxCorrections = 0;
-	m_negMaxCorrections = 0;
+		m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
+		m_timer->Set(1000);
+	}
 }
 
 void cOmxDevice::HandleBufferStall()
@@ -783,7 +707,7 @@ bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 {
 	cTimeMs time;
 	time.Set();
-	while (!m_omx->PollVideoBuffers() || !m_audio->Poll())
+	while (!m_omx->Poll() || !m_audio->Poll())
 	{
 		if (time.Elapsed() >= (unsigned)TimeoutMs)
 			return false;
