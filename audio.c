@@ -1279,6 +1279,7 @@ void cRpiAudioDecoder::HandleAudioSetupChanged()
 
 void cRpiAudioDecoder::Action(void)
 {
+	SetPriority(-15);
 	DLOG("cAudioDecoder() thread started");
 
 	unsigned int channels = 0;
