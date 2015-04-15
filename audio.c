@@ -995,35 +995,25 @@ public:
 		if (codec != cAudioCodec::eInvalid && channels > 0)
 		{
 			m_inChannels = channels;
-			cRpiAudioPort::ePort newPort = cRpiAudioPort::eLocal;
+			cRpiAudioPort::ePort newPort = cRpiSetup::GetAudioPort();
 			cAudioCodec::eCodec newCodec = cAudioCodec::ePCM;
 
 			DLOG("new audio codec: %dch %s", channels, cAudioCodec::Str(codec));
 
-			if (cRpiSetup::GetAudioPort() == cRpiAudioPort::eHDMI &&
-				cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, channels,
-						samplingRate))
+			if (newPort == cRpiAudioPort::eHDMI)
 			{
-				newPort = cRpiAudioPort::eHDMI;
-
 				// check if pass through is possible
 				if (cRpiSetup::IsAudioFormatSupported(codec, channels,
 							samplingRate))
 					newCodec = codec;
 
-				// if we decode locally, upmix mono channels to 2.0
-				else if (channels == 1)
+				// check for multi channel PCM, stereo downmix if not supported
+				else if (!cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM,
+						channels, samplingRate))
 					channels = 2;
 			}
 			else
-			{
 				channels = 2;
-				// if 2ch PCM audio on HDMI is supported
-				if (cRpiSetup::GetAudioPort() == cRpiAudioPort::eHDMI &&
-					cRpiSetup::IsAudioFormatSupported(cAudioCodec::ePCM, 2,
-							samplingRate))
-					newPort = cRpiAudioPort::eHDMI;
-			}
 
 			// if the user changes the port, this should change immediately
 			if (newPort != m_port)

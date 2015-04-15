@@ -7,6 +7,7 @@ VDR Plugin 'rpihddevice' Revision History
   - added font kerning
   - support for GPU accelerated pixmaps
 - fixed:
+  - don't depend on multi channel PCM support for digital audio pass-through
   - improved video frame rate detection to be more tolerant to inaccurate values
   - adapted cOvgRawOsd::Flush() to new cOsd::RenderPixmaps() of vdr-2.1.10
   - fixed calculation of string height (reported by Klaus Schmidinger)
