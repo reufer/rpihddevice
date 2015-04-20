@@ -678,9 +678,7 @@ void cOmxDevice::HandleVideoSetupChanged()
 void cOmxDevice::FlushStreams(bool flushVideoRender)
 {
 	DBG("FlushStreams(%s)", flushVideoRender ? "flushVideoRender" : "");
-
 	m_omx->StopClock();
-	m_omx->SetClockScale(0.0f);
 
 	if (m_hasVideo)
 		m_omx->FlushVideo(flushVideoRender);
