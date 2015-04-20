@@ -157,9 +157,7 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	{
 	case pmNone:
 		FlushStreams(true);
-		if (m_hasVideo)
-			m_omx->StopVideo();
-
+		m_omx->StopVideo();
 		m_hasAudio = false;
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
