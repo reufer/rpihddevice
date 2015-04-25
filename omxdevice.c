@@ -18,6 +18,7 @@
 #include <string.h>
 
 #define S(x) ((int)(floor(x * pow(2, 16))))
+#define PTS_START_OFFSET (32 * (MAX33BIT + 1))
 
 // trick speeds as defined in vdr/dvbplayer.c
 const int cOmxDevice::s_playbackSpeeds[eNumDirections][eNumPlaybackSpeeds] = {
@@ -246,6 +247,8 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
 	m_mutex->Lock();
+	int ret = Length;
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
 
 	if (!m_hasAudio)
 	{
@@ -257,21 +260,22 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			DBG("audio first");
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
+			m_audioPts = PTS_START_OFFSET + pts;
 		}
+		else
+			m_audioPts = m_videoPts + PtsDiff(m_videoPts & MAX33BIT, pts);
 	}
 
-	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
-
-	// keep track of direction in case of trick speed
-	if (m_trickRequest && pts)
+	if (pts)
 	{
-		if (m_audioPts)
-			PtsTracker(PtsDiff(m_audioPts, pts));
+		int64_t ptsDiff = PtsDiff(m_audioPts & MAX33BIT, pts);
+		m_audioPts += ptsDiff;
 
-		m_audioPts = pts;
+		// keep track of direction in case of trick speed
+		if (m_trickRequest && ptsDiff)
+			PtsTracker(ptsDiff);
 	}
 
-	int ret = Length;
 	int length = Length - PesPayloadOffset(Data);
 
 	// ignore packets with invalid payload offset
@@ -287,7 +291,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			data += 4;
 			length -= 4;
 		}
-		if (!m_audio->WriteData(data, length, pts))
+		if (!m_audio->WriteData(data, length, pts ? m_audioPts : 0))
 			ret = 0;
 	}
 	m_mutex->Unlock();
@@ -305,8 +309,9 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 {
 	m_mutex->Lock();
 	int ret = Length;
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
 
-	if (!m_hasVideo && m_videoCodec == cVideoCodec::eInvalid)
+	if (!m_hasVideo && pts && m_videoCodec == cVideoCodec::eInvalid)
 	{
 		m_videoCodec = ParseVideoCodec(Data + PesPayloadOffset(Data),
 				Length - PesPayloadOffset(Data));
@@ -323,7 +328,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		}
 	}
 
-	if (!m_hasVideo && cRpiSetup::IsVideoCodecSupported(m_videoCodec))
+	if (!m_hasVideo && pts && cRpiSetup::IsVideoCodecSupported(m_videoCodec))
 	{
 		m_hasVideo = true;
 		if (!m_hasAudio)
@@ -332,16 +337,23 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			m_omx->SetClockReference(cOmx::eClockRefVideo);
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
+			m_videoPts = PTS_START_OFFSET + pts;
 		}
+		else
+			m_videoPts = m_audioPts + PtsDiff(m_audioPts & MAX33BIT, pts);
 	}
 
 	if (m_hasVideo)
 	{
-		int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+		if (pts)
+		{
+			int64_t ptsDiff = PtsDiff(m_videoPts & MAX33BIT, pts);
+			m_videoPts += ptsDiff;
 
-		// keep track of direction in case of trick speed
-		if (m_trickRequest && pts && m_videoPts)
-			PtsTracker(PtsDiff(m_videoPts, pts));
+			// keep track of direction in case of trick speed
+			if (m_trickRequest && ptsDiff)
+				PtsTracker(ptsDiff);
+		}
 
 		// skip PES header, proceed with payload towards OMX
 		Length -= PesPayloadOffset(Data);
@@ -349,8 +361,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 		while (Length > 0)
 		{
-			OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(pts);
-			if (buf)
+			if (OMX_BUFFERHEADERTYPE *buf =
+					m_omx->GetVideoBuffer(pts ? m_videoPts : 0))
 			{
 				buf->nFilledLen = buf->nAllocLen < (unsigned)Length ?
 						buf->nAllocLen : Length;
@@ -400,7 +412,7 @@ bool cOmxDevice::SubmitEOS(void)
 
 int64_t cOmxDevice::GetSTC(void)
 {
-	return m_omx->GetSTC();
+	return m_omx->GetSTC() & MAX33BIT;
 }
 
 uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,

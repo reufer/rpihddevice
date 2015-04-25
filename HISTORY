@@ -8,6 +8,7 @@ VDR Plugin 'rpihddevice' Revision History
   - added font kerning
   - support for GPU accelerated pixmaps
 - fixed:
+  - fixed PTS wrap around (reported by Klaus Schmidinger)
   - increased audio decoder thread priority
   - don't depend on multi channel PCM support for digital audio pass-through
   - improved video frame rate detection to be more tolerant to inaccurate values
