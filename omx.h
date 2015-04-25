@@ -48,11 +48,11 @@ public:
 	};
 
 	void StartClock(bool waitForVideo = false, bool waitForAudio = false);
-	void StopClock();
+	void StopClock(void);
+	void ResetClock(void);
 
 	void SetClockScale(OMX_S32 scale);
 	bool IsClockFreezed(void) { return m_clockScale == 0; }
-	void SetCurrentReferenceTime(uint64_t pts);
 	unsigned int GetAudioLatency(void);
 
 	enum eClockReference {

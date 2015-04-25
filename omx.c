@@ -649,25 +649,17 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 	cstate.eState = OMX_TIME_ClockStateRunning;
 	cstate.nOffset = ToOmxTicks(-1000LL * OMX_PRE_ROLL);
 
-	if (waitForVideo && waitForAudio)
-	{
-		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		m_setAudioStartTime = true;
-		m_setVideoStartTime = true;
-		cstate.nWaitMask = OMX_CLOCKPORT0 | OMX_CLOCKPORT1;
-	}
-	else if (waitForVideo && !waitForAudio)
+	if (waitForVideo)
 	{
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
 		m_setVideoStartTime = true;
-		cstate.nWaitMask = OMX_CLOCKPORT0;
-
+		cstate.nWaitMask |= OMX_CLOCKPORT0;
 	}
-	else if (!waitForVideo && waitForAudio)
+	if (waitForAudio)
 	{
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
 		m_setAudioStartTime = true;
-		cstate.nWaitMask = OMX_CLOCKPORT1;
+		cstate.nWaitMask |= OMX_CLOCKPORT1;
 	}
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
@@ -675,7 +667,7 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 		ELOG("failed to start clock!");
 }
 
-void cOmx::StopClock()
+void cOmx::StopClock(void)
 {
 	OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
 	OMX_INIT_STRUCT(cstate);
@@ -704,11 +696,10 @@ void cOmx::SetClockScale(OMX_S32 scale)
 	}
 }
 
-void cOmx::SetCurrentReferenceTime(uint64_t pts)
+void cOmx::ResetClock(void)
 {
 	OMX_TIME_CONFIG_TIMESTAMPTYPE timeStamp;
 	OMX_INIT_STRUCT(timeStamp);
-	cOmx::PtsToTicks(pts, timeStamp.nTimestamp);
 
 	if (m_clockReference == eClockRefAudio || m_clockReference == eClockRefNone)
 	{
