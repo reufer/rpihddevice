@@ -306,39 +306,26 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 	m_mutex->Lock();
 	int ret = Length;
 
-	cVideoCodec::eCodec codec = PesHasPts(Data) ? ParseVideoCodec(
-			Data + PesPayloadOffset(Data), Length - PesPayloadOffset(Data)) :
-			cVideoCodec::eInvalid;
-
-	// video restart after Clear() with same codec
-	bool videoRestart = (!m_hasVideo && codec == m_videoCodec &&
-			cRpiSetup::IsVideoCodecSupported(codec));
-
-	// video restart after SetPlayMode() or codec changed
-	if (codec != cVideoCodec::eInvalid && codec != m_videoCodec)
+	if (!m_hasVideo && m_videoCodec == cVideoCodec::eInvalid)
 	{
-		m_videoCodec = codec;
+		m_videoCodec = ParseVideoCodec(Data + PesPayloadOffset(Data),
+				Length - PesPayloadOffset(Data));
 
-		if (m_hasVideo)
+		if (m_videoCodec != cVideoCodec::eInvalid)
 		{
-			m_omx->StopVideo();
-			m_hasVideo = false;
+			if (cRpiSetup::IsVideoCodecSupported(m_videoCodec))
+			{
+				m_omx->SetVideoCodec(m_videoCodec);
+				DLOG("set video codec to %s", cVideoCodec::Str(m_videoCodec));
+			}
+			else
+				Skins.QueueMessage(mtError, tr("video format not supported!"));
 		}
-
-		if (cRpiSetup::IsVideoCodecSupported(codec))
-		{
-			videoRestart = true;
-			m_omx->SetVideoCodec(codec);
-			DLOG("set video codec to %s", cVideoCodec::Str(codec));
-		}
-		else
-			Skins.QueueMessage(mtError, tr("video format not supported!"));
 	}
 
-	if (videoRestart)
+	if (!m_hasVideo && cRpiSetup::IsVideoCodecSupported(m_videoCodec))
 	{
 		m_hasVideo = true;
-
 		if (!m_hasAudio)
 		{
 			DBG("video first");
