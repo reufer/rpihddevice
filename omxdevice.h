@@ -178,6 +178,8 @@ private:
 
 	uint64_t	m_audioPts;
 	uint64_t	m_videoPts;
+
+	int64_t 	m_lastStc;
 };
 
 #endif

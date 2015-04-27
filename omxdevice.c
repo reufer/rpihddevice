@@ -54,7 +54,8 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_playDirection(0),
 	m_trickRequest(0),
 	m_audioPts(0),
-	m_videoPts(0)
+	m_videoPts(0),
+	m_lastStc(0)
 {
 }
 
@@ -412,7 +413,10 @@ bool cOmxDevice::SubmitEOS(void)
 
 int64_t cOmxDevice::GetSTC(void)
 {
-	return m_omx->GetSTC() & MAX33BIT;
+	int64_t stc = m_omx->GetSTC();
+	if (stc)
+		m_lastStc = stc;
+	return m_lastStc & MAX33BIT;
 }
 
 uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,
