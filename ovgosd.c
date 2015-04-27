@@ -1687,8 +1687,9 @@ public:
 		if (image.Width() > m_maxImageSize.Width() ||
 				image.Height() > m_maxImageSize.Height())
 		{
-			ELOG("[OpenVG] cannot store image of %dpx x %dpx, "
-					"maximum size is %dpx x %dpx!",
+			DLOG("[OpenVG] cannot store image of %dpx x %dpx "
+					"(maximum size is %dpx x %dpx) - falling back to "
+					"cOsdProvider::StoreImageData()",
 					image.Width(), image.Height(),
 					m_maxImageSize.Width(), m_maxImageSize.Height());
 			return 0;
