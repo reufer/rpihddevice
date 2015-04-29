@@ -165,6 +165,7 @@ private:
 
 	cVideoCodec::eCodec	m_videoCodec;
 
+	ePlayMode           m_playMode;
 	eLiveSpeed          m_liveSpeed;
 	ePlaybackSpeed      m_playbackSpeed;
 	eDirection          m_direction;

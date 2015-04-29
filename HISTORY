@@ -8,6 +8,7 @@ VDR Plugin 'rpihddevice' Revision History
   - added font kerning
   - support for GPU accelerated pixmaps
 - fixed:
+  - skip audio packets when replaying non-radio recordings in trick modes
   - fixed displaying of current position when changing replay speed
   - fixed PTS wrap around (reported by Klaus Schmidinger)
   - increased audio decoder thread priority

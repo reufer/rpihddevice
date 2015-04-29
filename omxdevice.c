@@ -45,6 +45,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void)) :
 	m_mutex(new cMutex()),
 	m_timer(new cTimeMs()),
 	m_videoCodec(cVideoCodec::eInvalid),
+	m_playMode(pmNone),
 	m_liveSpeed(eNoCorrection),
 	m_playbackSpeed(eNormal),
 	m_direction(eForward),
@@ -163,6 +164,7 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 		m_hasAudio = false;
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
+		m_playMode = pmNone;
 		break;
 
 	case pmAudioVideo:
@@ -247,6 +249,13 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 
 int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
+	// ignore audio packets during trick speeds for non-radio recordings
+	if (m_playbackSpeed != eNormal && m_playMode != pmAudioOnly)
+	{
+		DLOG("audio packet ignored!");
+		return Length;
+	}
+
 	m_mutex->Lock();
 	int ret = Length;
 	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
@@ -262,9 +271,13 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
 			m_audioPts = PTS_START_OFFSET + pts;
+			m_playMode = pmAudioOnly;
 		}
 		else
+		{
 			m_audioPts = m_videoPts + PtsDiff(m_videoPts & MAX33BIT, pts);
+			m_playMode = pmAudioVideo;
+		}
 	}
 
 	if (pts)
@@ -343,9 +356,13 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 			m_omx->StartClock(m_hasVideo, m_hasAudio);
 			m_videoPts = PTS_START_OFFSET + pts;
+			m_playMode = pmVideoOnly;
 		}
 		else
+		{
 			m_videoPts = m_audioPts + PtsDiff(m_audioPts & MAX33BIT, pts);
+			m_playMode = pmAudioVideo;
+		}
 	}
 
 	if (m_hasVideo)
