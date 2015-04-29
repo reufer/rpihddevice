@@ -1,6 +1,8 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2015-04-29: Version 0.1.0
+-------------------------
 - new:
   - reworked clock stretching in live mode based on buffer usage
   - added command line argument to disable OSD
