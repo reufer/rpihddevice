@@ -704,11 +704,10 @@ void cOmxDevice::SetVolumeDevice(int Volume)
 
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 {
-	cTimeMs time;
-	time.Set();
-	while (!m_omx->Poll() || !m_audio->Poll())
+	cTimeMs timer(TimeoutMs);
+	while (!m_omx->PollVideo() || !m_audio->Poll())
 	{
-		if (time.Elapsed() >= (unsigned)TimeoutMs)
+		if (timer.TimedOut())
 			return false;
 		cCondWait::SleepMs(5);
 	}

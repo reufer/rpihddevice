@@ -87,7 +87,7 @@ public:
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
 
-	bool Poll(void);
+	bool PollVideo(void);
 
 	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf);
 	bool EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf);

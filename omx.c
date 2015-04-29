@@ -229,11 +229,9 @@ void cOmx::Action(void)
 	}
 }
 
-bool cOmx::Poll(void)
+bool cOmx::PollVideo(void)
 {
-	int freeAudioBuffers = 0, freeVideoBuffers = 0;
-	GetBufferUsage(freeAudioBuffers, freeVideoBuffers);
-	return freeAudioBuffers < 90 && freeVideoBuffers < 90;
+	return (m_usedVideoBuffers[0] * 100 / OMX_VIDEO_BUFFERS) < 90;
 }
 
 void cOmx::GetBufferUsage(int &audio, int &video)
