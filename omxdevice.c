@@ -615,8 +615,8 @@ void cOmxDevice::HandleBufferStall()
 	m_mutex->Lock();
 
 	FlushStreams();
-	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-	m_omx->StartClock(m_hasVideo, m_hasAudio);
+	m_hasAudio = false;
+	m_hasVideo = false;
 
 	m_mutex->Unlock();
 }
