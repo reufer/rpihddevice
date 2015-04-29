@@ -308,6 +308,10 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 
 int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 {
+	// prevent writing incomplete frames
+	if (m_hasVideo && !m_omx->PollVideo())
+		return 0;
+
 	m_mutex->Lock();
 	int ret = Length;
 	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
