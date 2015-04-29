@@ -35,7 +35,7 @@ Requirements:
   - freetype2 for GPU accelerated text drawing
   - valid MPEG-2 license when watching MPEG-2 streams
   - Raspberry Pi userland libraries: https://github.com/raspberrypi/userland
-  - Raspberry Pi firmware from 2015/01/18 or newer
+  - Raspberry Pi firmware version of 2015/01/18 or newer
   
 Install:
 
@@ -62,14 +62,32 @@ Usage:
   or change any video mode settings. So it's the user's choice, what's being 
   displayed when no video is shown, e.g. during channel switches or for radio
   channels.
-  
-  The user also needs to select an appropriate video mode by editing config.txt:
-  http://www.raspberrypi.org/documentation/configuration/config-txt.md
-  
-  For best performance, choose a mode which fits the desired video material,
-  especially regarding frame rate.
-  
+
+Options:
+
+  -d, --disable-osd  Disables creation of OSD layer and prevents the plugin of
+                     allocating any OSD related resources. If set, VDR's dummy
+                     OSD is used, when selecting rpihddevice as primary device.
+
 Plugin-Setup:
+
+  Resolution: Set video resolution. Possible values are: "default",
+  "follow video", "720x480", "720x576", "1280x720", "1920x1080"
+
+  Frame Rate: Set video frame rate. Possible values are: "default",
+  "follow video", "24p", "25p", "30p", "50i", "50p", "60i", "60p"
+
+  When set to "default", the resolution/frame rate will not be changed and the
+  plugin keeps the current setting of the framebuffer, normally set by the mode
+  number in /boot/config.txt or changed with 'tvservice'. To let the plugin
+  automatically set a value matching the current video stream, choose
+  "follow video". In general, video setting are only applied if both, resolution
+  and frame rate, fits to a video mode supported by the connected device,
+  indicated by its EDID.
+
+  EDID information can by overridden with various settings in /boot/config.txt,
+  see the official documentation for further information:
+  https://www.raspberrypi.org/documentation/configuration/config-txt.md
 
   Video Framing: Determines how the video frame is displayed on the screen in
   case the aspect ratio differs. "box" and "cut" will preserve the video's
@@ -83,11 +101,11 @@ Plugin-Setup:
   Audio Port: Set the audio output port to "analog" or "HDMI". When set to
   analog out, multi channel audio is sampled down to stereo.
   
-  Digital Audio Pass-Through: Enabled pass through of compressed digital audio
-  if supported by the receiver.
-  
-  Ignore Audio EDID: In case the HDMI peer reports false audio EDID information,
-  they can be ignored with this option.
+  Digital Audio Format: Specify the audio format when using the HDMI port as
+  output. If set to "pass through", (E)AC-3 and DTS audio can be decoded by the
+  connected HDMI device, if EDID indicates specific codec support. For local
+  decoding, select "mutli channel PCM" or "Stereo PCM" if additional stereo
+  dowmix of mutli channel audio is desired.
   
   Use GPU accelerated OSD: Use GPU capabilities to draw the on screen display.
   Disable acceleration in case of OSD problems to use VDR's internal rendering
