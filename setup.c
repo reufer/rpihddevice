@@ -218,6 +218,7 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 					codec == cAudioCodec::eAC3  ? EDID_AudioFormat_eAC3   :
 					codec == cAudioCodec::eEAC3 ? EDID_AudioFormat_eEAC3  :
 					codec == cAudioCodec::eAAC  ? EDID_AudioFormat_eAAC   :
+					codec == cAudioCodec::eDTS  ? EDID_AudioFormat_eDTS   :
 							EDID_AudioFormat_ePCM, channels,
 					samplingRate ==  32000 ? EDID_AudioSampleRate_e32KHz  :
 					samplingRate ==  44100 ? EDID_AudioSampleRate_e44KHz  :
