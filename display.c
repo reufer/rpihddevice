@@ -16,6 +16,8 @@ extern "C" {
 #include "interface/vmcs_host/vc_dispmanx.h"
 }
 
+#include <bcm_host.h>
+
 cRpiDisplay* cRpiDisplay::s_instance = 0;
 
 cRpiDisplay* cRpiDisplay::GetInstance(void)
@@ -53,6 +55,7 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 
 void cRpiDisplay::DropInstance(void)
 {
+	SetSyncField(0);
 	delete s_instance;
 	s_instance = 0;
 }
@@ -104,6 +107,12 @@ int cRpiDisplay::SetVideoFormat(int width, int height, int frameRate,
 		return instance->Update(width, height, frameRate, interlaced);
 
 	return -1;
+}
+
+int cRpiDisplay::SetSyncField(int field)
+{
+	char response[64];
+	return vc_gencmd(response, sizeof(response), "hvs_update_fields %d", field);
 }
 
 cRpiVideoPort::ePort cRpiDisplay::GetVideoPort(void)

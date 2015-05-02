@@ -28,6 +28,8 @@ public:
 	static int SetVideoFormat(int width, int height, int frameRate,
 			bool interlaced);
 
+	static int SetSyncField(int field);
+
 protected:
 
 	cRpiDisplay(int width, int height, int frameRate,

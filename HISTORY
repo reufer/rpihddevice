@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- fixed:
+  - set field sync when output interlaced material at interlaced display mode
+
 2015-04-29: Version 0.1.0
 -------------------------
 - new:

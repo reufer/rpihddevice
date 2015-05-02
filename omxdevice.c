@@ -165,6 +165,7 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
 		m_playMode = pmNone;
+		cRpiDisplay::SetSyncField(0);
 		break;
 
 	case pmAudioVideo:
@@ -668,6 +669,8 @@ void cOmxDevice::HandleStreamStart()
 			width, height, frameRate, interlaced ? "i" : "p");
 
 	cRpiDisplay::SetVideoFormat(width, height, frameRate, interlaced);
+	if (!cRpiDisplay::IsProgressive() && interlaced)
+		cRpiDisplay::SetSyncField(1);
 }
 
 void cOmxDevice::HandleVideoSetupChanged()
