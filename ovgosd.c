@@ -2267,7 +2267,11 @@ public:
 		m_ovg(ovg),
 		m_surface(new cOvgRenderTarget()),
 		m_savedRegion(new cOvgSavedRegion())
-	{ }
+	{
+		cTimeMs timer(10000);
+		while (!m_ovg->MaxImageSize().Height() && !timer.TimedOut())
+			cCondWait::SleepMs(100);
+	}
 
 	virtual ~cOvgOsd()
 	{

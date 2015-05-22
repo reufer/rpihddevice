@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - fixed:
+  - wait for the OVG thread to be ready when creating an accelerated OSD
   - set field sync when output interlaced material at interlaced display mode
 
 2015-04-29: Version 0.1.0
