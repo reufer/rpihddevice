@@ -217,6 +217,7 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		m_mutex->Lock();
 		m_playbackSpeed = eNormal;
 		m_direction = eForward;
+		m_hasVideo = false;
 		m_omx->StopClock();
 
 		// to get a picture displayed, PlayVideo() needs to be called
@@ -640,9 +641,12 @@ void cOmxDevice::HandleBufferStall()
 	ELOG("buffer stall!");
 	m_mutex->Lock();
 
-	FlushStreams();
+	FlushStreams(true);
+	m_omx->StopVideo();
+
 	m_hasAudio = false;
 	m_hasVideo = false;
+	m_videoCodec = cVideoCodec::eInvalid;
 
 	m_mutex->Unlock();
 }
