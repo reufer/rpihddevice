@@ -932,8 +932,9 @@ public:
 			}
 
 			m_savedRegion->rect.Set(m_x, m_y, m_w, m_h);
-			vgGetPixels(m_savedRegion->image, 0, 0,
-					m_x, m_target->height - m_h - m_y - 1, m_w, m_h);
+			vgGetPixels(m_savedRegion->image, 0, 0, m_savedRegion->rect.X(),
+					m_target->height - m_savedRegion->rect.Bottom() - 1,
+					m_savedRegion->rect.Width(), m_savedRegion->rect.Height());
 		}
 		return true;
 	}
@@ -1945,11 +1946,13 @@ public:
 		cPixmap(Layer, ViewPort, DrawPort),
 		m_ovg(ovg),
 		m_buffer(buffer),
+		m_savedRegion(new cOvgSavedRegion()),
 		m_dirty(false)
 	{ }
 
 	virtual ~cOvgPixmap()
 	{
+		m_ovg->DoCmd(new cOvgCmdDropRegion(m_savedRegion));
 		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_buffer));
 	}
 
@@ -2212,6 +2215,18 @@ public:
 		Scroll(Dest, Source, true);
 	}
 
+	virtual void SaveRegion(const cRect &Source)
+	{
+		m_ovg->DoCmd(new cOvgCmdSaveRegion(m_buffer, m_savedRegion,
+				Source.X(), Source.Y(), Source.Width(), Source.Height()));
+	}
+
+	virtual void RestoreRegion(void)
+	{
+		m_ovg->DoCmd(new cOvgCmdRestoreRegion(m_buffer, m_savedRegion));
+		SetDirty();
+	}
+
 	virtual void CopyToTarget(cOvgRenderTarget *target, int left, int top)
 	{
 		LOCK_PIXMAPS;
@@ -2252,6 +2267,7 @@ private:
 
 	cOvgThread       *m_ovg;
 	cOvgRenderTarget *m_buffer;
+	cOvgSavedRegion  *m_savedRegion;
 
 	bool m_dirty;
 };
@@ -2265,8 +2281,7 @@ public:
 	cOvgOsd(int Left, int Top, uint Level, cOvgThread *ovg) :
 		cOsd(Left, Top, Level),
 		m_ovg(ovg),
-		m_surface(new cOvgRenderTarget()),
-		m_savedRegion(new cOvgSavedRegion())
+		m_surface(new cOvgRenderTarget())
 	{
 		cTimeMs timer(10000);
 		while (!m_ovg->MaxImageSize().Height() && !timer.TimedOut())
@@ -2276,7 +2291,6 @@ public:
 	virtual ~cOvgOsd()
 	{
 		SetActive(false);
-		m_ovg->DoCmd(new cOvgCmdDropRegion(m_savedRegion));
 		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
 	}
 
@@ -2384,20 +2398,20 @@ public:
 
 	virtual void SaveRegion(int x1, int y1, int x2, int y2)
 	{
-		if (!Active())
+		if (!Active() || !m_pixmaps[0])
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdSaveRegion(m_surface, m_savedRegion,
-				x1 + Left(), y1 + Top(), x2 - x1 + 1, y2 - y1 + 1));
+		m_pixmaps[0]->SaveRegion(
+				cRect(x1, y1, x2 - x1 + 1, y2 - y1 + 1).Shifted(
+					- m_pixmaps[0]->ViewPort().Point()));
 	}
 
 	virtual void RestoreRegion(void)
 	{
-		if (!Active())
+		if (!Active() || !m_pixmaps[0])
 			return;
 
-		m_ovg->DoCmd(new cOvgCmdRestoreRegion(m_surface, m_savedRegion));
-		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
+		m_pixmaps[0]->RestoreRegion();
 	}
 
 	virtual void DrawPixel(int x, int y, tColor Color)
@@ -2560,7 +2574,6 @@ private:
 	cOvgThread           *m_ovg;
 	cOvgRenderTarget     *m_surface;
 	cVector<cOvgPixmap *> m_pixmaps;
-	cOvgSavedRegion      *m_savedRegion;
 };
 
 /* ------------------------------------------------------------------------- */
