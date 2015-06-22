@@ -15,6 +15,8 @@ extern "C"
 #include "ilclient.h"
 }
 
+#define OMX_INVALID_PTS -1
+
 class cOmxEvents;
 
 class cOmx : public cThread
@@ -84,8 +86,8 @@ public:
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetDisplayRegion(int x, int y, int width, int height);
 
-	OMX_BUFFERHEADERTYPE* GetAudioBuffer(uint64_t pts = 0);
-	OMX_BUFFERHEADERTYPE* GetVideoBuffer(uint64_t pts = 0);
+	OMX_BUFFERHEADERTYPE* GetAudioBuffer(int64_t pts = OMX_INVALID_PTS);
+	OMX_BUFFERHEADERTYPE* GetVideoBuffer(int64_t pts = OMX_INVALID_PTS);
 
 	bool PollVideo(void);
 

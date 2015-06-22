@@ -259,30 +259,31 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 
 	m_mutex->Lock();
 	int ret = Length;
-	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : OMX_INVALID_PTS;
 
-	if (!m_hasAudio)
+	if (pts != OMX_INVALID_PTS)
 	{
-		m_hasAudio = true;
-		m_omx->SetClockReference(cOmx::eClockRefAudio);
-
-		if (!m_hasVideo)
+		if (!m_hasAudio)
 		{
-			DBG("audio first");
-			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-			m_omx->StartClock(m_hasVideo, m_hasAudio);
-			m_audioPts = PTS_START_OFFSET + pts;
-			m_playMode = pmAudioOnly;
-		}
-		else
-		{
-			m_audioPts = m_videoPts + PtsDiff(m_videoPts & MAX33BIT, pts);
-			m_playMode = pmAudioVideo;
-		}
-	}
+			m_hasAudio = true;
+			m_omx->SetClockReference(cOmx::eClockRefAudio);
 
-	if (pts)
-	{
+			if (!m_hasVideo)
+			{
+				DBG("audio first");
+				m_omx->SetClockScale(
+						s_playbackSpeeds[m_direction][m_playbackSpeed]);
+				m_omx->StartClock(m_hasVideo, m_hasAudio);
+				m_audioPts = PTS_START_OFFSET + pts;
+				m_playMode = pmAudioOnly;
+			}
+			else
+			{
+				m_audioPts = m_videoPts + PtsDiff(m_videoPts & MAX33BIT, pts);
+				m_playMode = pmAudioVideo;
+			}
+		}
+
 		int64_t ptsDiff = PtsDiff(m_audioPts & MAX33BIT, pts);
 		m_audioPts += ptsDiff;
 
@@ -306,7 +307,8 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			data += 4;
 			length -= 4;
 		}
-		if (!m_audio->WriteData(data, length, pts ? m_audioPts : 0))
+		if (!m_audio->WriteData(data, length,
+				pts != OMX_INVALID_PTS ? m_audioPts : OMX_INVALID_PTS))
 			ret = 0;
 	}
 	m_mutex->Unlock();
@@ -328,9 +330,10 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 	m_mutex->Lock();
 	int ret = Length;
-	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : 0;
+	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : OMX_INVALID_PTS;
 
-	if (!m_hasVideo && pts && m_videoCodec == cVideoCodec::eInvalid)
+	if (!m_hasVideo && pts != OMX_INVALID_PTS &&
+			m_videoCodec == cVideoCodec::eInvalid)
 	{
 		m_videoCodec = ParseVideoCodec(Data + PesPayloadOffset(Data),
 				Length - PesPayloadOffset(Data));
@@ -347,7 +350,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		}
 	}
 
-	if (!m_hasVideo && pts && cRpiSetup::IsVideoCodecSupported(m_videoCodec))
+	if (!m_hasVideo && pts != OMX_INVALID_PTS &&
+			cRpiSetup::IsVideoCodecSupported(m_videoCodec))
 	{
 		m_hasVideo = true;
 		if (!m_hasAudio)
@@ -368,7 +372,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 	if (m_hasVideo)
 	{
-		if (pts)
+		if (pts != OMX_INVALID_PTS)
 		{
 			int64_t ptsDiff = PtsDiff(m_videoPts & MAX33BIT, pts);
 			m_videoPts += ptsDiff;
@@ -384,8 +388,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 		while (Length > 0)
 		{
-			if (OMX_BUFFERHEADERTYPE *buf =
-					m_omx->GetVideoBuffer(pts ? m_videoPts : 0))
+			if (OMX_BUFFERHEADERTYPE *buf =	m_omx->GetVideoBuffer(
+					pts != OMX_INVALID_PTS ? m_videoPts : OMX_INVALID_PTS))
 			{
 				buf->nFilledLen = buf->nAllocLen < (unsigned)Length ?
 						buf->nAllocLen : Length;
@@ -409,7 +413,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 				ret = 0;
 				break;
 			}
-			pts = 0;
+			pts = OMX_INVALID_PTS;
 		}
 	}
 	m_mutex->Unlock();
@@ -436,7 +440,7 @@ bool cOmxDevice::SubmitEOS(void)
 int64_t cOmxDevice::GetSTC(void)
 {
 	int64_t stc = m_omx->GetSTC();
-	if (stc)
+	if (stc != OMX_INVALID_PTS)
 		m_lastStc = stc;
 	return m_lastStc & MAX33BIT;
 }

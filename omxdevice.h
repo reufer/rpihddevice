@@ -177,10 +177,10 @@ private:
 	int		m_playDirection;
 	int		m_trickRequest;
 
-	uint64_t	m_audioPts;
-	uint64_t	m_videoPts;
+	int64_t	m_audioPts;
+	int64_t	m_videoPts;
 
-	int64_t 	m_lastStc;
+	int64_t	m_lastStc;
 };
 
 #endif

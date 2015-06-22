@@ -606,7 +606,7 @@ uint64_t cOmx::TicksToPts(OMX_TICKS &ticks)
 
 int64_t cOmx::GetSTC(void)
 {
-	int64_t stc = -1;
+	int64_t stc = OMX_INVALID_PTS;
 	OMX_TIME_CONFIG_TIMESTAMPTYPE timestamp;
 	OMX_INIT_STRUCT(timestamp);
 	timestamp.nPortIndex = OMX_ALL;
@@ -1217,7 +1217,7 @@ void cOmx::SetDisplayRegion(int x, int y, int width, int height)
 		ELOG("failed to set display region!");
 }
 
-OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
+OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(int64_t pts)
 {
 	Lock();
 	OMX_BUFFERHEADERTYPE* buf = 0;
@@ -1241,19 +1241,20 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(uint64_t pts)
 		buf->nOffset = 0;
 		buf->nFlags = 0;
 
-		if (m_setAudioStartTime)
-			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
-		else if (!pts)
+		if (pts == OMX_INVALID_PTS)
 			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
-
+		else if (m_setAudioStartTime)
+		{
+			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+			m_setAudioStartTime = false;
+		}
 		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-		m_setAudioStartTime = false;
 	}
 	Unlock();
 	return buf;
 }
 
-OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
+OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(int64_t pts)
 {
 	Lock();
 	OMX_BUFFERHEADERTYPE* buf = 0;
@@ -1277,17 +1278,19 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(uint64_t pts)
 		buf->nOffset = 0;
 		buf->nFlags = 0;
 
-		if (m_setVideoStartTime)
-			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
-		else if (!pts)
+		if (pts == OMX_INVALID_PTS)
 			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
-
+		else if (m_setVideoStartTime)
+		{
+			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+			m_setVideoStartTime = false;
+		}
 		if (m_setVideoDiscontinuity)
+		{
 			buf->nFlags |= OMX_BUFFERFLAG_DISCONTINUITY;
-
+			m_setVideoDiscontinuity = false;
+		}
 		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-		m_setVideoStartTime = false;
-		m_setVideoDiscontinuity = false;
 	}
 	Unlock();
 	return buf;

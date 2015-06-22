@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - fixed:
+  - treat zero as valid PTS value
   - perform save / restore region direct on pixmaps for accelerated OSDs
   - wait for the OVG thread to be ready when creating an accelerated OSD
   - set field sync when output interlaced material at interlaced display mode
