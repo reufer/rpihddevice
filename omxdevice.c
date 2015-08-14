@@ -286,6 +286,10 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		}
 
 		int64_t ptsDiff = PtsDiff(m_audioPts & MAX33BIT, pts);
+
+		if ((m_audioPts & ~MAX33BIT) != (m_audioPts + ptsDiff & ~MAX33BIT))
+			DBG("audio PTS wrap around");
+
 		m_audioPts += ptsDiff;
 
 		// keep track of direction in case of trick speed
