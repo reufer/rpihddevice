@@ -55,7 +55,7 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 
 void cRpiDisplay::DropInstance(void)
 {
-	SetSyncField(0);
+	SetHvsSyncUpdate(cScanMode::eProgressive);
 	delete s_instance;
 	s_instance = 0;
 }
@@ -99,20 +99,21 @@ int cRpiDisplay::GetSize(int &width, int &height, double &aspect)
 	return -1;
 }
 
-int cRpiDisplay::SetVideoFormat(int width, int height, int frameRate,
-		bool interlaced)
+int cRpiDisplay::SetVideoFormat(const cVideoFrameFormat *frameFormat)
 {
 	cRpiDisplay* instance = GetInstance();
 	if (instance)
-		return instance->Update(width, height, frameRate, interlaced);
+		return instance->Update(frameFormat);
 
 	return -1;
 }
 
-int cRpiDisplay::SetSyncField(int field)
+int cRpiDisplay::SetHvsSyncUpdate(cScanMode::eMode scanMode)
 {
 	char response[64];
-	return vc_gencmd(response, sizeof(response), "hvs_update_fields %d", field);
+	return vc_gencmd(response, sizeof(response), "hvs_update_fields %d",
+			scanMode == cScanMode::eTopFieldFirst    ? 1 :
+			scanMode == cScanMode::eBottomFieldFirst ? 2 : 0);
 }
 
 cRpiVideoPort::ePort cRpiDisplay::GetVideoPort(void)
@@ -161,7 +162,7 @@ int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 	return -1;
 }
 
-int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
+int cRpiDisplay::Update(const cVideoFrameFormat *frameFormat)
 {
 	if (cRpiSetup::GetVideoResolution() == cVideoResolution::eDontChange &&
 				cRpiSetup::GetVideoFrameRate() == cVideoFrameRate::eDontChange)
@@ -180,10 +181,10 @@ int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
 	case cVideoResolution::e1080: newWidth = 1920; newHeight = 1080; break;
 
 	case cVideoResolution::eFollowVideo:
-		if (width && height)
+		if (frameFormat->width && frameFormat->height)
 		{
-			newWidth = width;
-			newHeight = height;
+			newWidth = frameFormat->width;
+			newHeight = frameFormat->height;
 		}
 		break;
 
@@ -203,10 +204,10 @@ int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
 	case cVideoFrameRate::e60p: newFrameRate = 60; newInterlaced = false; break;
 
 	case cVideoFrameRate::eFollowVideo:
-		if (frameRate)
+		if (frameFormat->frameRate)
 		{
-			newFrameRate = frameRate;
-			newInterlaced = interlaced;
+			newFrameRate = frameFormat->frameRate;
+			newInterlaced = frameFormat->Interlaced();
 		}
 		break;
 
@@ -218,7 +219,8 @@ int cRpiDisplay::Update(int width, int height, int frameRate, bool interlaced)
 	// set new mode only if necessary
 	if (newWidth != m_width || newHeight != m_height ||
 			newFrameRate != m_frameRate || newInterlaced != m_interlaced)
-		return SetMode(newWidth, newHeight, newFrameRate, newInterlaced);
+		return SetMode(newWidth, newHeight, newFrameRate,
+				newInterlaced ? frameFormat->scanMode : cScanMode::eProgressive);
 
 	return 0;
 }
@@ -308,8 +310,11 @@ cRpiHDMIDisplay::~cRpiHDMIDisplay()
 }
 
 int cRpiHDMIDisplay::SetMode(int width, int height, int frameRate,
-		bool interlaced)
+		cScanMode::eMode scanMode)
 {
+	SetHvsSyncUpdate(scanMode);
+	bool interlaced = cScanMode::Interlaced(scanMode);
+
 	for (int i = 0; i < m_modes->nModes; i++)
 	{
 		if (m_modes->modes[i].width == width &&

@@ -25,10 +25,7 @@ public:
 
 	static int Snapshot(unsigned char* frame, int width, int height);
 
-	static int SetVideoFormat(int width, int height, int frameRate,
-			bool interlaced);
-
-	static int SetSyncField(int field);
+	static int SetVideoFormat(const cVideoFrameFormat *frameFormat);
 
 protected:
 
@@ -36,11 +33,14 @@ protected:
 			cRpiVideoPort::ePort port);
 	virtual ~cRpiDisplay();
 
-	int Update(int width, int height, int frameRate, bool interlaced);
+	int Update(const cVideoFrameFormat *videoFormat);
 
-	virtual int SetMode(int width, int height, int frameRate, bool interlaced) {
+	virtual int SetMode(int width, int height, int frameRate,
+			cScanMode::eMode scanMode) {
 		return -1;
 	}
+
+	static int SetHvsSyncUpdate(cScanMode::eMode scanMode);
 
 	int m_width;
 	int m_height;
@@ -67,7 +67,8 @@ public:
 
 private:
 
-	virtual int SetMode(int width, int height, int frameRate, bool interlaced);
+	virtual int SetMode(int width, int height, int frameRate,
+			cScanMode::eMode scanMode);
 	int SetMode(int group, int mode);
 
 	static void TvServiceCallback(void *data, unsigned int reason,
@@ -93,7 +94,8 @@ public:
 
 private:
 
-	virtual int SetMode(int width, int height, int frameRate, bool interlaced) {
+	virtual int SetMode(int width, int height, int frameRate,
+			cScanMode::eMode scanMode) {
 		return 0;
 	}
 };

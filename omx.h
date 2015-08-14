@@ -80,8 +80,10 @@ public:
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cRpiAudioPort::ePort audioPort,
 			int samplingRate = 0, int frameSize = 0);
-	void GetVideoFormat(int &width, int &height, int &frameRate,
-			bool &interlaced);
+
+	const cVideoFrameFormat *GetVideoFrameFormat(void) {
+		return &m_videoFrameFormat;
+	}
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetDisplayRegion(int x, int y, int width, int height);
@@ -130,15 +132,7 @@ private:
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
-	struct VideoFormat
-	{
-		int width;
-		int height;
-		int frameRate;
-		bool interlaced;
-	};
-
-	VideoFormat m_videoFormat;
+	cVideoFrameFormat m_videoFrameFormat;
 
 	bool m_setAudioStartTime;
 	bool m_setVideoStartTime;

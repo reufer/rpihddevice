@@ -120,10 +120,8 @@ void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 
 void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 {
-	bool interlaced;
-	int frameRate;
-
-	m_omx->GetVideoFormat(Width, Height, frameRate, interlaced);
+	Height = m_omx->GetVideoFrameFormat()->height;
+	Width = m_omx->GetVideoFrameFormat()->width;
 
 	if (Height)
 		VideoAspect = (double)Width / Height;
@@ -165,7 +163,6 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
 		m_playMode = pmNone;
-		cRpiDisplay::SetSyncField(0);
 		break;
 
 	case pmAudioVideo:
@@ -672,17 +669,11 @@ void cOmxDevice::HandleStreamStart()
 {
 	DBG("HandleStreamStart()");
 
-	int width, height, frameRate;
-	bool interlaced;
+	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
+	DLOG("video stream started %dx%d@%d%s",	format->width, format->height,
+			format->frameRate, format->Interlaced() ? "i" : "p");
 
-	m_omx->GetVideoFormat(width, height, frameRate, interlaced);
-
-	DLOG("video stream started %dx%d@%d%s",
-			width, height, frameRate, interlaced ? "i" : "p");
-
-	cRpiDisplay::SetVideoFormat(width, height, frameRate, interlaced);
-	if (!cRpiDisplay::IsProgressive() && interlaced)
-		cRpiDisplay::SetSyncField(1);
+	cRpiDisplay::SetVideoFormat(format);
 }
 
 void cOmxDevice::HandleVideoSetupChanged()
@@ -705,11 +696,7 @@ void cOmxDevice::HandleVideoSetupChanged()
 		break;
 	}
 
-	int width, height, frameRate;
-	bool interlaced;
-
-	m_omx->GetVideoFormat(width, height, frameRate, interlaced);
-	cRpiDisplay::SetVideoFormat(width, height, frameRate, interlaced);
+	cRpiDisplay::SetVideoFormat(m_omx->GetVideoFrameFormat());
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)

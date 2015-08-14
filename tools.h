@@ -175,4 +175,42 @@ public:
 	}
 };
 
+class cScanMode
+{
+public:
+
+	enum eMode {
+		eProgressive,
+		eTopFieldFirst,
+		eBottomFieldFirst
+	};
+
+	static const char* Str(eMode mode) {
+		return 	(mode == eProgressive)      ? "progressive"      :
+				(mode == eTopFieldFirst)    ? "interlaced (tff)" :
+				(mode == eBottomFieldFirst) ? "interlaced (bff)" : "unknown";
+	}
+
+	static const bool Interlaced(eMode mode) {
+		return mode != eProgressive;
+	}
+};
+
+class cVideoFrameFormat
+{
+public:
+
+	cVideoFrameFormat() : width(0), height(0), frameRate(0),
+		scanMode(cScanMode::eProgressive) { };
+
+	int width;
+	int height;
+	int frameRate;
+	cScanMode::eMode scanMode;
+
+	bool Interlaced(void) const {
+		return cScanMode::Interlaced(scanMode);
+	}
+};
+
 #endif

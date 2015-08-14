@@ -297,28 +297,34 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 				&interlace) != OMX_ErrorNone)
 			ELOG("failed to get video decoder interlace config!");
 
-		m_videoFormat.width = portdef.format.video.nFrameWidth;
-		m_videoFormat.height = portdef.format.video.nFrameHeight;
-		m_videoFormat.interlaced = interlace.eMode != OMX_InterlaceProgressive;
+		m_videoFrameFormat.width = portdef.format.video.nFrameWidth;
+		m_videoFrameFormat.height = portdef.format.video.nFrameHeight;
+		m_videoFrameFormat.scanMode =
+				interlace.eMode == OMX_InterlaceProgressive ? cScanMode::eProgressive :
+				interlace.eMode == OMX_InterlaceFieldSingleUpperFirst ? cScanMode::eTopFieldFirst :
+				interlace.eMode == OMX_InterlaceFieldSingleLowerFirst ? cScanMode::eBottomFieldFirst :
+				interlace.eMode == OMX_InterlaceFieldsInterleavedUpperFirst ? cScanMode::eTopFieldFirst :
+				interlace.eMode == OMX_InterlaceFieldsInterleavedLowerFirst ? cScanMode::eBottomFieldFirst :
+						cScanMode::eProgressive;
 
 		// discard 4 least significant bits, since there might be some deviation
 		// due to jitter in time stamps
-		m_videoFormat.frameRate = ALIGN_UP(
+		m_videoFrameFormat.frameRate = ALIGN_UP(
 				portdef.format.video.xFramerate & 0xfffffff0, 1 << 16) >> 16;
 
 		// workaround for progressive streams detected as interlaced video by
 		// the decoder due to missing SEI parsing
 		// see: https://github.com/raspberrypi/firmware/issues/283
 		// update: with FW from 2015/01/18 this is not necessary anymore
-		if (m_videoFormat.interlaced && m_videoFormat.frameRate >= 50)
+		if (m_videoFrameFormat.Interlaced() && m_videoFrameFormat.frameRate >= 50)
 		{
 			DLOG("%di looks implausible, you should use a recent firmware...",
-					m_videoFormat.frameRate * 2);
+					m_videoFrameFormat.frameRate * 2);
 			//m_videoFormat.interlaced = false;
 		}
 
-		if (m_videoFormat.interlaced)
-			m_videoFormat.frameRate = m_videoFormat.frameRate * 2;
+		if (m_videoFrameFormat.Interlaced())
+			m_videoFrameFormat.frameRate = m_videoFrameFormat.frameRate * 2;
 
 		if (m_onStreamStart)
 			m_onStreamStart(m_onStreamStartData);
@@ -332,7 +338,7 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		OMX_INIT_STRUCT(extraBuffers);
 		extraBuffers.nPortIndex = 130;
 
-		if (cRpiDisplay::IsProgressive() && m_videoFormat.interlaced)
+		if (cRpiDisplay::IsProgressive() && m_videoFrameFormat.Interlaced())
 		{
 			bool fastDeinterlace = portdef.format.video.nFrameWidth *
 					portdef.format.video.nFrameHeight > 576 * 720;
@@ -437,10 +443,10 @@ cOmx::cOmx() :
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
 
-	m_videoFormat.width = 0;
-	m_videoFormat.height = 0;
-	m_videoFormat.frameRate = 0;
-	m_videoFormat.interlaced = false;
+	m_videoFrameFormat.width = 0;
+	m_videoFrameFormat.height = 0;
+	m_videoFrameFormat.frameRate = 0;
+	m_videoFrameFormat.scanMode = cScanMode::eProgressive;
 }
 
 cOmx::~cOmx()
@@ -859,6 +865,18 @@ void cOmx::StopVideo(void)
 {
 	Lock();
 
+	// disable port buffers and allow video decoder to reconfig
+	ilclient_disable_port_buffers(m_comp[eVideoDecoder], 130,
+			m_spareVideoBuffers, NULL, NULL);
+
+	m_spareVideoBuffers = 0;
+	m_handlePortEvents = false;
+
+	m_videoFrameFormat.width = 0;
+	m_videoFrameFormat.height = 0;
+	m_videoFrameFormat.frameRate = 0;
+	m_videoFrameFormat.scanMode = cScanMode::eProgressive;
+
 	// put video decoder into idle
 	ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
 
@@ -879,18 +897,6 @@ void cOmx::StopVideo(void)
 	ilclient_disable_tunnel(&m_tun[eVideoSchedulerToVideoRender]);
 	ilclient_change_component_state(m_comp[eVideoRender], OMX_StateIdle);
 
-	// disable port buffers and allow video decoder to reconfig
-	ilclient_disable_port_buffers(m_comp[eVideoDecoder], 130,
-			m_spareVideoBuffers, NULL, NULL);
-
-	m_spareVideoBuffers = 0;
-
-	m_videoFormat.width = 0;
-	m_videoFormat.height = 0;
-	m_videoFormat.frameRate = 0;
-	m_videoFormat.interlaced = false;
-
-	m_handlePortEvents = false;
 	Unlock();
 }
 
@@ -1171,15 +1177,6 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 
 	Unlock();
 	return 0;
-}
-
-void cOmx::GetVideoFormat(int &width, int &height, int &frameRate,
-		bool &interlaced)
-{
-	width = m_videoFormat.width;
-	height = m_videoFormat.height;
-	frameRate = m_videoFormat.frameRate;
-	interlaced = m_videoFormat.interlaced;
 }
 
 void cOmx::SetDisplayMode(bool fill, bool noaspect)
