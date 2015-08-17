@@ -111,6 +111,7 @@ int cRpiDisplay::SetVideoFormat(const cVideoFrameFormat *frameFormat)
 int cRpiDisplay::SetHvsSyncUpdate(cScanMode::eMode scanMode)
 {
 	char response[64];
+	DBG("SetHvsSyncUpdate(%s)", cScanMode::Str(scanMode));
 	return vc_gencmd(response, sizeof(response), "hvs_update_fields %d",
 			scanMode == cScanMode::eTopFieldFirst    ? 1 :
 			scanMode == cScanMode::eBottomFieldFirst ? 2 : 0);
