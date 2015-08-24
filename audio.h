@@ -26,7 +26,7 @@ public:
 	virtual int DeInit(void);
 
 	virtual bool WriteData(const unsigned char *buf, unsigned int length,
-			uint64_t pts = 0);
+			int64_t pts = 0);
 
 	virtual bool Poll(void);
 	virtual void Reset(void);

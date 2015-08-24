@@ -593,7 +593,7 @@ int64_t cOmx::FromOmxTicks(OMX_TICKS &ticks)
 	return ret;
 }
 
-void cOmx::PtsToTicks(uint64_t pts, OMX_TICKS &ticks)
+void cOmx::PtsToTicks(int64_t pts, OMX_TICKS &ticks)
 {
 	// ticks = pts * OMX_TICKS_PER_SECOND / PTSTICKS
 	pts = pts * 100 / 9;
@@ -601,10 +601,10 @@ void cOmx::PtsToTicks(uint64_t pts, OMX_TICKS &ticks)
 	ticks.nHighPart = pts >> 32;
 }
 
-uint64_t cOmx::TicksToPts(OMX_TICKS &ticks)
+int64_t cOmx::TicksToPts(OMX_TICKS &ticks)
 {
 	// pts = ticks * PTSTICKS / OMX_TICKS_PER_SECOND
-	uint64_t pts = ticks.nHighPart;
+	int64_t pts = ticks.nHighPart;
 	pts = (pts << 32) + ticks.nLowPart;
 	pts = pts * 9 / 100;
 	return pts;

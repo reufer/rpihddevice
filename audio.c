@@ -115,9 +115,9 @@ public:
 		return m_packet.size;
 	}
 
-	uint64_t GetPts(void)
+	int64_t GetPts(void)
 	{
-		uint64_t pts = 0;
+		int64_t pts = OMX_INVALID_PTS;
 		m_mutex->Lock();
 
 		if (!m_ptsQueue.empty())
@@ -174,7 +174,7 @@ public:
 		m_mutex->Unlock();
 	}
 
-	bool Append(const unsigned char *data, uint64_t pts, unsigned int length)
+	bool Append(const unsigned char *data, int64_t pts, unsigned int length)
 	{
 		m_mutex->Lock();
 		bool ret = true;
@@ -219,7 +219,7 @@ public:
 					// clear current PTS since it's not valid anymore after
 					// shrinking the packet
 					if (!retainPts)
-						m_ptsQueue.front()->pts = 0;
+						m_ptsQueue.front()->pts = OMX_INVALID_PTS;
 
 					m_ptsQueue.front()->length -= length;
 					length = 0;
@@ -339,10 +339,10 @@ private:
 
 	struct Pts
 	{
-		Pts(uint64_t _pts, unsigned int _length)
+		Pts(int64_t _pts, unsigned int _length)
 			: pts(_pts), length(_length) { };
 
-		uint64_t 		pts;
+		int64_t 		pts;
 		unsigned int 	length;
 	};
 
@@ -893,7 +893,7 @@ public:
 		delete m_mutex;
 	}
 
-	int WriteSamples(uint8_t** data, int samples, uint64_t pts,
+	int WriteSamples(uint8_t** data, int samples, int64_t pts,
 			AVSampleFormat sampleFormat = AV_SAMPLE_FMT_NONE)
 	{
 		if (!Ready())
@@ -1134,7 +1134,7 @@ private:
 #endif
 
 	AVSampleFormat       m_pcmSampleFormat;
-	uint64_t             m_pts;
+	int64_t              m_pts;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1244,7 +1244,7 @@ int cRpiAudioDecoder::DeInit(void)
 }
 
 bool cRpiAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
-		uint64_t pts)
+		int64_t pts)
 {
 	Lock();
 

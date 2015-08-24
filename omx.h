@@ -35,8 +35,8 @@ public:
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
-	static void PtsToTicks(uint64_t pts, OMX_TICKS &ticks);
-	static uint64_t TicksToPts(OMX_TICKS &ticks);
+	static void PtsToTicks(int64_t pts, OMX_TICKS &ticks);
+	static int64_t TicksToPts(OMX_TICKS &ticks);
 
 	int64_t GetSTC(void);
 	bool IsClockRunning(void);
