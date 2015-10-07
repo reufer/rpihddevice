@@ -454,7 +454,7 @@ cOmx::~cOmx()
 	delete m_portEvents;
 }
 
-int cOmx::Init(void)
+int cOmx::Init(int layer)
 {
 	m_client = ilclient_init();
 	if (m_client == NULL)
@@ -529,6 +529,7 @@ int cOmx::Init(void)
 	ilclient_change_component_state(m_comp[eVideoFx], OMX_StateIdle);
 	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
 
+	SetDisplayLayer(layer);
 	SetClockLatencyTarget();
 	SetBufferStallThreshold(20000);
 	SetClockReference(cOmx::eClockRefVideo);
@@ -1208,6 +1209,19 @@ void cOmx::SetDisplayRegion(int x, int y, int width, int height)
 	region.dest_rect.y_offset = y;
 	region.dest_rect.width = width;
 	region.dest_rect.height = height;
+
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
+			OMX_IndexConfigDisplayRegion, &region) != OMX_ErrorNone)
+		ELOG("failed to set display region!");
+}
+
+void cOmx::SetDisplayLayer(int layer)
+{
+	OMX_CONFIG_DISPLAYREGIONTYPE region;
+	OMX_INIT_STRUCT(region);
+	region.nPortIndex = 90;
+	region.layer = layer;
+	region.set = (OMX_DISPLAYSETTYPE)(OMX_DISPLAY_SET_LAYER);
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
 			OMX_IndexConfigDisplayRegion, &region) != OMX_ErrorNone)

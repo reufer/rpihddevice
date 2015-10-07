@@ -61,9 +61,11 @@ public:
 	struct PluginParameters
 	{
 		PluginParameters() :
-			hasOsd(true) { }
+			hasOsd(true), videoLayer(0), osdLayer(2) { }
 
 		bool hasOsd;
+		int videoLayer;
+		int osdLayer;
 	};
 
 	static bool HwInit(void);
@@ -119,6 +121,14 @@ public:
 
 	static bool HasOsd(void) {
 		return GetInstance()->m_plugin.hasOsd;
+	}
+
+	static int VideoLayer(void) {
+		return GetInstance()->m_plugin.videoLayer;
+	}
+
+	static int OsdLayer(void) {
+		return GetInstance()->m_plugin.osdLayer;
 	}
 
 	static void SetHDMIChannelMapping(bool passthrough, int channels);

@@ -1,6 +1,8 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- new:
+  - added plugin options to specify video and osd layers
 - fixed:
   - treat zero as valid PTS value
   - perform save / restore region direct on pixmaps for accelerated OSDs

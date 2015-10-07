@@ -16,7 +16,7 @@ class cRpiOsdProvider : public cOsdProvider
 
 public:
 
-	cRpiOsdProvider();
+	cRpiOsdProvider(int layer);
 	~cRpiOsdProvider();
 
 	static void ResetOsd(bool cleanup = false);

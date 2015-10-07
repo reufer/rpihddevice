@@ -332,24 +332,38 @@ void cRpiSetup::Set(AudioParameters audio, VideoParameters video,
 bool cRpiSetup::ProcessArgs(int argc, char *argv[])
 {
 	static struct option long_options[] = {
-			{ "disable-osd", no_argument, NULL, 'd' },
+			{ "disable-osd", no_argument,       NULL, 'd' },
+			{ "video-layer", required_argument, NULL, 'v' },
+			{ "osd-layer",   required_argument, NULL, 'o' },
 	};
 	int c;
-	while ((c = getopt_long(argc, argv, "d", long_options, NULL)) != -1)
+	while ((c = getopt_long(argc, argv, "do:v:", long_options, NULL)) != -1)
 	{
 		switch (c)
 		{
 		case 'd':
 			m_plugin.hasOsd = false;
 			break;
+		case 'o':
+			m_plugin.osdLayer = atoi(optarg);
+			break;
+		case 'v':
+			m_plugin.videoLayer = atoi(optarg);
+			break;
 		default:
 			return false;
 		}
 	}
+	DBG("dispmanx layers: video=%d, osd=%d (%s)",
+			m_plugin.videoLayer, m_plugin.osdLayer,
+			m_plugin.hasOsd ? "enabled" : "disabled");
+
 	return true;
 }
 
 const char *cRpiSetup::CommandLineHelp(void)
 {
-	return "  -d,       --disable-osd  disable OSD\n";
+	return	"  -d,       --disable-osd  disable OSD\n"
+			"  -v,       --video-layer  dispmanx layer for video (default 0)\n"
+			"  -o,       --osd-layer    dispmanx layer for OSD (default 2)\n";
 }

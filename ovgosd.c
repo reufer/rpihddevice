@@ -1644,8 +1644,8 @@ class cOvgThread : public cThread
 {
 public:
 
-	cOvgThread() :
-		cThread("ovgthread"), m_wait(new cCondWait()), m_stalled(false)
+	cOvgThread(int layer) :	cThread("ovgthread"),
+		m_wait(new cCondWait()), m_stalled(false), m_layer(layer)
 	{
 		for (int i = 0; i < OVG_MAX_OSDIMAGES; i++)
 			m_images[i].used = false;
@@ -1822,7 +1822,7 @@ protected:
 			VC_RECT_T dstRect = { 0, 0, egl.window.width, egl.window.height };
 
 			egl.window.element = vc_dispmanx_element_add(
-					update, display, 2 /*layer*/, &dstRect, 0, &srcRect,
+					update, display, m_layer, &dstRect, 0, &srcRect,
 					DISPMANX_PROTECTION_NONE, 0, 0, (DISPMANX_TRANSFORM_T)0);
 
 			vc_dispmanx_update_submit_sync(update);
@@ -1929,6 +1929,7 @@ private:
 	std::queue<cOvgCmd*> m_commands;
 	cCondWait *m_wait;
 	bool m_stalled;
+	int m_layer;
 
 	tOvgImageRef m_images[OVG_MAX_OSDIMAGES];
 
@@ -2701,12 +2702,12 @@ private:
 
 cRpiOsdProvider* cRpiOsdProvider::s_instance = 0;
 
-cRpiOsdProvider::cRpiOsdProvider() :
+cRpiOsdProvider::cRpiOsdProvider(int layer) :
 	cOsdProvider(),
 	m_ovg(0)
 {
 	DLOG("new cOsdProvider()");
-	m_ovg = new cOvgThread();
+	m_ovg = new cOvgThread(layer);
 	s_instance = this;
 }
 

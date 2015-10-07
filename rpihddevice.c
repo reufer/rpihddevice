@@ -25,7 +25,7 @@ private:
 	static void OnPrimaryDevice(void)
 	{
 		if (cRpiSetup::HasOsd())
-			new cRpiOsdProvider();
+			new cRpiOsdProvider(cRpiSetup::OsdLayer());
 	}
 
 public:
@@ -65,7 +65,7 @@ bool cPluginRpiHdDevice::Initialize(void)
 	if (!cRpiSetup::IsVideoCodecSupported(cVideoCodec::eMPEG2))
 		DLOG("MPEG2 video decoder not enabled!");
 
-	m_device = new cOmxDevice(&OnPrimaryDevice);
+	m_device = new cOmxDevice(&OnPrimaryDevice, cRpiSetup::VideoLayer());
 
 	if (m_device)
 		return !m_device->Init();
