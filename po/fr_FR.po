@@ -1,0 +1,72 @@
+# French translations for vdr-rpihddevice package.
+# Copyright (C) 2015 THE vdr-rpihddevice'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the vdr-rpihddevice package.
+# Cyril Jaquier, 2015
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vdr-rpihddevice 1.0.0\n"
+"Report-Msgid-Bugs-To: <see README>\n"
+"POT-Creation-Date: 2015-10-14 17:58+0200\n"
+"PO-Revision-Date: 2015-10-15 06:56+0100\n"
+"Last-Translator: Cyril Jaquier <cyril.jaquier@jaqpot.net>\n"
+"Language-Team: French\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 1.5.5\n"
+
+msgid "video format not supported!"
+msgstr "Format vidéo non supporté !"
+
+msgid "HD output device for Raspberry Pi"
+msgstr "Périphérique de sortie HD pour Raspberry Pi"
+
+msgid "analog"
+msgstr "analogue"
+
+msgid "HDMI"
+msgstr "HDMI"
+
+msgid "pass through"
+msgstr "pass through"
+
+msgid "multi channel PCM"
+msgstr "PCM multicanal"
+
+msgid "stereo PCM"
+msgstr "PCM stéréo"
+
+msgid "box"
+msgstr "box"
+
+msgid "crop"
+msgstr "rogner"
+
+msgid "stretch"
+msgstr "étirer"
+
+msgid "default"
+msgstr "par défaut"
+
+msgid "follow video"
+msgstr "comme l'original"
+
+msgid "Resolution"
+msgstr "Résolution"
+
+msgid "Frame Rate"
+msgstr "Cadence d'images"
+
+msgid "Video Framing"
+msgstr "Aspect de l'image"
+
+msgid "Audio Port"
+msgstr "Sortie audio"
+
+msgid "Digital Audio Format"
+msgstr "Format audio digital"
+
+msgid "Use GPU accelerated OSD"
+msgstr "OSD accéléré par GPU"
