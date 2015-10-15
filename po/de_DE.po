@@ -1,21 +1,22 @@
 # German translations for vdr-rpihddevice package.
 # Copyright (C) 2013 THE vdr-rpihddevice'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the vdr-rpihddevice package.
-#  <thomas@reufer.ch>, 2013.
+# Thomas Reufer <thomas@reufer.ch>, 2013-2015.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-rpihddevice 0.0.4\n"
+"Project-Id-Version: vdr-rpihddevice 1.0.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2015-03-14 19:22+0100\n"
-"PO-Revision-Date: 2013-10-14 13:36+0200\n"
-"Last-Translator:  <thomas@reufer.ch>\n"
-"Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
+"PO-Revision-Date: 2015-10-12 09:33+0100\n"
+"Last-Translator: Thomas Reufer <thomas@reufer.ch>\n"
+"Language-Team: German\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 1.5.5\n"
 
 msgid "video format not supported!"
 msgstr "Videoformat nicht unterstützt!"
