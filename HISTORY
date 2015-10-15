@@ -7,6 +7,7 @@ VDR Plugin 'rpihddevice' Revision History
   - added French translations (thanks to Cyril Jaquier)
   - added plugin options to specify video and OSD layers
 - fixed:
+  - don't crop OSD images to pixmap size to allow scaled drawing
   - treat zero as valid PTS value
   - perform save / restore region direct on pixmaps for accelerated OSDs
   - wait for the OVG thread to be ready when creating an accelerated OSD

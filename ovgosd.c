@@ -1578,14 +1578,8 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
-		int w = min((m_x < 0 ? m_w + m_x : m_w), m_target->width);
-		int h = min((m_y < 0 ? m_h + m_y : m_h), m_target->height);
-
-		int x = m_x < 0 ? 0 : m_x;
-		int y = m_y < 0 ? 0 : m_y;
-
-		w = min(w, m_target->width - x);
-		h = min(h, m_target->height - y);
+		int w = min(m_w, vgGeti(VG_MAX_IMAGE_WIDTH));
+		int h = min(m_h, vgGeti(VG_MAX_IMAGE_HEIGHT));
 
 		if (w <= 0 || h <= 0)
 			return true;
@@ -1600,7 +1594,7 @@ public:
 
 		vgLoadIdentity();
 		vgScale(1.0f, -1.0f);
-		vgTranslate(x, y - m_target->height);
+		vgTranslate(m_x, m_y - m_target->height);
 		vgScale(m_scaleX, m_scaleY);
 
 		VGImage image = vgCreateImage(VG_sARGB_8888, w, h,
@@ -1612,11 +1606,9 @@ public:
 			return false;
 		}
 
-		int offsetX = m_x < 0 ? -m_x : 0;
-		int offsetY = m_y < 0 ? -m_y : 0;
+		vgImageSubData(image, m_argb, m_w * sizeof(tColor),
+				VG_sARGB_8888, 0, 0, w, h);
 
-		vgImageSubData(image, m_argb + offsetY * m_w + offsetX,
-				m_w * sizeof(tColor), VG_sARGB_8888, 0, 0, w, h);
 		vgDrawImage(image);
 
 		vgDestroyImage(image);
