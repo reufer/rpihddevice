@@ -1,7 +1,7 @@
 # Finnish translations for vdr-rpihddevice package.
 # Copyright (C) 2014 THE vdr-rpihddevice'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the vdr-rpihddevice package.
-# Rolf Ahrenberg, 2014
+# Rolf Ahrenberg, 2014-2015
 #
 msgid ""
 msgstr ""
@@ -29,13 +29,13 @@ msgid "HDMI"
 msgstr "HDMI"
 
 msgid "pass through"
-msgstr ""
+msgstr "läpivienti"
 
 msgid "multi channel PCM"
-msgstr ""
+msgstr "monikanava PCM"
 
 msgid "stereo PCM"
-msgstr ""
+msgstr "stereo PCM"
 
 msgid "box"
 msgstr "kehystys"
@@ -65,13 +65,7 @@ msgid "Audio Port"
 msgstr "Äänilähtö"
 
 msgid "Digital Audio Format"
-msgstr ""
+msgstr "Digitaaliäänen formaatti"
 
 msgid "Use GPU accelerated OSD"
 msgstr "Käytä GPU-kiihdytettyä OSD:tä"
-
-#~ msgid "Digital Audio Pass-Through"
-#~ msgstr "Digitaaliäänen läpivienti"
-
-#~ msgid "Ignore Audio EDID"
-#~ msgstr "Jätä äänen EDID huomioimatta"

@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - updated Finnish translations (thanks to Rolf Ahrenberg)
   - added Italian translations (thanks to Gerlando Falauto)
   - added French translations (thanks to Cyril Jaquier)
   - added plugin options to specify video and OSD layers
