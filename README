@@ -68,6 +68,8 @@ Options:
   -d, --disable-osd  Disables creation of OSD layer and prevents the plugin of
                      allocating any OSD related resources. If set, VDR's dummy
                      OSD is used, when selecting rpihddevice as primary device.
+  -v, --video-layer  Specify the dispmanx layer for video (default 0)
+  -o, --osd-layer    Specify the dispmanx layer for OSD (default 2)
 
 Plugin-Setup:
 
