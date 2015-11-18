@@ -343,13 +343,11 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 			bool fastDeinterlace = portdef.format.video.nFrameWidth *
 					portdef.format.video.nFrameHeight > 576 * 720;
 
-			filterparam.nNumParams = fastDeinterlace ? 1 : 2;
+			filterparam.nNumParams = 4;
 			filterparam.nParams[0] = 3;
-
-			// explicitly set frame interval for advanced deinterlacer
-			// see: https://github.com/raspberrypi/firmware/issues/234
-			filterparam.nParams[1] = 1000000 /
-					(portdef.format.video.xFramerate >> 16);
+			filterparam.nParams[1] = 0; // default frame interval
+			filterparam.nParams[2] = 0; // half framerate
+			filterparam.nParams[3] = 1; // use qpus
 
 			filterparam.eImageFilter = fastDeinterlace ?
 					OMX_ImageFilterDeInterlaceFast :

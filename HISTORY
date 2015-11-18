@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- fixed:
+  - use omxplayer's parameters for deinterlacer
+
 2015-10-18: Version 1.0.0
 -------------------------
 - new:
