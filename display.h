@@ -20,8 +20,10 @@ public:
 	static int GetSize(int &width, int &height);
 	static int GetSize(int &width, int &height, double &aspect);
 
-	static cRpiVideoPort::ePort GetVideoPort(void);
 	static bool IsProgressive(void);
+	static bool IsFixedMode(void);
+
+	static int GetId(void);
 
 	static int Snapshot(unsigned char* frame, int width, int height);
 
@@ -29,24 +31,25 @@ public:
 
 protected:
 
-	cRpiDisplay(int width, int height, int frameRate,
-			cRpiVideoPort::ePort port);
+	cRpiDisplay(int id, int width, int height, int frameRate, bool interlaced,
+			bool fixedMode);
 	virtual ~cRpiDisplay();
 
 	int Update(const cVideoFrameFormat *videoFormat);
 
 	virtual int SetMode(int width, int height, int frameRate,
 			cScanMode::eMode scanMode) {
-		return -1;
+		return 0;
 	}
 
 	static int SetHvsSyncUpdate(cScanMode::eMode scanMode);
 
+	int m_id;
 	int m_width;
 	int m_height;
 	int m_frameRate;
 	bool m_interlaced;
-	cRpiVideoPort::ePort m_port;
+	bool m_fixedMode;
 
 	static cRpiDisplay *s_instance;
 
@@ -62,7 +65,8 @@ class cRpiHDMIDisplay : public cRpiDisplay
 
 public:
 
-	cRpiHDMIDisplay(int width, int height, int frameRate, int group, int mode);
+	cRpiHDMIDisplay(int id, int width, int height, int frameRate, bool interlaced,
+			int group, int mode);
 	virtual ~cRpiHDMIDisplay();
 
 private:
@@ -85,19 +89,13 @@ private:
 	bool m_modified;
 };
 
-class cRpiCompositeDisplay : public cRpiDisplay
+class cRpiDefaultDisplay : public cRpiDisplay
 {
 
 public:
 
-	cRpiCompositeDisplay(int width, int height, int frameRate);
+	cRpiDefaultDisplay(int id, int width, int height);
 
-private:
-
-	virtual int SetMode(int width, int height, int frameRate,
-			cScanMode::eMode scanMode) {
-		return 0;
-	}
 };
 
 #endif

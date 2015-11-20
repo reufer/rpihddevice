@@ -65,7 +65,8 @@ bool cPluginRpiHdDevice::Initialize(void)
 	if (!cRpiSetup::IsVideoCodecSupported(cVideoCodec::eMPEG2))
 		DLOG("MPEG2 video decoder not enabled!");
 
-	m_device = new cOmxDevice(&OnPrimaryDevice, cRpiSetup::VideoLayer());
+	m_device = new cOmxDevice(&OnPrimaryDevice,
+			cRpiDisplay::GetId(), cRpiSetup::VideoLayer());
 
 	if (m_device)
 		return !m_device->Init();

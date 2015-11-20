@@ -20,7 +20,7 @@ class cOmxDevice : cDevice
 
 public:
 
-	cOmxDevice(void (*onPrimaryDevice)(void), int layer);
+	cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer);
 	virtual ~cOmxDevice();
 
 	virtual int Init(void);
@@ -182,6 +182,7 @@ private:
 
 	int64_t	m_lastStc;
 
+	int m_display;
 	int m_layer;
 };
 

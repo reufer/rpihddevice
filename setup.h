@@ -10,6 +10,11 @@
 #include "omx.h"
 #include "tools.h"
 
+#define VC_DISPLAY_DEFAULT     0
+#define VC_DISPLAY_LCD         4
+#define VC_DISPLAY_TV_HDMI     5
+#define VC_DISPLAY_NON_DEFAULT 6
+
 class cRpiSetup
 {
 
@@ -61,9 +66,10 @@ public:
 	struct PluginParameters
 	{
 		PluginParameters() :
-			hasOsd(true), videoLayer(0), osdLayer(2) { }
+			hasOsd(true), display(0), videoLayer(0), osdLayer(2) { }
 
 		bool hasOsd;
+		int display;
 		int videoLayer;
 		int osdLayer;
 	};
@@ -121,6 +127,10 @@ public:
 
 	static bool HasOsd(void) {
 		return GetInstance()->m_plugin.hasOsd;
+	}
+
+	static int Display(void) {
+		return GetInstance()->m_plugin.display;
 	}
 
 	static int VideoLayer(void) {

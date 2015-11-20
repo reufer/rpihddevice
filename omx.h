@@ -26,7 +26,7 @@ public:
 
 	cOmx();
 	virtual ~cOmx();
-	int Init(int layer);
+	int Init(int display, int layer);
 	int DeInit(void);
 
 	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
@@ -87,7 +87,7 @@ public:
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetDisplayRegion(int x, int y, int width, int height);
-	void SetDisplayLayer(int layer);
+	void SetDisplay(int display, int layer);
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(int64_t pts = OMX_INVALID_PTS);
 	OMX_BUFFERHEADERTYPE* GetVideoBuffer(int64_t pts = OMX_INVALID_PTS);

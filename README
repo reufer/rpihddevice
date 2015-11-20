@@ -70,6 +70,11 @@ Options:
                      OSD is used, when selecting rpihddevice as primary device.
   -v, --video-layer  Specify the dispmanx layer for video (default 0)
   -o, --osd-layer    Specify the dispmanx layer for OSD (default 2)
+      --display      display used for output:
+                     0: default display (default)
+                     4: LCD
+                     5: TV/HDMI
+                     6: non-default display
 
 Plugin-Setup:
 

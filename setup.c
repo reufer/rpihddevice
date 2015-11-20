@@ -101,7 +101,7 @@ private:
 		int current = Current();
 		Clear();
 
-		if (cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI)
+		if (!cRpiDisplay::IsFixedMode())
 		{
 			Add(new cMenuEditStraItem(
 				tr("Resolution"), &m_video.resolution, 6, m_videoResolution));
@@ -181,8 +181,7 @@ bool cRpiSetup::HwInit(void)
 	int width, height;
 	if (!cRpiDisplay::GetSize(width, height))
 	{
-		ILOG("HwInit() done, using %s video out at %dx%d",
-		cRpiVideoPort::Str(cRpiDisplay::GetVideoPort()), width, height);
+		ILOG("HwInit() done, display size is %dx%d", width, height);
 	}
 	else
 		ELOG("failed to get video port information!");
@@ -331,10 +330,13 @@ void cRpiSetup::Set(AudioParameters audio, VideoParameters video,
 
 bool cRpiSetup::ProcessArgs(int argc, char *argv[])
 {
+	const int cDisplayOpt = 0x100;
 	static struct option long_options[] = {
-			{ "disable-osd", no_argument,       NULL, 'd' },
-			{ "video-layer", required_argument, NULL, 'v' },
-			{ "osd-layer",   required_argument, NULL, 'o' },
+			{ "disable-osd", no_argument,       NULL, 'd'         },
+			{ "display",     required_argument, NULL, cDisplayOpt },
+			{ "video-layer", required_argument, NULL, 'v'         },
+			{ "osd-layer",   required_argument, NULL, 'o'         },
+			{ 0, 0, 0, 0 }
 	};
 	int c;
 	while ((c = getopt_long(argc, argv, "do:v:", long_options, NULL)) != -1)
@@ -350,13 +352,30 @@ bool cRpiSetup::ProcessArgs(int argc, char *argv[])
 		case 'v':
 			m_plugin.videoLayer = atoi(optarg);
 			break;
+		case cDisplayOpt:
+		{
+			int d = atoi(optarg);
+			switch (d)
+			{
+			case 0:
+			case 4:
+			case 5:
+			case 6:
+				m_plugin.display = d;
+				break;
+			default:
+				ELOG("invalid device id (%d), using default display!", d);
+				break;
+			}
+		}
+			break;
 		default:
 			return false;
 		}
 	}
-	DBG("dispmanx layers: video=%d, osd=%d (%s)",
+	DBG("dispmanx layers: video=%d, osd=%d (%s), display=%d",
 			m_plugin.videoLayer, m_plugin.osdLayer,
-			m_plugin.hasOsd ? "enabled" : "disabled");
+			m_plugin.hasOsd ? "enabled" : "disabled", m_plugin.display);
 
 	return true;
 }
@@ -365,5 +384,10 @@ const char *cRpiSetup::CommandLineHelp(void)
 {
 	return	"  -d,       --disable-osd  disable OSD\n"
 			"  -v,       --video-layer  dispmanx layer for video (default 0)\n"
-			"  -o,       --osd-layer    dispmanx layer for OSD (default 2)\n";
+			"  -o,       --osd-layer    dispmanx layer for OSD (default 2)\n"
+			"            --display      display used for output:\n"
+			"                           0: default display (default)\n"
+			"                           4: LCD\n"
+			"                           5: TV/HDMI\n"
+			"                           6: non-default display\n";
 }

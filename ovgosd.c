@@ -1804,7 +1804,7 @@ protected:
 		while (Running())
 		{
 			DISPMANX_DISPLAY_HANDLE_T display = vc_dispmanx_display_open(
-				cRpiDisplay::GetVideoPort() == cRpiVideoPort::eHDMI ? 0 : 1);
+					cRpiDisplay::GetId());
 			DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
 
 			cRpiDisplay::GetSize(egl.window.width, egl.window.height);

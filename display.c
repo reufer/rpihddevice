@@ -24,29 +24,48 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 {
 	if (!s_instance)
 	{
+		int id = cRpiSetup::Display();
 		TV_DISPLAY_STATE_T tvstate;
-		memset(&tvstate, 0, sizeof(TV_DISPLAY_STATE_T));
-
 		if (!vc_tv_get_display_state(&tvstate))
 		{
-			// HDMI
-			if (tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI))
-				s_instance = new cRpiHDMIDisplay(
+			DBG("default display is %s",
+					tvstate.state & VC_HDMI_HDMI            ? "HDMI" :
+					tvstate.state & VC_HDMI_DVI             ? "DVI"  :
+					tvstate.state & VC_LCD_ATTACHED_DEFAULT ? "LCD"  :
+							"unknown");
+
+			// HDMI is default and enabled by plugin options
+			if ((tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)) &&
+					(id == VC_DISPLAY_TV_HDMI || id == VC_DISPLAY_DEFAULT))
+
+				s_instance = new cRpiHDMIDisplay(id,
 						tvstate.display.hdmi.width,
 						tvstate.display.hdmi.height,
 						tvstate.display.hdmi.frame_rate,
+						tvstate.display.hdmi.scan_mode != 0,
 						tvstate.display.hdmi.group,
 						tvstate.display.hdmi.mode);
-			else
-				s_instance = new cRpiCompositeDisplay(
-						tvstate.display.sdtv.width,
-						tvstate.display.sdtv.height,
-						tvstate.display.sdtv.frame_rate);
 		}
 		else
+			ELOG("failed to get default display state!");
+
+		if (!s_instance)
 		{
-			ELOG("failed to get display parameters - assuming analog SDTV!");
-			s_instance = new cRpiCompositeDisplay(720, 576, 50);
+			DISPMANX_DISPLAY_HANDLE_T display = vc_dispmanx_display_open(id);
+			if (display)
+			{
+				DISPMANX_MODEINFO_T mode;
+				if (vc_dispmanx_display_get_info(display, &mode) >= 0)
+					s_instance = new cRpiDefaultDisplay(id,
+							mode.width, mode.height);
+
+				vc_dispmanx_display_close(display);
+			}
+		}
+		if (!s_instance)
+		{
+			ELOG("failed to get display information!");
+			s_instance = new cRpiDefaultDisplay(id, 720, 576);
 		}
 	}
 
@@ -60,13 +79,14 @@ void cRpiDisplay::DropInstance(void)
 	s_instance = 0;
 }
 
-cRpiDisplay::cRpiDisplay(int width, int height, int frameRate,
-		cRpiVideoPort::ePort port) :
+cRpiDisplay::cRpiDisplay(int id, int width, int height, int frameRate,
+		bool interlaced, bool fixedMode) :
+	m_id(id),
 	m_width(width),
 	m_height(height),
 	m_frameRate(frameRate),
-	m_interlaced(false),
-	m_port(port)
+	m_interlaced(interlaced),
+	m_fixedMode(fixedMode)
 {
 }
 
@@ -117,20 +137,29 @@ int cRpiDisplay::SetHvsSyncUpdate(cScanMode::eMode scanMode)
 			scanMode == cScanMode::eBottomFieldFirst ? 2 : 0);
 }
 
-cRpiVideoPort::ePort cRpiDisplay::GetVideoPort(void)
-{
-	cRpiDisplay* instance = GetInstance();
-	if (instance)
-		return instance->m_port;
-
-	return cRpiVideoPort::eComposite;
-}
-
 bool cRpiDisplay::IsProgressive(void)
 {
 	cRpiDisplay* instance = GetInstance();
 	if (instance)
 		return !instance->m_interlaced;
+
+	return false;
+}
+
+bool cRpiDisplay::IsFixedMode(void)
+{
+	cRpiDisplay* instance = GetInstance();
+	if (instance)
+		return instance->m_fixedMode;
+
+	return false;
+}
+
+int cRpiDisplay::GetId(void)
+{
+	cRpiDisplay* instance = GetInstance();
+	if (instance)
+		return instance->m_id;
 
 	return false;
 }
@@ -141,7 +170,7 @@ int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 	if (instance)
 	{
 		DISPMANX_DISPLAY_HANDLE_T display = vc_dispmanx_display_open(
-				instance->m_port == cRpiVideoPort::eHDMI ? 0 : 1);
+				instance->m_id);
 
 		if (display)
 		{
@@ -165,8 +194,9 @@ int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 
 int cRpiDisplay::Update(const cVideoFrameFormat *frameFormat)
 {
-	if (cRpiSetup::GetVideoResolution() == cVideoResolution::eDontChange &&
-				cRpiSetup::GetVideoFrameRate() == cVideoFrameRate::eDontChange)
+	if (m_fixedMode || (
+			cRpiSetup::GetVideoResolution() == cVideoResolution::eDontChange &&
+			cRpiSetup::GetVideoFrameRate() == cVideoFrameRate::eDontChange))
 		return 0;
 
 	int newWidth = m_width;
@@ -237,9 +267,9 @@ public:
 	int nModes;
 };
 
-cRpiHDMIDisplay::cRpiHDMIDisplay(int width, int height, int frameRate,
-		int group, int mode) :
-	cRpiDisplay(width, height, frameRate, cRpiVideoPort::eHDMI),
+cRpiHDMIDisplay::cRpiHDMIDisplay(int id, int width, int height, int frameRate,
+		bool interlaced, int group, int mode) :
+	cRpiDisplay(id, width, height, frameRate, interlaced, false),
 	m_modes(new cRpiHDMIDisplay::ModeList()),
 	m_group(group),
 	m_mode(mode),
@@ -371,9 +401,7 @@ void cRpiHDMIDisplay::TvServiceCallback(void *data, unsigned int reason,
 
 /* ------------------------------------------------------------------------- */
 
-cRpiCompositeDisplay::cRpiCompositeDisplay(int width, int height,
-		int frameRate) :
-	cRpiDisplay(width, height, frameRate, cRpiVideoPort::eComposite)
+cRpiDefaultDisplay::cRpiDefaultDisplay(int id, int width, int height) :
+	cRpiDisplay(id, width, height, 50, false, true)
 {
-
 }

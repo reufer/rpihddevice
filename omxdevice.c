@@ -37,7 +37,7 @@ const uchar cOmxDevice::PesVideoHeader[14] = {
 	0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x80, 0x80, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int layer) :
+cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
 	m_omx(new cOmx()),
@@ -57,6 +57,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int layer) :
 	m_audioPts(0),
 	m_videoPts(0),
 	m_lastStc(0),
+	m_display(display),
 	m_layer(layer)
 {
 }
@@ -73,7 +74,7 @@ cOmxDevice::~cOmxDevice()
 
 int cOmxDevice::Init(void)
 {
-	if (m_omx->Init(m_layer) < 0)
+	if (m_omx->Init(m_display, m_layer) < 0)
 	{
 		ELOG("failed to initialize OMX!");
 		return -1;
@@ -679,7 +680,7 @@ void cOmxDevice::HandleStreamStart()
 
 void cOmxDevice::HandleVideoSetupChanged()
 {
-	DBG("HandleVideoSettingsChanged()");
+	DBG("HandleVideoSetupChanged()");
 
 	switch (cRpiSetup::GetVideoFraming())
 	{

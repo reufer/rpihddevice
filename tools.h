@@ -160,21 +160,6 @@ public:
 	}
 };
 
-class cRpiVideoPort
-{
-public:
-
-	enum ePort {
-		eComposite,
-		eHDMI
-	};
-
-	static const char* Str(ePort port) {
-		return 	(port == eComposite) ? "composite" :
-				(port == eHDMI)      ? "HDMI"      : "unknown";
-	}
-};
-
 class cScanMode
 {
 public:
