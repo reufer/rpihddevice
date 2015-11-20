@@ -342,6 +342,7 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		{
 			bool fastDeinterlace = portdef.format.video.nFrameWidth *
 					portdef.format.video.nFrameHeight > 576 * 720;
+			fastDeinterlace = true;
 
 			filterparam.nNumParams = 4;
 			filterparam.nParams[0] = 3;
