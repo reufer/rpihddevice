@@ -672,8 +672,10 @@ void cOmxDevice::HandleStreamStart()
 	DBG("HandleStreamStart()");
 
 	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
-	DLOG("video stream started %dx%d@%d%s",	format->width, format->height,
-			format->frameRate, format->Interlaced() ? "i" : "p");
+	DLOG("video stream started %dx%d@%d%s PAR(%d:%d)",
+			format->width, format->height, format->frameRate,
+			format->Interlaced() ? "i" : "p",
+			format->pixelWidth, format->pixelHeight);
 
 	cRpiDisplay::SetVideoFormat(format);
 }

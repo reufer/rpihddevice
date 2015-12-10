@@ -86,6 +86,7 @@ public:
 	}
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
+	void SetPixelAspectRatio(int width, int height);
 	void SetDisplayRegion(int x, int y, int width, int height);
 	void SetDisplay(int display, int layer);
 

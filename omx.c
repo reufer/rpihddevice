@@ -290,6 +290,13 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 				&portdef) != OMX_ErrorNone)
 			ELOG("failed to get video decoder port format!");
 
+		OMX_CONFIG_POINTTYPE pixelAspect;
+		OMX_INIT_STRUCT(pixelAspect);
+		pixelAspect.nPortIndex = 131;
+		if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]), OMX_IndexParamBrcmPixelAspectRatio,
+				&pixelAspect) != OMX_ErrorNone)
+			ELOG("failed to get pixel aspect ratio!");
+
 		OMX_CONFIG_INTERLACETYPE interlace;
 		OMX_INIT_STRUCT(interlace);
 		interlace.nPortIndex = 131;
@@ -299,6 +306,8 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 
 		m_videoFrameFormat.width = portdef.format.video.nFrameWidth;
 		m_videoFrameFormat.height = portdef.format.video.nFrameHeight;
+		m_videoFrameFormat.pixelWidth = pixelAspect.nX;
+		m_videoFrameFormat.pixelHeight = pixelAspect.nY;
 		m_videoFrameFormat.scanMode =
 				interlace.eMode == OMX_InterlaceProgressive ? cScanMode::eProgressive :
 				interlace.eMode == OMX_InterlaceFieldSingleUpperFirst ? cScanMode::eTopFieldFirst :
@@ -1193,6 +1202,21 @@ void cOmx::SetDisplayMode(bool fill, bool noaspect)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
 			OMX_IndexConfigDisplayRegion, &region) != OMX_ErrorNone)
 		ELOG("failed to set display region!");
+}
+
+void cOmx::SetPixelAspectRatio(int width, int height)
+{
+	OMX_CONFIG_DISPLAYREGIONTYPE region;
+	OMX_INIT_STRUCT(region);
+	region.nPortIndex = 90;
+	region.set = (OMX_DISPLAYSETTYPE)(OMX_DISPLAY_SET_PIXEL);
+
+	region.pixel_x = width;
+	region.pixel_y = height;
+
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
+			OMX_IndexConfigDisplayRegion, &region) != OMX_ErrorNone)
+		ELOG("failed to set pixel apect ratio!");
 }
 
 void cOmx::SetDisplayRegion(int x, int y, int width, int height)

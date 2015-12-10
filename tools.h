@@ -186,12 +186,14 @@ class cVideoFrameFormat
 public:
 
 	cVideoFrameFormat() : width(0), height(0), frameRate(0),
-		scanMode(cScanMode::eProgressive) { };
+		scanMode(cScanMode::eProgressive), pixelWidth(0), pixelHeight(0) { };
 
 	int width;
 	int height;
 	int frameRate;
 	cScanMode::eMode scanMode;
+	int pixelWidth;
+	int pixelHeight;
 
 	bool Interlaced(void) const {
 		return cScanMode::Interlaced(scanMode);
