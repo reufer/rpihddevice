@@ -334,16 +334,19 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 	m_mutex->Lock();
 	int ret = Length;
-	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : OMX_INVALID_PTS;
+
+	cVideoCodec::eCodec codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
+			Length - PesPayloadOffset(Data));
+
+	int64_t pts = PesHasPts(Data) && codec != cVideoCodec::eInvalid ?
+			PesGetPts(Data) : OMX_INVALID_PTS;
 
 	if (!m_hasVideo && pts != OMX_INVALID_PTS &&
 			m_videoCodec == cVideoCodec::eInvalid)
 	{
-		m_videoCodec = ParseVideoCodec(Data + PesPayloadOffset(Data),
-				Length - PesPayloadOffset(Data));
-
-		if (m_videoCodec != cVideoCodec::eInvalid)
+		if (codec != cVideoCodec::eInvalid)
 		{
+			m_videoCodec = codec;
 			if (cRpiSetup::IsVideoCodecSupported(m_videoCodec))
 			{
 				m_omx->SetVideoCodec(m_videoCodec);

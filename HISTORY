@@ -4,6 +4,7 @@ VDR Plugin 'rpihddevice' Revision History
 - new:
   - add option for dual display usage, see README
 - fixed:
+  - ignore pts from erroneous packets to avoid pts jumps on broken streams
   - use omxplayer's parameters for deinterlacer
 
 2015-10-18: Version 1.0.0
