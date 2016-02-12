@@ -23,6 +23,8 @@ public:
 	cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer);
 	virtual ~cOmxDevice();
 
+	virtual cString DeviceName(void) const { return "rpihddevice"; }
+
 	virtual int Init(void);
 	virtual int DeInit(void);
 
