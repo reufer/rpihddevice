@@ -128,6 +128,7 @@ public:
 
 		if (FT_Done_FreeType(s_ftLib))
 			ELOG("failed to deinitialize FreeType library!");
+		s_ftLib = 0;
 	}
 
 	cOvgGlyph* Glyph(uint charCode) const
