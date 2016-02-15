@@ -1564,11 +1564,12 @@ class cOvgCmdDrawBitmap : public cOvgCmd
 {
 public:
 
-	cOvgCmdDrawBitmap(cOvgRenderTarget *target,
-			int x, int y, int w, int h, tColor *argb,
-			bool overlay = false, double scaleX = 1.0f, double scaleY = 1.0f) :
+	cOvgCmdDrawBitmap(cOvgRenderTarget *target,	int x, int y, int w, int h,
+			tColor *argb, bool overlay = false,	double scaleX = 1.0f,
+			double scaleY = 1.0f, bool antiAliased = true) :
 		cOvgCmd(target), m_x(x), m_y(y), m_w(w), m_h(h), m_argb(argb),
-		m_overlay(overlay), m_scaleX(scaleX), m_scaleY(scaleY) { }
+		m_overlay(overlay), m_scaleX(scaleX), m_scaleY(scaleY),
+		m_antiAliased(antiAliased) { }
 
 	virtual ~cOvgCmdDrawBitmap()
 	{
@@ -1590,7 +1591,8 @@ public:
 
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
 		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
-		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
+		vgSeti(VG_IMAGE_QUALITY, m_antiAliased ?
+				VG_IMAGE_QUALITY_BETTER : VG_IMAGE_QUALITY_NONANTIALIASED);
 		vgSeti(VG_BLEND_MODE, m_overlay ? VG_BLEND_SRC_OVER : VG_BLEND_SRC);
 
 		vgLoadIdentity();
@@ -1626,6 +1628,7 @@ protected:
 	bool m_overlay;
 	double m_scaleX;
 	double m_scaleY;
+	bool m_antiAliased;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -2078,7 +2081,7 @@ public:
 
 		m_ovg->DoCmd(new cOvgCmdDrawBitmap(m_buffer, Point.X(), Point.Y(),
 				Bitmap.Width(), Bitmap.Height(), argb, false,
-				FactorX, FactorY));
+				FactorX, FactorY, AntiAlias));
 
 		SetDirty();
 		MarkDrawPortDirty(cRect(Point, cSize(
@@ -2437,7 +2440,7 @@ public:
 
 		m_pixmaps[0]->DrawScaledBitmap(
 				cPoint(x, y) - m_pixmaps[0]->ViewPort().Point(),
-				Bitmap, FactorX, FactorY);
+				Bitmap, FactorX, FactorY, AntiAlias);
 	}
 
 	virtual void DrawImage(const cPoint &Point, int ImageHandle)
