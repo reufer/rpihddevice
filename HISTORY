@@ -5,6 +5,7 @@ VDR Plugin 'rpihddevice' Revision History
   - set device name
   - add option for dual display usage, see README
 - fixed:
+  - proper release default surface after OSD reset
   - don't ignore anti alias option for scaled bitmap drawing
   - ignore pts from erroneous packets to avoid pts jumps on broken streams
   - use omxplayer's parameters for deinterlacer

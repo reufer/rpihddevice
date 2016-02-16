@@ -1841,7 +1841,7 @@ protected:
 						cEgl::errStr(eglGetError()));
 
 			if (eglMakeCurrent(egl.display, egl.surface, egl.surface,
-					egl.context) ==	EGL_FALSE)
+					egl.context) == EGL_FALSE)
 				ELOG("failed to connect context to surface: %s!",
 						cEgl::errStr(eglGetError()));
 
@@ -1880,6 +1880,11 @@ protected:
 						m_stalled = false;
 				}
 			}
+
+			if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+					EGL_NO_CONTEXT) == EGL_FALSE)
+				ELOG("failed to release active surface from context: %s!",
+						cEgl::errStr(eglGetError()));
 
 			if (eglDestroySurface(egl.display, egl.surface) == EGL_FALSE)
 				ELOG("[EGL] failed to destroy surface: %s!",
