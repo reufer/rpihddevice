@@ -2744,7 +2744,7 @@ cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 
 int cRpiOsdProvider::StoreImageData(const cImage &Image)
 {
-	int id = m_ovg->StoreImageData(Image);
+	int id = cRpiSetup::IsHighLevelOsd() ? m_ovg->StoreImageData(Image) : 0;
 	return id ? id : cOsdProvider::StoreImageData(Image);
 }
 

@@ -5,6 +5,7 @@ VDR Plugin 'rpihddevice' Revision History
   - set device name
   - add option for dual display usage, see README
 - fixed:
+  - only cache images in GPU when high level OSD is active
   - added proper GPL header to every source file (suggested by Tobias Grimm)
   - wait until dispmanx element is removed after OSD reset
   - proper release default surface after OSD reset
