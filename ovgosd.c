@@ -1552,15 +1552,14 @@ public:
 		if (!m_target->MakeCurrent(egl))
 			return false;
 
-		VGint height = vgGetParameteri(*m_image, VG_IMAGE_HEIGHT);
-
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);
 		vgSeti(VG_IMAGE_MODE, VG_DRAW_IMAGE_NORMAL);
 		vgSeti(VG_IMAGE_QUALITY, VG_IMAGE_QUALITY_BETTER);
 		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 
 		vgLoadIdentity();
-		vgTranslate(m_x, m_target->height - height - m_y);
+		vgScale(1.0f, -1.0f);
+		vgTranslate(m_x, m_y - m_target->height);
 
 		vgDrawImage(*m_image);
 		return true;
