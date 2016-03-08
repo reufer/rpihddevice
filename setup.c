@@ -255,7 +255,7 @@ void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)
 	char command[80], response[80];
 
 	sprintf(command, "hdmi_stream_channels %d", passthrough ? 1 : 0);
-	vc_gencmd(response, sizeof response, command);
+	vc_gencmd(response, sizeof(response), command);
 
 	uint32_t channel_map = 0;
 
@@ -290,7 +290,7 @@ void cRpiSetup::SetHDMIChannelMapping(bool passthrough, int channels)
 	}
 
 	sprintf(command, "hdmi_channel_map 0x%08x", channel_map);
-	vc_gencmd(response, sizeof response, command);
+	vc_gencmd(response, sizeof(response), command);
 }
 
 cMenuSetupPage* cRpiSetup::GetSetupPage(void)

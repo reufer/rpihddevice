@@ -5,6 +5,7 @@ VDR Plugin 'rpihddevice' Revision History
   - set device name
   - add option for dual display usage, see README
 - fixed:
+  - fixed HDMI channel mapping and stream type (reported by Rüdiger Follmann)
   - fixed drawing of cached images with high level OSD
   - only cache images in GPU when high level OSD is active
   - added proper GPL header to every source file (suggested by Tobias Grimm)

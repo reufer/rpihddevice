@@ -1085,6 +1085,10 @@ private:
 
 		if (m_codec != cAudioCodec::eInvalid)
 		{
+			if (m_port == cRpiAudioPort::eHDMI)
+				cRpiSetup::SetHDMIChannelMapping(m_codec != cAudioCodec::ePCM,
+						m_outChannels);
+
 			m_omx->SetupAudioRender(m_codec, m_outChannels, m_port,
 					m_samplingRate, m_frameSize);
 
@@ -1093,10 +1097,6 @@ private:
 					cAudioCodec::Str(m_codec),
 					m_samplingRate / 1000, (m_samplingRate % 1000) / 100,
 					m_codec != cAudioCodec::ePCM ? " (pass-through)" : "");
-
-			if (m_port == cRpiAudioPort::eHDMI)
-				cRpiSetup::SetHDMIChannelMapping(m_codec != cAudioCodec::ePCM,
-						m_outChannels);
 		}
 		m_running = m_codec != cAudioCodec::eInvalid;
 		m_configured = true;
