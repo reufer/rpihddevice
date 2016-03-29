@@ -1,6 +1,8 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2016-03-29: Version 1.0.1
+-------------------------
 - new:
   - set device name
   - add option for dual display usage, see README
