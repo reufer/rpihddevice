@@ -109,18 +109,20 @@ public:
 		eAC3,
 		eEAC3,
 		eAAC,
+		eAAC_LATM,
 		eDTS,
 		eNumCodecs,
 		eInvalid
 	};
 
 	static const char* Str(eCodec codec) {
-		return  (codec == ePCM)  ? "PCM"   :
-				(codec == eMPG)  ? "MPEG"  :
-				(codec == eAC3)  ? "AC3"   :
-				(codec == eEAC3) ? "E-AC3" :
-				(codec == eAAC)  ? "AAC"   :
-				(codec == eDTS)  ? "DTS"   : "unknown";
+		return  (codec == ePCM)      ? "PCM"      :
+				(codec == eMPG)      ? "MPEG"     :
+				(codec == eAC3)      ? "AC3"      :
+				(codec == eEAC3)     ? "E-AC3"    :
+				(codec == eAAC)      ? "AAC"      :
+				(codec == eAAC_LATM) ? "AAC-LATM" :
+				(codec == eDTS)      ? "DTS"      : "unknown";
 	}
 };
 

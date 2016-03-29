@@ -29,6 +29,10 @@ extern "C" {
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
 
+#ifdef ENABLE_AAC_LATM
+#warning "experimental AAC-LATM frame parser enabled, only 2ch/48kHz supported!"
+#endif
+
 // ffmpeg's resampling
 #ifdef HAVE_LIBSWRESAMPLE
 #  include <libswresample/swresample.h>
@@ -50,14 +54,15 @@ extern "C" {
 
 // legacy libavcodec
 #if LIBAVCODEC_VERSION_MAJOR < 55
-#  define av_frame_alloc   avcodec_alloc_frame
-#  define av_frame_free    avcodec_free_frame
-#  define av_frame_unref   avcodec_get_frame_defaults
-#  define AV_CODEC_ID_MP3  CODEC_ID_MP3
-#  define AV_CODEC_ID_AC3  CODEC_ID_AC3
-#  define AV_CODEC_ID_EAC3 CODEC_ID_EAC3
-#  define AV_CODEC_ID_AAC  CODEC_ID_AAC
-#  define AV_CODEC_ID_DTS  CODEC_ID_DTS
+#  define av_frame_alloc       avcodec_alloc_frame
+#  define av_frame_free        avcodec_free_frame
+#  define av_frame_unref       avcodec_get_frame_defaults
+#  define AV_CODEC_ID_MP3      CODEC_ID_MP3
+#  define AV_CODEC_ID_AC3      CODEC_ID_AC3
+#  define AV_CODEC_ID_EAC3     CODEC_ID_EAC3
+#  define AV_CODEC_ID_AAC      CODEC_ID_AAC
+#  define AV_CODEC_ID_AAC_LATM CODEC_ID_AAC_LATM
+#  define AV_CODEC_ID_DTS      CODEC_ID_DTS
 #endif
 
 #if LIBAVCODEC_VERSION_MAJOR < 54
@@ -296,10 +301,18 @@ private:
 						codec = cAudioCodec::eEAC3;
 				}
 				break;
+
 			case cAudioCodec::eAAC:
 				if (AdtsCheck(p, n, frameSize, channels, samplingRate))
 					codec = cAudioCodec::eAAC;
 				break;
+
+#ifdef ENABLE_AAC_LATM
+			case cAudioCodec::eAAC_LATM:
+				if (LatmCheck(p, n, frameSize, channels, samplingRate))
+					codec = cAudioCodec::eAAC_LATM;
+				break;
+#endif
 
 			case cAudioCodec::eDTS:
 				if (DtsCheck(p, n, frameSize, channels, samplingRate))
@@ -381,10 +394,13 @@ private:
 
 	static cAudioCodec::eCodec FastCheck(const uint8_t *p)
 	{
-		return 	FastMpegCheck(p)  ? cAudioCodec::eMPG :
-				FastAc3Check (p)  ? cAudioCodec::eAC3 :
-				FastAdtsCheck(p)  ? cAudioCodec::eAAC :
-				FastDtsCheck (p)  ? cAudioCodec::eDTS :
+		return 	FastMpegCheck(p)  ? cAudioCodec::eMPG      :
+				FastAc3Check (p)  ? cAudioCodec::eAC3      :
+				FastAdtsCheck(p)  ? cAudioCodec::eAAC      :
+#ifdef ENABLE_AAC_LATM
+				FastLatmCheck(p)  ? cAudioCodec::eAAC_LATM :
+#endif
+				FastDtsCheck (p)  ? cAudioCodec::eDTS      :
 									cAudioCodec::eInvalid;
 	}
 
@@ -590,7 +606,7 @@ private:
 		return true;
 	}
 
-#if 0
+#ifdef ENABLE_AAC_LATM
 	///
 	///	Fast check for AAC LATM audio.
 	///
@@ -1189,12 +1205,15 @@ int cRpiAudioDecoder::Init(void)
 			SysLogLevel > 1 ? AV_LOG_INFO : AV_LOG_ERROR);
 	av_log_set_callback(&Log);
 
-	m_codecs[cAudioCodec::ePCM ].codec = NULL;
-	m_codecs[cAudioCodec::eMPG ].codec = avcodec_find_decoder(AV_CODEC_ID_MP3);
-	m_codecs[cAudioCodec::eAC3 ].codec = avcodec_find_decoder(AV_CODEC_ID_AC3);
-	m_codecs[cAudioCodec::eEAC3].codec = avcodec_find_decoder(AV_CODEC_ID_EAC3);
-	m_codecs[cAudioCodec::eAAC ].codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
-	m_codecs[cAudioCodec::eDTS ].codec = avcodec_find_decoder(AV_CODEC_ID_DTS);
+	m_codecs[cAudioCodec::ePCM     ].codec = NULL;
+	m_codecs[cAudioCodec::eMPG     ].codec = avcodec_find_decoder(AV_CODEC_ID_MP3);
+	m_codecs[cAudioCodec::eAC3     ].codec = avcodec_find_decoder(AV_CODEC_ID_AC3);
+	m_codecs[cAudioCodec::eEAC3    ].codec = avcodec_find_decoder(AV_CODEC_ID_EAC3);
+	m_codecs[cAudioCodec::eAAC     ].codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
+#ifdef ENABLE_AAC_LATM
+	m_codecs[cAudioCodec::eAAC_LATM].codec = avcodec_find_decoder(AV_CODEC_ID_AAC_LATM);
+#endif
+	m_codecs[cAudioCodec::eDTS     ].codec = avcodec_find_decoder(AV_CODEC_ID_DTS);
 
 	for (int i = 0; i < cAudioCodec::eNumCodecs; i++)
 	{

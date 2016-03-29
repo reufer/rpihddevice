@@ -79,6 +79,11 @@ ifeq ($(DEBUG_BUFFERS), 1)
     DEFINES += -DDEBUG_BUFFERS
 endif
 
+ENABLE_AAC_LATM ?= 0
+ifeq ($(ENABLE_AAC_LATM), 1)
+    DEFINES += -DENABLE_AAC_LATM
+endif
+
 # ffmpeg/libav configuration
 ifdef EXT_LIBAV
 	LIBAV_PKGCFG = $(shell PKG_CONFIG_PATH=$(EXT_LIBAV)/lib/pkgconfig pkg-config $(1))

@@ -4,6 +4,7 @@ VDR Plugin 'rpihddevice' Revision History
 - new:
   - set device name
   - add option for dual display usage, see README
+  - experimental support for AAC-LATM, use "make ENABLE_AAC_LATM=1" to enable
 - fixed:
   - fixed HDMI channel mapping and stream type (reported by Rüdiger Follmann)
   - fixed drawing of cached images with high level OSD
