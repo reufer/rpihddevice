@@ -46,9 +46,12 @@ const int cOmxDevice::s_liveSpeeds[eNumLiveSpeeds] = {
 	S(0.999f), S(0.99985f), S(1.000f), S(1.00015), S(1.001)
 };
 
-const uchar cOmxDevice::PesVideoHeader[14] = {
+const uchar cOmxDevice::s_pesVideoHeader[14] = {
 	0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x80, 0x80, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00
 };
+
+const uchar cOmxDevice::s_mpeg2EndOfSequence[4]  = { 0x00, 0x00, 0x01, 0xb7 };
+const uchar cOmxDevice::s_h264EndOfSequence[8] = { 0x00, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x01, 0x0b };
 
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 	cDevice(),
@@ -211,13 +214,13 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		{
 			// some plugins deliver raw MPEG data, but PlayVideo() needs a
 			// complete PES packet with valid header
-			pesLength = Length + sizeof(PesVideoHeader);
+			pesLength = Length + sizeof(s_pesVideoHeader);
 			pesPacket = MALLOC(uchar, pesLength);
 			if (!pesPacket)
 				return;
 
-			memcpy(pesPacket, PesVideoHeader, sizeof(PesVideoHeader));
-			memcpy(pesPacket + sizeof(PesVideoHeader), Data, Length);
+			memcpy(pesPacket, s_pesVideoHeader, sizeof(s_pesVideoHeader));
+			memcpy(pesPacket + sizeof(s_pesVideoHeader), Data, Length);
 		}
 		else
 			codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
@@ -232,32 +235,26 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		m_hasVideo = false;
 		m_omx->StopClock();
 
-		// to get a picture displayed, PlayVideo() needs to be called
-		// 4x for MPEG2 and 10x for H264... ?
-		int repeat = codec == cVideoCodec::eMPEG2 ? 4 : 10;
-		while (repeat--)
+		int length = pesPacket ? pesLength : Length;
+		const uchar *data = pesPacket ? pesPacket : Data;
+
+		// play every single PES packet, rise ENDOFFRAME flag on last
+		while (PesLongEnough(length))
 		{
-			int length = pesPacket ? pesLength : Length;
-			const uchar *data = pesPacket ? pesPacket : Data;
+			int pktLen = PesHasLength(data) ? PesLength(data) : length;
 
-			// play every single PES packet, rise ENDOFFRAME flag on last
-			while (PesLongEnough(length))
-			{
-				int pktLen = PesHasLength(data) ? PesLength(data) : length;
+			// skip non-video packets as they may occur in PES recordings
+			if ((data[3] & 0xf0) == 0xe0)
+				PlayVideo(data, pktLen, pktLen == length);
 
-				// skip non-video packets as they may occur in PES recordings
-				if ((data[3] & 0xf0) == 0xe0)
-					PlayVideo(data, pktLen, pktLen == length);
-
-				data += pktLen;
-				length -= pktLen;
-			}
+			data += pktLen;
+			length -= pktLen;
 		}
-		SubmitEOS();
-		m_mutex->Unlock();
-
 		if (pesPacket)
 			free(pesPacket);
+
+		SubmitEOS();
+		m_mutex->Unlock();
 	}
 }
 
@@ -452,8 +449,13 @@ bool cOmxDevice::SubmitEOS(void)
 	DBG("SubmitEOS()");
 	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(0);
 	if (buf)
-		buf->nFlags = /*OMX_BUFFERFLAG_ENDOFFRAME | */ OMX_BUFFERFLAG_EOS;
-
+	{
+		buf->nFlags = OMX_BUFFERFLAG_EOS | OMX_BUFFERFLAG_ENDOFFRAME;
+		buf->nFilledLen = m_videoCodec == cVideoCodec::eMPEG2 ?
+				sizeof(s_mpeg2EndOfSequence) : sizeof(s_h264EndOfSequence);
+		memcpy(buf->pBuffer, m_videoCodec == cVideoCodec::eMPEG2 ?
+				s_mpeg2EndOfSequence : s_h264EndOfSequence, buf->nFilledLen);
+	}
 	return m_omx->EmptyVideoBuffer(buf);
 }
 

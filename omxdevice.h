@@ -141,7 +141,9 @@ protected:
 	static const int s_playbackSpeeds[eNumDirections][eNumPlaybackSpeeds];
 	static const int s_liveSpeeds[eNumLiveSpeeds];
 
-	static const uchar PesVideoHeader[14];
+	static const uchar s_pesVideoHeader[14];
+	static const uchar s_mpeg2EndOfSequence[4];
+	static const uchar s_h264EndOfSequence[8];
 
 private:
 

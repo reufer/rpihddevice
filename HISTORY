@@ -1,6 +1,9 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+- fixed:
+  - send proper end of sequence packet after playing single video frame
+
 2016-03-29: Version 1.0.1
 -------------------------
 - new:
