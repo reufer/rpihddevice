@@ -155,16 +155,16 @@ private:
 	static void OnEndOfStream(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleEndOfStream(); }
 
-	static void OnStreamStart(void *data)
-		{ (static_cast <cOmxDevice*> (data))->HandleStreamStart(); }
+	static void OnStreamStart(void *data, const cVideoFrameFormat *format)
+		{ (static_cast <cOmxDevice*> (data))->HandleStreamStart(format); }
 
 	static void OnVideoSetupChanged(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleVideoSetupChanged(); }
 
-	void HandleBufferStall();
-	void HandleEndOfStream();
-	void HandleStreamStart();
-	void HandleVideoSetupChanged();
+	void HandleBufferStall(void);
+	void HandleEndOfStream(void);
+	void HandleStreamStart(const cVideoFrameFormat *format);
+	void HandleVideoSetupChanged(void);
 
 	void ApplyTrickSpeed(int trickSpeed, bool forward);
 	void PtsTracker(int64_t ptsDiff);

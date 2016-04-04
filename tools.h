@@ -196,6 +196,27 @@ public:
 	}
 };
 
+class cDeinterlacerMode
+{
+public:
+
+	enum eMode {
+		eDisabled,
+		eFast,
+		eAdvanced
+	};
+
+	static const char* Str(eMode mode) {
+		return 	(mode == eDisabled) ? "disabled" :
+				(mode == eFast)     ? "fast"     :
+				(mode == eAdvanced) ? "advanced" : "unknown";
+	}
+
+	static const bool Active(eMode mode) {
+		return mode != eDisabled;
+	}
+};
+
 class cVideoFrameFormat
 {
 public:

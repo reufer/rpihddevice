@@ -198,6 +198,7 @@ void cOmx::Action(void)
 	{
 		while (cOmxEvents::Event* event = m_portEvents->Get())
 		{
+			Lock();
 			switch (event->event)
 			{
 			case cOmxEvents::ePortSettingsChanged:
@@ -223,7 +224,7 @@ void cOmx::Action(void)
 			default:
 				break;
 			}
-
+			Unlock();
 			delete event;
 		}
 		cCondWait::SleepMs(10);
@@ -316,76 +317,32 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eVideoDecoder]), OMX_IndexConfigCommonInterlace,
 				&interlace) != OMX_ErrorNone)
 			ELOG("failed to get video decoder interlace config!");
-
-		m_videoFrameFormat.width = portdef.format.video.nFrameWidth;
-		m_videoFrameFormat.height = portdef.format.video.nFrameHeight;
-		m_videoFrameFormat.pixelWidth = pixelAspect.nX;
-		m_videoFrameFormat.pixelHeight = pixelAspect.nY;
-		m_videoFrameFormat.scanMode =
-				interlace.eMode == OMX_InterlaceProgressive ? cScanMode::eProgressive :
-				interlace.eMode == OMX_InterlaceFieldSingleUpperFirst ? cScanMode::eTopFieldFirst :
-				interlace.eMode == OMX_InterlaceFieldSingleLowerFirst ? cScanMode::eBottomFieldFirst :
-				interlace.eMode == OMX_InterlaceFieldsInterleavedUpperFirst ? cScanMode::eTopFieldFirst :
-				interlace.eMode == OMX_InterlaceFieldsInterleavedLowerFirst ? cScanMode::eBottomFieldFirst :
-						cScanMode::eProgressive;
-
-		// discard 4 least significant bits, since there might be some deviation
-		// due to jitter in time stamps
-		m_videoFrameFormat.frameRate = ALIGN_UP(
-				portdef.format.video.xFramerate & 0xfffffff0, 1 << 16) >> 16;
-
-		// workaround for progressive streams detected as interlaced video by
-		// the decoder due to missing SEI parsing
-		// see: https://github.com/raspberrypi/firmware/issues/283
-		// update: with FW from 2015/01/18 this is not necessary anymore
-		if (m_videoFrameFormat.Interlaced() && m_videoFrameFormat.frameRate >= 50)
 		{
-			DLOG("%di looks implausible, you should use a recent firmware...",
-					m_videoFrameFormat.frameRate * 2);
-			//m_videoFormat.interlaced = false;
+			cScanMode::eMode scanMode =
+					interlace.eMode == OMX_InterlaceProgressive ? cScanMode::eProgressive :
+					interlace.eMode == OMX_InterlaceFieldSingleUpperFirst ? cScanMode::eTopFieldFirst :
+					interlace.eMode == OMX_InterlaceFieldSingleLowerFirst ? cScanMode::eBottomFieldFirst :
+					interlace.eMode == OMX_InterlaceFieldsInterleavedUpperFirst ? cScanMode::eTopFieldFirst :
+					interlace.eMode == OMX_InterlaceFieldsInterleavedLowerFirst ? cScanMode::eBottomFieldFirst :
+							cScanMode::eProgressive;
+
+			// discard 4 least significant bits, since there might be some deviation
+			// due to jitter in time stamps
+			int frameRate = ALIGN_UP(
+					portdef.format.video.xFramerate & 0xfffffff0, 1 << 16) >> 16;
+
+			if (cScanMode::Interlaced(scanMode))
+				frameRate = frameRate * 2;
+
+			// pass frame format to decoder, which will notify device instance
+			// where display configuration might be changed and deinterlacer
+			// configured accordingly
+			if (m_onStreamStart)
+				m_onStreamStart(m_onStreamStartData,
+						portdef.format.video.nFrameWidth,
+						portdef.format.video.nFrameHeight,
+						frameRate, scanMode, pixelAspect.nX, pixelAspect.nY);
 		}
-
-		if (m_videoFrameFormat.Interlaced())
-			m_videoFrameFormat.frameRate = m_videoFrameFormat.frameRate * 2;
-
-		if (m_onStreamStart)
-			m_onStreamStart(m_onStreamStartData);
-
-		OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
-		OMX_INIT_STRUCT(filterparam);
-		filterparam.nPortIndex = 191;
-		filterparam.eImageFilter = OMX_ImageFilterNone;
-
-		OMX_PARAM_U32TYPE extraBuffers;
-		OMX_INIT_STRUCT(extraBuffers);
-		extraBuffers.nPortIndex = 130;
-
-		if (cRpiDisplay::IsProgressive() && m_videoFrameFormat.Interlaced())
-		{
-			bool fastDeinterlace = portdef.format.video.nFrameWidth *
-					portdef.format.video.nFrameHeight > 576 * 720;
-			fastDeinterlace = true;
-
-			filterparam.nNumParams = 4;
-			filterparam.nParams[0] = 3;
-			filterparam.nParams[1] = 0; // default frame interval
-			filterparam.nParams[2] = 0; // half framerate
-			filterparam.nParams[3] = 1; // use qpus
-
-			filterparam.eImageFilter = fastDeinterlace ?
-					OMX_ImageFilterDeInterlaceFast :
-					OMX_ImageFilterDeInterlaceAdvanced;
-
-			if (fastDeinterlace)
-				extraBuffers.nU32 = -2;
-		}
-		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoFx]),
-				OMX_IndexConfigCommonImageFilterParameters, &filterparam) != OMX_ErrorNone)
-			ELOG("failed to set deinterlacing paramaters!");
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoFx]),
-				OMX_IndexParamBrcmExtraBuffers, &extraBuffers) != OMX_ErrorNone)
-			ELOG("failed to set video fx extra buffers!");
 
 		if (ilclient_setup_tunnel(&m_tun[eVideoDecoderToVideoFx], 0, 0) != 0)
 			ELOG("failed to setup up tunnel from video decoder to fx!");
@@ -463,11 +420,6 @@ cOmx::cOmx() :
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
-
-	m_videoFrameFormat.width = 0;
-	m_videoFrameFormat.height = 0;
-	m_videoFrameFormat.frameRate = 0;
-	m_videoFrameFormat.scanMode = cScanMode::eProgressive;
 }
 
 cOmx::~cOmx()
@@ -585,20 +537,27 @@ int cOmx::DeInit(void)
 
 void cOmx::SetBufferStallCallback(void (*onBufferStall)(void*), void* data)
 {
+	Lock();
 	m_onBufferStall = onBufferStall;
 	m_onBufferStallData = data;
+	Unlock();
 }
 
 void cOmx::SetEndOfStreamCallback(void (*onEndOfStream)(void*), void* data)
 {
+	Lock();
 	m_onEndOfStream = onEndOfStream;
 	m_onEndOfStreamData = data;
+	Unlock();
 }
 
-void cOmx::SetStreamStartCallback(void (*onStreamStart)(void*), void* data)
+void cOmx::SetStreamStartCallback(void (*onStreamStart)(
+		void*, int, int, int, cScanMode::eMode, int, int), void* data)
 {
+	Lock();
 	m_onStreamStart = onStreamStart;
 	m_onStreamStartData = data;
+	Unlock();
 }
 
 OMX_TICKS cOmx::ToOmxTicks(int64_t val)
@@ -894,11 +853,6 @@ void cOmx::StopVideo(void)
 	m_spareVideoBuffers = 0;
 	m_handlePortEvents = false;
 
-	m_videoFrameFormat.width = 0;
-	m_videoFrameFormat.height = 0;
-	m_videoFrameFormat.frameRate = 0;
-	m_videoFrameFormat.scanMode = cScanMode::eProgressive;
-
 	// put video decoder into idle
 	ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
 
@@ -1041,6 +995,45 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 	m_handlePortEvents = true;
 
 	Unlock();
+	return 0;
+}
+
+int cOmx::SetupDeinterlacer(cDeinterlacerMode::eMode mode)
+{
+	OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
+	OMX_INIT_STRUCT(filterparam);
+	filterparam.nPortIndex = 191;
+	filterparam.eImageFilter = OMX_ImageFilterNone;
+
+	OMX_PARAM_U32TYPE extraBuffers;
+	OMX_INIT_STRUCT(extraBuffers);
+	extraBuffers.nPortIndex = 130;
+
+	if (cDeinterlacerMode::Active(mode))
+	{
+		mode = cDeinterlacerMode::eFast;
+
+		filterparam.nNumParams = 4;
+		filterparam.nParams[0] = 3;
+		filterparam.nParams[1] = 0; // default frame interval
+		filterparam.nParams[2] = 0; // half framerate
+		filterparam.nParams[3] = 1; // use qpus
+
+		filterparam.eImageFilter = mode == cDeinterlacerMode::eFast ?
+				OMX_ImageFilterDeInterlaceFast :
+				OMX_ImageFilterDeInterlaceAdvanced;
+
+		if (mode == cDeinterlacerMode::eFast)
+			extraBuffers.nU32 = -2;
+	}
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoFx]),
+			OMX_IndexConfigCommonImageFilterParameters, &filterparam) != OMX_ErrorNone)
+		ELOG("failed to set deinterlacing paramaters!");
+
+	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoFx]),
+			OMX_IndexParamBrcmExtraBuffers, &extraBuffers) != OMX_ErrorNone)
+		ELOG("failed to set video fx extra buffers!");
+
 	return 0;
 }
 

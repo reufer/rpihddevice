@@ -19,6 +19,7 @@
 
 #include "video.h"
 #include "tools.h"
+#include "display.h"
 #include "omx.h"
 
 #include <vdr/tools.h>
@@ -31,26 +32,42 @@ const unsigned char cRpiVideoDecoder::s_h264EndOfSequence[8] = {
 		0x00, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x01, 0x0b
 };
 
-cRpiVideoDecoder::cRpiVideoDecoder(cVideoCodec::eCodec codec) :
-	m_codec(codec)
-{ }
+cRpiVideoDecoder::cRpiVideoDecoder(cVideoCodec::eCodec codec,
+		void (*onStreamStart)(void*, const cVideoFrameFormat *format),
+		void* onStreamStartData) :
+	m_codec(codec),
+	m_format(),
+	m_onStreamStart(onStreamStart),
+	m_onStreamStartData(onStreamStartData)
+{
+	m_format.width = 0;
+	m_format.height = 0;
+	m_format.frameRate = 0;
+	m_format.scanMode = cScanMode::eProgressive;
+	m_format.pixelWidth = 0;
+	m_format.pixelHeight = 0;
+}
 
 cRpiVideoDecoder::~cRpiVideoDecoder()
 { }
 
 /* ------------------------------------------------------------------------- */
 
-cRpiOmxVideoDecoder::cRpiOmxVideoDecoder(cOmx *omx, cVideoCodec::eCodec codec) :
-	cRpiVideoDecoder(codec),
+cRpiOmxVideoDecoder::cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
+		void (*onStreamStart)(void*, const cVideoFrameFormat *format),
+		void* onStreamStartData) :
+	cRpiVideoDecoder(codec, onStreamStart, onStreamStartData),
 	m_omx(omx)
 {
 	DLOG("new OMX %s video codec", cVideoCodec::Str(codec));
 	m_omx->SetVideoCodec(codec);
+	m_omx->SetStreamStartCallback(OnStreamStart, this);
 }
 
 cRpiOmxVideoDecoder::~cRpiOmxVideoDecoder()
 {
 	Clear(true);
+	m_omx->SetStreamStartCallback(0, 0);
 	m_omx->StopVideo();
 }
 
@@ -108,6 +125,30 @@ void cRpiOmxVideoDecoder::Flush(void)
 void cRpiOmxVideoDecoder::Clear(bool flushVideoRender)
 {
 	m_omx->FlushVideo(flushVideoRender);
+}
+
+void cRpiOmxVideoDecoder::HandleStreamStart(int width, int height,
+		int frameRate, cScanMode::eMode scanMode,
+		int pixelWidth, int pixelHeight)
+{
+	m_format.width = width;
+	m_format.height = height;
+	m_format.frameRate = frameRate;
+	m_format.scanMode = scanMode;
+	m_format.pixelWidth = pixelWidth;
+	m_format.pixelHeight = pixelHeight;
+
+	// forward to device instance
+	if (m_onStreamStart)
+		m_onStreamStart(m_onStreamStartData, &m_format);
+
+	// if necessary, setup deinterlacer
+	m_omx->SetupDeinterlacer(
+			cRpiDisplay::IsProgressive() && m_format.Interlaced() ? (
+					m_format.width * m_format.height > 576 * 720 ?
+							cDeinterlacerMode::eFast :
+							cDeinterlacerMode::eAdvanced) :
+					cDeinterlacerMode::eDisabled);
 }
 
 /* ------------------------------------------------------------------------- */

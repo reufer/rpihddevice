@@ -31,7 +31,8 @@ class cRpiVideoDecoder
 
 public:
 
-	cRpiVideoDecoder(cVideoCodec::eCodec codec);
+	cRpiVideoDecoder(cVideoCodec::eCodec codec, void (*onStreamStart)(
+			void*, const cVideoFrameFormat *format), void* onStreamStartData);
 	virtual ~cRpiVideoDecoder();
 
 	cVideoCodec::eCodec GetCodec(void) { return m_codec; };
@@ -43,12 +44,18 @@ public:
 	virtual void Clear(bool flushVideoRender = false) { };
 	virtual void Flush(void) { };
 
+	const cVideoFrameFormat *GetFrameFormat(void) { return &m_format; }
+
 protected:
 
 	static const unsigned char s_mpeg2EndOfSequence[4];
 	static const unsigned char s_h264EndOfSequence[8];
 
 	cVideoCodec::eCodec m_codec;
+	cVideoFrameFormat   m_format;
+
+	void (*m_onStreamStart)(void*, const cVideoFrameFormat *format);
+	void *m_onStreamStartData;
 
 };
 
@@ -57,7 +64,9 @@ class cRpiOmxVideoDecoder : public cRpiVideoDecoder
 
 public:
 
-	cRpiOmxVideoDecoder(cOmx *omx, cVideoCodec::eCodec codec);
+	cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
+			void (*onStreamStart)(void*, const cVideoFrameFormat *format),
+			void* onStreamStartData);
 	virtual ~cRpiOmxVideoDecoder();
 
 	virtual bool WriteData(const unsigned char *data,
@@ -68,6 +77,14 @@ public:
 	virtual void Flush(void);
 
 protected:
+
+	void HandleStreamStart(int width, int height, int frameRate,
+			cScanMode::eMode scanMode, int pixelWidth, int pixelHeight);
+
+	static void OnStreamStart(void *data, int width, int height, int frameRate,
+			cScanMode::eMode scanMode, int pixelWidth, int pixelHeight)
+		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleStreamStart(
+				width, height, frameRate, scanMode, pixelWidth, pixelHeight); }
 
 	cOmx *m_omx;
 

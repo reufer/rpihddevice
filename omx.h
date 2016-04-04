@@ -44,7 +44,8 @@ public:
 
 	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
 	void SetEndOfStreamCallback(void (*onEndOfStream)(void*), void* data);
-	void SetStreamStartCallback(void (*onStreamStart)(void*), void* data);
+	void SetStreamStartCallback(void (*onStreamStart)(void*,
+			int, int, int, cScanMode::eMode, int, int), void* data);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -90,13 +91,10 @@ public:
 	void FlushVideo(bool flushRender = false);
 
 	int SetVideoCodec(cVideoCodec::eCodec codec);
+	int SetupDeinterlacer(cDeinterlacerMode::eMode mode);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cRpiAudioPort::ePort audioPort,
 			int samplingRate = 0, int frameSize = 0);
-
-	const cVideoFrameFormat *GetVideoFrameFormat(void) {
-		return &m_videoFrameFormat;
-	}
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetPixelAspectRatio(int width, int height);
@@ -147,8 +145,6 @@ private:
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
-	cVideoFrameFormat m_videoFrameFormat;
-
 	bool m_setAudioStartTime;
 	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
@@ -173,7 +169,7 @@ private:
 	void (*m_onEndOfStream)(void*);
 	void *m_onEndOfStreamData;
 
-	void (*m_onStreamStart)(void*);
+	void (*m_onStreamStart)(void*, int, int, int, cScanMode::eMode, int, int);
 	void *m_onStreamStartData;
 
 	void HandlePortBufferEmptied(eOmxComponent component);

@@ -100,7 +100,6 @@ int cOmxDevice::Init(void)
 	}
 	m_omx->SetBufferStallCallback(&OnBufferStall, this);
 	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
-	m_omx->SetStreamStartCallback(&OnStreamStart, this);
 
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
 
@@ -136,8 +135,11 @@ void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 
 void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 {
-	Height = m_omx->GetVideoFrameFormat()->height;
-	Width = m_omx->GetVideoFrameFormat()->width;
+	if (m_video)
+	{
+		Height = m_video->GetFrameFormat()->height;
+		Width = m_video->GetFrameFormat()->width;
+	}
 
 	if (Height)
 		VideoAspect = (double)Width / Height;
@@ -353,7 +355,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			pts != OMX_INVALID_PTS)
 	{
 		if (cRpiSetup::IsVideoCodecSupported(codec))
-			m_video = new cRpiOmxVideoDecoder(m_omx, codec);
+			m_video = new cRpiOmxVideoDecoder(codec, m_omx, &OnStreamStart, this);
 		else
 			Skins.QueueMessage(mtError, tr("video format not supported!"));
 	}
@@ -618,7 +620,7 @@ void cOmxDevice::AdjustLiveSpeed(void)
 	}
 }
 
-void cOmxDevice::HandleBufferStall()
+void cOmxDevice::HandleBufferStall(void)
 {
 	ELOG("buffer stall!");
 	m_mutex->Lock();
@@ -628,7 +630,7 @@ void cOmxDevice::HandleBufferStall()
 	m_mutex->Unlock();
 }
 
-void cOmxDevice::HandleEndOfStream()
+void cOmxDevice::HandleEndOfStream(void)
 {
 	DBG("HandleEndOfStream()");
 	m_mutex->Lock();
@@ -641,11 +643,10 @@ void cOmxDevice::HandleEndOfStream()
 	m_mutex->Unlock();
 }
 
-void cOmxDevice::HandleStreamStart()
+void cOmxDevice::HandleStreamStart(const cVideoFrameFormat *format)
 {
 	DBG("HandleStreamStart()");
 
-	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
 	DLOG("video stream started %dx%d@%d%s PAR(%d:%d)",
 			format->width, format->height, format->frameRate,
 			format->Interlaced() ? "i" : "p",
@@ -674,7 +675,8 @@ void cOmxDevice::HandleVideoSetupChanged()
 		break;
 	}
 
-	cRpiDisplay::SetVideoFormat(m_omx->GetVideoFrameFormat());
+	if (m_video)
+		cRpiDisplay::SetVideoFormat(m_video->GetFrameFormat());
 }
 
 void cOmxDevice::SetVolumeDevice(int Volume)
