@@ -26,6 +26,7 @@
 
 class cOmx;
 class cRpiAudioDecoder;
+class cRpiVideoDecoder;
 class cMutex;
 
 class cOmxDevice : cDevice
@@ -142,8 +143,6 @@ protected:
 	static const int s_liveSpeeds[eNumLiveSpeeds];
 
 	static const uchar s_pesVideoHeader[14];
-	static const uchar s_mpeg2EndOfSequence[4];
-	static const uchar s_h264EndOfSequence[8];
 
 private:
 
@@ -167,9 +166,6 @@ private:
 	void HandleStreamStart();
 	void HandleVideoSetupChanged();
 
-	void FlushStreams(bool flushVideoRender = false);
-	bool SubmitEOS(void);
-
 	void ApplyTrickSpeed(int trickSpeed, bool forward);
 	void PtsTracker(int64_t ptsDiff);
 
@@ -177,15 +173,14 @@ private:
 
 	cOmx			 *m_omx;
 	cRpiAudioDecoder *m_audio;
+	cRpiVideoDecoder *m_video;
 	cMutex			 *m_mutex;
 	cTimeMs 		 *m_timer;
 
-	cVideoCodec::eCodec	m_videoCodec;
-
-	ePlayMode           m_playMode;
-	eLiveSpeed          m_liveSpeed;
-	ePlaybackSpeed      m_playbackSpeed;
-	eDirection          m_direction;
+	ePlayMode         m_playMode;
+	eLiveSpeed        m_liveSpeed;
+	ePlaybackSpeed    m_playbackSpeed;
+	eDirection        m_direction;
 
 	bool	m_hasVideo;
 	bool	m_hasAudio;

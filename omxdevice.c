@@ -20,6 +20,7 @@
 #include "omxdevice.h"
 #include "omx.h"
 #include "audio.h"
+#include "video.h"
 #include "display.h"
 #include "setup.h"
 
@@ -50,17 +51,14 @@ const uchar cOmxDevice::s_pesVideoHeader[14] = {
 	0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x80, 0x80, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-const uchar cOmxDevice::s_mpeg2EndOfSequence[4]  = { 0x00, 0x00, 0x01, 0xb7 };
-const uchar cOmxDevice::s_h264EndOfSequence[8] = { 0x00, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x01, 0x0b };
-
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
 	m_omx(new cOmx()),
 	m_audio(new cRpiAudioDecoder(m_omx)),
+	m_video(0),
 	m_mutex(new cMutex()),
 	m_timer(new cTimeMs()),
-	m_videoCodec(cVideoCodec::eInvalid),
 	m_playMode(pmNone),
 	m_liveSpeed(eNoCorrection),
 	m_playbackSpeed(eNormal),
@@ -175,11 +173,9 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
-		FlushStreams(true);
-		m_omx->StopVideo();
-		m_hasAudio = false;
-		m_hasVideo = false;
-		m_videoCodec = cVideoCodec::eInvalid;
+		Clear();
+		delete m_video;
+		m_video = 0;
 		m_playMode = pmNone;
 		break;
 
@@ -253,7 +249,9 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		if (pesPacket)
 			free(pesPacket);
 
-		SubmitEOS();
+		if (m_video)
+			m_video->Flush();
+
 		m_mutex->Unlock();
 	}
 }
@@ -351,24 +349,16 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 	int64_t pts = PesHasPts(Data) && codec != cVideoCodec::eInvalid ?
 			PesGetPts(Data) : OMX_INVALID_PTS;
 
-	if (!m_hasVideo && pts != OMX_INVALID_PTS &&
-			m_videoCodec == cVideoCodec::eInvalid)
+	if (!m_hasVideo && !m_video && codec != cVideoCodec::eInvalid &&
+			pts != OMX_INVALID_PTS)
 	{
-		if (codec != cVideoCodec::eInvalid)
-		{
-			m_videoCodec = codec;
-			if (cRpiSetup::IsVideoCodecSupported(m_videoCodec))
-			{
-				m_omx->SetVideoCodec(m_videoCodec);
-				DLOG("set video codec to %s", cVideoCodec::Str(m_videoCodec));
-			}
-			else
-				Skins.QueueMessage(mtError, tr("video format not supported!"));
-		}
+		if (cRpiSetup::IsVideoCodecSupported(codec))
+			m_video = new cRpiOmxVideoDecoder(m_omx, codec);
+		else
+			Skins.QueueMessage(mtError, tr("video format not supported!"));
 	}
 
-	if (!m_hasVideo && pts != OMX_INVALID_PTS &&
-			cRpiSetup::IsVideoCodecSupported(m_videoCodec))
+	if (!m_hasVideo && m_video && pts != OMX_INVALID_PTS)
 	{
 		m_hasVideo = true;
 		if (!m_hasAudio)
@@ -387,7 +377,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		}
 	}
 
-	if (m_hasVideo)
+	if (m_hasVideo && m_video)
 	{
 		if (pts != OMX_INVALID_PTS)
 		{
@@ -399,38 +389,15 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 				PtsTracker(ptsDiff);
 		}
 
-		// skip PES header, proceed with payload towards OMX
-		Length -= PesPayloadOffset(Data);
-		Data += PesPayloadOffset(Data);
+		int length = Length - PesPayloadOffset(Data);
 
-		while (Length > 0)
+		// ignore packets with invalid payload offset
+		if (length > 0)
 		{
-			if (OMX_BUFFERHEADERTYPE *buf =	m_omx->GetVideoBuffer(
-					pts != OMX_INVALID_PTS ? m_videoPts : OMX_INVALID_PTS))
-			{
-				buf->nFilledLen = buf->nAllocLen < (unsigned)Length ?
-						buf->nAllocLen : Length;
-
-				memcpy(buf->pBuffer, Data, buf->nFilledLen);
-				Length -= buf->nFilledLen;
-				Data += buf->nFilledLen;
-
-				if (EndOfFrame && !Length)
-					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
-
-				if (!m_omx->EmptyVideoBuffer(buf))
-				{
-					ret = 0;
-					ELOG("failed to pass buffer to video decoder!");
-					break;
-				}
-			}
-			else
-			{
+			const uchar *data = Data + PesPayloadOffset(Data);
+			if (!m_video->WriteData(data, length, pts != OMX_INVALID_PTS ?
+					m_videoPts : OMX_INVALID_PTS, EndOfFrame))
 				ret = 0;
-				break;
-			}
-			pts = OMX_INVALID_PTS;
 		}
 	}
 	m_mutex->Unlock();
@@ -442,21 +409,6 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		AdjustLiveSpeed();
 
 	return ret;
-}
-
-bool cOmxDevice::SubmitEOS(void)
-{
-	DBG("SubmitEOS()");
-	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(0);
-	if (buf)
-	{
-		buf->nFlags = OMX_BUFFERFLAG_EOS | OMX_BUFFERFLAG_ENDOFFRAME;
-		buf->nFilledLen = m_videoCodec == cVideoCodec::eMPEG2 ?
-				sizeof(s_mpeg2EndOfSequence) : sizeof(s_h264EndOfSequence);
-		memcpy(buf->pBuffer, m_videoCodec == cVideoCodec::eMPEG2 ?
-				s_mpeg2EndOfSequence : s_h264EndOfSequence, buf->nFilledLen);
-	}
-	return m_omx->EmptyVideoBuffer(buf);
 }
 
 int64_t cOmxDevice::GetSTC(void)
@@ -520,7 +472,16 @@ void cOmxDevice::Clear(void)
 	DBG("Clear()");
 	m_mutex->Lock();
 
-	FlushStreams();
+	m_omx->StopClock();
+
+	if (m_hasVideo && m_video)
+		m_video->Clear();
+
+	if (m_hasAudio)
+		m_audio->Reset();
+
+	m_omx->ResetClock();
+
 	m_hasAudio = false;
 	m_hasVideo = false;
 
@@ -662,12 +623,7 @@ void cOmxDevice::HandleBufferStall()
 	ELOG("buffer stall!");
 	m_mutex->Lock();
 
-	FlushStreams(true);
-	m_omx->StopVideo();
-
-	m_hasAudio = false;
-	m_hasVideo = false;
-	m_videoCodec = cVideoCodec::eInvalid;
+	Clear();
 
 	m_mutex->Unlock();
 }
@@ -677,8 +633,8 @@ void cOmxDevice::HandleEndOfStream()
 	DBG("HandleEndOfStream()");
 	m_mutex->Lock();
 
-	// flush pipes and restart clock after still image
-	FlushStreams();
+	m_omx->StopClock();
+	m_omx->ResetClock();
 	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
 
@@ -721,20 +677,6 @@ void cOmxDevice::HandleVideoSetupChanged()
 	cRpiDisplay::SetVideoFormat(m_omx->GetVideoFrameFormat());
 }
 
-void cOmxDevice::FlushStreams(bool flushVideoRender)
-{
-	DBG("FlushStreams(%s)", flushVideoRender ? "flushVideoRender" : "");
-	m_omx->StopClock();
-
-	if (m_hasVideo)
-		m_omx->FlushVideo(flushVideoRender);
-
-	if (m_hasAudio)
-		m_audio->Reset();
-
-	m_omx->ResetClock();
-}
-
 void cOmxDevice::SetVolumeDevice(int Volume)
 {
 	DBG("SetVolume(%d)", Volume);
@@ -750,7 +692,7 @@ void cOmxDevice::SetVolumeDevice(int Volume)
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 {
 	cTimeMs timer(TimeoutMs);
-	while (!m_omx->PollVideo() || !m_audio->Poll())
+	while (!(m_video && m_video->Poll()) || !m_audio->Poll())
 	{
 		if (timer.TimedOut())
 			return false;
