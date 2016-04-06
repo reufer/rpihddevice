@@ -62,11 +62,13 @@ cRpiOmxVideoDecoder::cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
 	DLOG("new OMX %s video codec", cVideoCodec::Str(codec));
 	m_omx->SetVideoCodec(codec);
 	m_omx->SetStreamStartCallback(OnStreamStart, this);
+	m_omx->SetBufferStallCallback(OnBufferStall, this);
 }
 
 cRpiOmxVideoDecoder::~cRpiOmxVideoDecoder()
 {
 	Clear(true);
+	m_omx->SetBufferStallCallback(0, 0);
 	m_omx->SetStreamStartCallback(0, 0);
 	m_omx->StopVideo();
 }
@@ -149,6 +151,12 @@ void cRpiOmxVideoDecoder::HandleStreamStart(int width, int height,
 							cDeinterlacerMode::eFast :
 							cDeinterlacerMode::eAdvanced) :
 					cDeinterlacerMode::eDisabled);
+}
+
+void cRpiOmxVideoDecoder::HandleBufferStall(void)
+{
+	ILOG("Buffer stall!");
+	Clear();
 }
 
 /* ------------------------------------------------------------------------- */

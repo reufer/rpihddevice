@@ -149,9 +149,6 @@ private:
 	void (*m_onPrimaryDevice)(void);
 	virtual cVideoCodec::eCodec ParseVideoCodec(const uchar *data, int length);
 
-	static void OnBufferStall(void *data)
-		{ (static_cast <cOmxDevice*> (data))->HandleBufferStall(); }
-
 	static void OnEndOfStream(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleEndOfStream(); }
 
@@ -161,7 +158,6 @@ private:
 	static void OnVideoSetupChanged(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleVideoSetupChanged(); }
 
-	void HandleBufferStall(void);
 	void HandleEndOfStream(void);
 	void HandleStreamStart(const cVideoFrameFormat *format);
 	void HandleVideoSetupChanged(void);

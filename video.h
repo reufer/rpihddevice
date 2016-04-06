@@ -86,6 +86,14 @@ protected:
 		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleStreamStart(
 				width, height, frameRate, scanMode, pixelWidth, pixelHeight); }
 
+	void HandleBufferStall(void);
+
+	static void OnBufferStall(void *data)
+		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleBufferStall(); }
+
+	void (*m_onBufferStall)(void*);
+	void *m_onBufferStallData;
+
 	cOmx *m_omx;
 
 private:

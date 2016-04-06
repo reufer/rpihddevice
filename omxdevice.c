@@ -98,11 +98,8 @@ int cOmxDevice::Init(void)
 		ELOG("failed to initialize audio!");
 		return -1;
 	}
-	m_omx->SetBufferStallCallback(&OnBufferStall, this);
 	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
-
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
-
 	return 0;
 }
 
@@ -618,16 +615,6 @@ void cOmxDevice::AdjustLiveSpeed(void)
 		m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
 		m_timer->Set(1000);
 	}
-}
-
-void cOmxDevice::HandleBufferStall(void)
-{
-	ELOG("buffer stall!");
-	m_mutex->Lock();
-
-	Clear();
-
-	m_mutex->Unlock();
 }
 
 void cOmxDevice::HandleEndOfStream(void)
