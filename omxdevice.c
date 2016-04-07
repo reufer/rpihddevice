@@ -98,7 +98,6 @@ int cOmxDevice::Init(void)
 		ELOG("failed to initialize audio!");
 		return -1;
 	}
-	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
 	return 0;
 }
@@ -352,7 +351,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			pts != OMX_INVALID_PTS)
 	{
 		if (cRpiSetup::IsVideoCodecSupported(codec))
-			m_video = new cRpiOmxVideoDecoder(codec, m_omx, &OnStreamStart, this);
+			m_video = new cRpiOmxVideoDecoder(codec, m_omx,
+					&OnStreamStart, &OnEndOfStream, this);
 		else
 			Skins.QueueMessage(mtError, tr("video format not supported!"));
 	}

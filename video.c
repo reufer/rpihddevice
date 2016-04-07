@@ -34,11 +34,12 @@ const unsigned char cRpiVideoDecoder::s_h264EndOfSequence[8] = {
 
 cRpiVideoDecoder::cRpiVideoDecoder(cVideoCodec::eCodec codec,
 		void (*onStreamStart)(void*, const cVideoFrameFormat *format),
-		void* onStreamStartData) :
+		void (*onEndOfStream)(void*), void* callbackData) :
 	m_codec(codec),
 	m_format(),
 	m_onStreamStart(onStreamStart),
-	m_onStreamStartData(onStreamStartData)
+	m_onEndOfStream(onEndOfStream),
+	m_callbackData(callbackData)
 {
 	m_format.width = 0;
 	m_format.height = 0;
@@ -51,17 +52,30 @@ cRpiVideoDecoder::cRpiVideoDecoder(cVideoCodec::eCodec codec,
 cRpiVideoDecoder::~cRpiVideoDecoder()
 { }
 
+void cRpiVideoDecoder::NotifyStreamStart(void)
+{
+	if (m_onStreamStart)
+		m_onStreamStart(m_callbackData, &m_format);
+}
+
+void cRpiVideoDecoder::NotifyEndOfStream(void)
+{
+	if (m_onEndOfStream)
+		m_onEndOfStream(m_callbackData);
+}
+
 /* ------------------------------------------------------------------------- */
 
 cRpiOmxVideoDecoder::cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
 		void (*onStreamStart)(void*, const cVideoFrameFormat *format),
-		void* onStreamStartData) :
-	cRpiVideoDecoder(codec, onStreamStart, onStreamStartData),
+		void (*onEndOfStream)(void*), void* callbackData) :
+	cRpiVideoDecoder(codec, onStreamStart, onEndOfStream, callbackData),
 	m_omx(omx)
 {
 	DLOG("new OMX %s video codec", cVideoCodec::Str(codec));
 	m_omx->SetVideoCodec(codec);
 	m_omx->SetStreamStartCallback(OnStreamStart, this);
+	m_omx->SetEndOfStreamCallback(OnEndOfStream, this);
 	m_omx->SetBufferStallCallback(OnBufferStall, this);
 }
 
@@ -69,6 +83,7 @@ cRpiOmxVideoDecoder::~cRpiOmxVideoDecoder()
 {
 	Clear(true);
 	m_omx->SetBufferStallCallback(0, 0);
+	m_omx->SetEndOfStreamCallback(0, 0);
 	m_omx->SetStreamStartCallback(0, 0);
 	m_omx->StopVideo();
 }
@@ -141,8 +156,7 @@ void cRpiOmxVideoDecoder::HandleStreamStart(int width, int height,
 	m_format.pixelHeight = pixelHeight;
 
 	// forward to device instance
-	if (m_onStreamStart)
-		m_onStreamStart(m_onStreamStartData, &m_format);
+	NotifyStreamStart();
 
 	// if necessary, setup deinterlacer
 	m_omx->SetupDeinterlacer(

@@ -31,8 +31,9 @@ class cRpiVideoDecoder
 
 public:
 
-	cRpiVideoDecoder(cVideoCodec::eCodec codec, void (*onStreamStart)(
-			void*, const cVideoFrameFormat *format), void* onStreamStartData);
+	cRpiVideoDecoder(cVideoCodec::eCodec codec,
+			void (*onStreamStart)(void*, const cVideoFrameFormat *format),
+			void (*onEndOfStream)(void*), void* callbackData);
 	virtual ~cRpiVideoDecoder();
 
 	cVideoCodec::eCodec GetCodec(void) { return m_codec; };
@@ -54,8 +55,12 @@ protected:
 	cVideoCodec::eCodec m_codec;
 	cVideoFrameFormat   m_format;
 
+	void NotifyStreamStart(void);
+	void NotifyEndOfStream(void);
+
 	void (*m_onStreamStart)(void*, const cVideoFrameFormat *format);
-	void *m_onStreamStartData;
+	void (*m_onEndOfStream)(void*);
+	void *m_callbackData;
 
 };
 
@@ -66,7 +71,7 @@ public:
 
 	cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
 			void (*onStreamStart)(void*, const cVideoFrameFormat *format),
-			void* onStreamStartData);
+			void (*onEndOfStream)(void*), void* callbackData);
 	virtual ~cRpiOmxVideoDecoder();
 
 	virtual bool WriteData(const unsigned char *data,
@@ -86,8 +91,10 @@ protected:
 		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleStreamStart(
 				width, height, frameRate, scanMode, pixelWidth, pixelHeight); }
 
-	void HandleBufferStall(void);
+	static void OnEndOfStream(void *data)
+		{ (static_cast <cRpiOmxVideoDecoder*> (data))->NotifyEndOfStream(); }
 
+	void HandleBufferStall(void);
 	static void OnBufferStall(void *data)
 		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleBufferStall(); }
 
