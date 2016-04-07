@@ -147,7 +147,7 @@ protected:
 private:
 
 	void (*m_onPrimaryDevice)(void);
-	virtual cVideoCodec::eCodec ParseVideoCodec(const uchar *data, int length);
+	cVideoCodec::eCodec GetVideoCodec(void);
 
 	static void OnEndOfStream(void *data)
 		{ (static_cast <cOmxDevice*> (data))->HandleEndOfStream(); }

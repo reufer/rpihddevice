@@ -150,13 +150,15 @@ public:
 	enum eCodec {
 		eMPEG2,
 		eH264,
+		eH265,
 		eNumCodecs,
 		eInvalid
 	};
 
 	static const char* Str(eCodec codec) {
 		return  (codec == eMPEG2) ? "MPEG2" :
-				(codec == eH264)  ? "H264"  : "unknown";
+				(codec == eH264)  ? "H.264" :
+				(codec == eH265)  ? "H.265" : "unknown";
 	}
 };
 

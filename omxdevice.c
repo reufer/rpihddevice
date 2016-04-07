@@ -203,11 +203,10 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		int pesLength = 0;
 		uchar *pesPacket = 0;
 
-		cVideoCodec::eCodec codec = ParseVideoCodec(Data, Length);
-		if (codec != cVideoCodec::eInvalid)
+		// some plugins deliver raw MPEG data, but PlayVideo() needs a
+		// complete PES packet with valid header
+		if ((Data[3] & 0xf0) != 0xe0)
 		{
-			// some plugins deliver raw MPEG data, but PlayVideo() needs a
-			// complete PES packet with valid header
 			pesLength = Length + sizeof(s_pesVideoHeader);
 			pesPacket = MALLOC(uchar, pesLength);
 			if (!pesPacket)
@@ -216,12 +215,6 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 			memcpy(pesPacket, s_pesVideoHeader, sizeof(s_pesVideoHeader));
 			memcpy(pesPacket + sizeof(s_pesVideoHeader), Data, Length);
 		}
-		else
-			codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
-					Length - PesPayloadOffset(Data));
-
-		if (codec == cVideoCodec::eInvalid)
-			return;
 
 		m_mutex->Lock();
 		m_playbackSpeed = eNormal;
@@ -341,8 +334,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 	m_mutex->Lock();
 	int ret = Length;
 
-	cVideoCodec::eCodec codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
-			Length - PesPayloadOffset(Data));
+	cVideoCodec::eCodec codec = GetVideoCodec();
 
 	int64_t pts = PesHasPts(Data) && codec != cVideoCodec::eInvalid ?
 			PesGetPts(Data) : OMX_INVALID_PTS;
@@ -697,39 +689,22 @@ void cOmxDevice::MakePrimaryDevice(bool On)
 	cDevice::MakePrimaryDevice(On);
 }
 
-cVideoCodec::eCodec cOmxDevice::ParseVideoCodec(const uchar *data, int length)
+cVideoCodec::eCodec cOmxDevice::GetVideoCodec(void)
 {
-	const uchar *p = data;
-
-	for (int i = 0; (i < 5) && (i + 4 < length); i++)
+	switch (PatPmtParser()->Vtype())
 	{
-		// find start code prefix - should be right at the beginning of payload
-		if ((!p[i] && !p[i + 1] && p[i + 2] == 0x01))
-		{
-			if (p[i + 3] == 0xb3)		// sequence header
-				return cVideoCodec::eMPEG2;
+	case 0x01:
+	case 0x02:
+		return cVideoCodec::eMPEG2;
 
-			//p[i + 3] = 0xf0
-			else if (p[i + 3] == 0x09)	// slice
-			{
-				// quick hack for converted mkvs
-				if (p[i + 4] == 0xf0)
-					return cVideoCodec::eH264;
+	case 0x1b:
+		return cVideoCodec::eH264;
 
-				switch (p[i + 4] >> 5)
-				{
-				case 0: case 3: case 5: // I frame
-					return cVideoCodec::eH264;
+	case 0x24:
+		return cVideoCodec::eH265;
 
-				case 2: case 7:			// B frame
-				case 1: case 4: case 6:	// P frame
-				default:
-//					return cVideoCodec::eInvalid;
-					return cVideoCodec::eH264;
-				}
-			}
-			return cVideoCodec::eInvalid;
-		}
+	// assume MPEG2 for non-TS streams
+	default:
+		return cVideoCodec::eMPEG2;
 	}
-	return cVideoCodec::eInvalid;
 }
