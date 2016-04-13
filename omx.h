@@ -21,16 +21,27 @@
 #define OMX_H
 
 #include <vdr/thread.h>
+#include <vdr/tools.h>
 #include "tools.h"
 
-extern "C"
-{
+extern "C" {
 #include "ilclient.h"
 }
 
 #define OMX_INVALID_PTS -1
 
+#define OMX_INIT_STRUCT(a) \
+	memset(&(a), 0, sizeof(a)); \
+	(a).nSize = sizeof(a); \
+	(a).nVersion.s.nVersionMajor = OMX_VERSION_MAJOR; \
+	(a).nVersion.s.nVersionMinor = OMX_VERSION_MINOR; \
+	(a).nVersion.s.nRevision = OMX_VERSION_REVISION; \
+	(a).nVersion.s.nStep = OMX_VERSION_STEP
+
 class cOmxEvents;
+class cOmxEventHandler;
+
+/* ------------------------------------------------------------------------- */
 
 class cOmx : public cThread
 {
@@ -42,10 +53,34 @@ public:
 	int Init(int display, int layer);
 	int DeInit(void);
 
-	void SetBufferStallCallback(void (*onBufferStall)(void*), void* data);
-	void SetEndOfStreamCallback(void (*onEndOfStream)(void*), void* data);
-	void SetStreamStartCallback(void (*onStreamStart)(void*,
-			int, int, int, cScanMode::eMode, int, int), void* data);
+	void AddEventHandler(cOmxEventHandler *handler);
+	void RemoveEventHandler(cOmxEventHandler *handler);
+
+	enum eOmxComponent {
+		eClock = 0,
+		eVideoDecoder,
+		eVideoFx,
+		eVideoScheduler,
+		eVideoRender,
+		eAudioRender,
+		eNumComponents,
+		eInvalidComponent
+	};
+
+	bool ChangeState(eOmxComponent comp, OMX_STATETYPE state);
+	bool GetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param);
+	bool GetConfig(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR config);
+
+	enum eOmxTunnel {
+		eVideoDecoderToVideoFx = 0,
+		eVideoFxToVideoScheduler,
+		eVideoSchedulerToVideoRender,
+		eClockToVideoScheduler,
+		eClockToAudioRender,
+		eNumTunnels
+	};
+
+	bool SetupTunnel(eOmxTunnel tunnel, int timeout = 0);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -121,26 +156,6 @@ private:
 	static void DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix = "");
 #endif
 
-	enum eOmxComponent {
-		eClock = 0,
-		eVideoDecoder,
-		eVideoFx,
-		eVideoScheduler,
-		eVideoRender,
-		eAudioRender,
-		eNumComponents,
-		eInvalidComponent
-	};
-
-	enum eOmxTunnel {
-		eVideoDecoderToVideoFx = 0,
-		eVideoFxToVideoScheduler,
-		eVideoSchedulerToVideoRender,
-		eClockToVideoScheduler,
-		eClockToAudioRender,
-		eNumTunnels
-	};
-
 	ILCLIENT_T 	*m_client;
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
@@ -163,14 +178,7 @@ private:
 	cOmxEvents *m_portEvents;
 	bool m_handlePortEvents;
 
-	void (*m_onBufferStall)(void*);
-	void *m_onBufferStallData;
-
-	void (*m_onEndOfStream)(void*);
-	void *m_onEndOfStreamData;
-
-	void (*m_onStreamStart)(void*, int, int, int, cScanMode::eMode, int, int);
-	void *m_onStreamStartData;
+	cList<cOmxEventHandler> *m_eventHandlers;
 
 	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);
@@ -183,6 +191,20 @@ private:
 	static void OnError(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
 
+};
+
+/* ------------------------------------------------------------------------- */
+
+class cOmxEventHandler : public cListObject
+{
+
+public:
+
+	virtual void Tick(void) { };
+	virtual void PortSettingsChanged(int port) { };
+	virtual void EndOfStreamReceived(int port) { };
+	virtual void BufferEmptied(cOmx::eOmxComponent comp) { };
+	virtual void BufferStalled(void) { };
 };
 
 #endif

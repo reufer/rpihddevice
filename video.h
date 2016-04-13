@@ -23,8 +23,7 @@
 #include <vdr/thread.h>
 
 #include "tools.h"
-
-class cOmx;
+#include "omx.h"
 
 class cRpiVideoDecoder
 {
@@ -64,7 +63,9 @@ protected:
 
 };
 
-class cRpiOmxVideoDecoder : public cRpiVideoDecoder
+/* ------------------------------------------------------------------------- */
+
+class cRpiOmxVideoDecoder : public cRpiVideoDecoder, protected cOmxEventHandler
 {
 
 public:
@@ -83,23 +84,10 @@ public:
 
 protected:
 
-	void HandleStreamStart(int width, int height, int frameRate,
-			cScanMode::eMode scanMode, int pixelWidth, int pixelHeight);
-
-	static void OnStreamStart(void *data, int width, int height, int frameRate,
-			cScanMode::eMode scanMode, int pixelWidth, int pixelHeight)
-		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleStreamStart(
-				width, height, frameRate, scanMode, pixelWidth, pixelHeight); }
-
-	static void OnEndOfStream(void *data)
-		{ (static_cast <cRpiOmxVideoDecoder*> (data))->NotifyEndOfStream(); }
-
-	void HandleBufferStall(void);
-	static void OnBufferStall(void *data)
-		{ (static_cast <cRpiOmxVideoDecoder*> (data))->HandleBufferStall(); }
-
-	void (*m_onBufferStall)(void*);
-	void *m_onBufferStallData;
+	virtual void PortSettingsChanged(int port);
+	virtual void EndOfStreamReceived(int port);
+	virtual void BufferEmptied(cOmx::eOmxComponent comp);
+	virtual void BufferStalled(void);
 
 	cOmx *m_omx;
 
