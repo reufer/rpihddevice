@@ -328,7 +328,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 {
 	// prevent writing incomplete frames
-	if (m_hasVideo && !m_omx->PollVideo())
+	if (m_hasVideo && m_video && !m_video->Poll())
 		return 0;
 
 	m_mutex->Lock();
@@ -615,7 +615,12 @@ void cOmxDevice::HandleEndOfStream(void)
 	m_mutex->Lock();
 
 	m_omx->StopClock();
+
+	if (m_hasVideo && m_video)
+		m_video->Clear();
+
 	m_omx->ResetClock();
+
 	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 	m_omx->StartClock(m_hasVideo, m_hasAudio);
 

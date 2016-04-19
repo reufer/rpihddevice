@@ -33,10 +33,6 @@ extern "C" {
 
 #define OMX_PRE_ROLL 0
 
-// default: 20x 81920 bytes, now 128x 64k (8M)
-#define OMX_VIDEO_BUFFERS 128
-#define OMX_VIDEO_BUFFERSIZE KILOBYTE(64);
-
 // default: 16x 4096 bytes, now 128x 16k (2M)
 #define OMX_AUDIO_BUFFERS 128
 #define OMX_AUDIO_BUFFERSIZE KILOBYTE(16);
@@ -194,8 +190,7 @@ void cOmx::Action(void)
 			switch (event->event)
 			{
 			case cOmxEvents::ePortSettingsChanged:
-				if (m_handlePortEvents)
-					HandlePortSettingsChanged(event->data);
+				HandlePortSettingsChanged(event->data);
 
 				for (cOmxEventHandler *handler = m_eventHandlers->First();
 						handler; handler = m_eventHandlers->Next(handler))
@@ -250,22 +245,14 @@ void cOmx::Action(void)
 	}
 }
 
-bool cOmx::PollVideo(void)
-{
-	return (m_usedVideoBuffers[0] * 100 / OMX_VIDEO_BUFFERS) < 90;
-}
-
 void cOmx::GetBufferUsage(int &audio, int &video)
 {
 	audio = 0;
-	video = 0;
 	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
 	{
 		audio += m_usedAudioBuffers[i];
-		video += m_usedVideoBuffers[i];
 	}
 	audio = audio * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
-	video = video * 100 / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
@@ -297,16 +284,16 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 	switch (portId)
 	{
 	case 191:
-		if (ilclient_setup_tunnel(&m_tun[eVideoFxToVideoScheduler], 0, 0) != 0)
+		if (!SetupTunnel(eVideoFxToVideoScheduler))
 			ELOG("failed to setup up tunnel from video fx to scheduler!");
-		if (ilclient_change_component_state(m_comp[eVideoScheduler], OMX_StateExecuting) != 0)
+		if (!ChangeComponentState(eVideoScheduler, OMX_StateExecuting))
 			ELOG("failed to enable video scheduler!");
 		break;
 
 	case 11:
-		if (ilclient_setup_tunnel(&m_tun[eVideoSchedulerToVideoRender], 0, 0) != 0)
+		if (!SetupTunnel(eVideoSchedulerToVideoRender))
 			ELOG("failed to setup up tunnel from scheduler to render!");
-		if (ilclient_change_component_state(m_comp[eVideoRender], OMX_StateExecuting) != 0)
+		if (!ChangeComponentState(eVideoRender, OMX_StateExecuting))
 			ELOG("failed to enable video render!");
 		break;
 	}
@@ -355,14 +342,10 @@ cOmx::cOmx() :
 	cThread(),
 	m_client(NULL),
 	m_setAudioStartTime(false),
-	m_setVideoStartTime(false),
-	m_setVideoDiscontinuity(false),
 	m_spareAudioBuffers(0),
-	m_spareVideoBuffers(0),
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
 	m_portEvents(new cOmxEvents()),
-	m_handlePortEvents(false),
 	m_eventHandlers(new cList<cOmxEventHandler>)
 {
 	memset(m_tun, 0, sizeof(m_tun));
@@ -390,72 +373,41 @@ int cOmx::Init(int display, int layer)
 	ilclient_set_eos_callback(m_client, OnEndOfStream, this);
 	ilclient_set_configchanged_callback(m_client, OnConfigChanged, this);
 
-	// create video_decode
-	if (ilclient_create_component(m_client, &m_comp[eVideoDecoder],
-		"video_decode",	(ILCLIENT_CREATE_FLAGS_T)
-		(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
-		ELOG("failed creating video decoder!");
-
-	// create image_fx
-	if (ilclient_create_component(m_client, &m_comp[eVideoFx],
-		"image_fx",	ILCLIENT_DISABLE_ALL_PORTS) != 0)
-		ELOG("failed creating video fx!");
-
 	// create video_render
-	if (ilclient_create_component(m_client, &m_comp[eVideoRender],
-		"video_render",	ILCLIENT_DISABLE_ALL_PORTS) != 0)
+	if (!CreateComponent(eVideoRender))
 		ELOG("failed creating video render!");
 
 	//create clock
-	if (ilclient_create_component(m_client, &m_comp[eClock],
-		"clock", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+	if (!CreateComponent(eClock))
 		ELOG("failed creating clock!");
 
 	// create audio_render
-	if (ilclient_create_component(m_client, &m_comp[eAudioRender],
-		"audio_render",	(ILCLIENT_CREATE_FLAGS_T)
-		(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
+	if (!CreateComponent(eAudioRender, true))
 		ELOG("failed creating audio render!");
 
 	//create video_scheduler
-	if (ilclient_create_component(m_client, &m_comp[eVideoScheduler],
-		"video_scheduler", ILCLIENT_DISABLE_ALL_PORTS) != 0)
+	if (!CreateComponent(eVideoScheduler))
 		ELOG("failed creating video scheduler!");
 
-	// setup tunnels
-	set_tunnel(&m_tun[eVideoDecoderToVideoFx],
-		m_comp[eVideoDecoder], 131, m_comp[eVideoFx], 190);
-
-	set_tunnel(&m_tun[eVideoFxToVideoScheduler],
-		m_comp[eVideoFx], 191, m_comp[eVideoScheduler], 10);
-
-	set_tunnel(&m_tun[eVideoSchedulerToVideoRender],
-		m_comp[eVideoScheduler], 11, m_comp[eVideoRender], 90);
-
-	set_tunnel(&m_tun[eClockToVideoScheduler],
-		m_comp[eClock], 80, m_comp[eVideoScheduler], 12);
-
-	set_tunnel(&m_tun[eClockToAudioRender],
-		m_comp[eClock], 81, m_comp[eAudioRender], 101);
+	// set tunnels
+	SetTunnel(eVideoSchedulerToVideoRender, eVideoScheduler, 11, eVideoRender, 90);
+	SetTunnel(eClockToVideoScheduler, eClock, 80, eVideoScheduler, 12);
+	SetTunnel(eClockToAudioRender, eClock, 81, eAudioRender, 101);
 
 	// setup clock tunnels first
-	if (ilclient_setup_tunnel(&m_tun[eClockToVideoScheduler], 0, 0) != 0)
+	if (!SetupTunnel(eClockToVideoScheduler))
 		ELOG("failed to setup up tunnel from clock to video scheduler!");
 
-	if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
+	if (!SetupTunnel(eClockToAudioRender))
 		ELOG("failed to setup up tunnel from clock to audio render!");
 
-	ilclient_change_component_state(m_comp[eClock], OMX_StateExecuting);
-	ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
-	ilclient_change_component_state(m_comp[eVideoFx], OMX_StateIdle);
-	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
+	ChangeComponentState(eClock, OMX_StateExecuting);
+	ChangeComponentState(eAudioRender, OMX_StateIdle);
 
 	SetDisplay(display, layer);
 	SetClockLatencyTarget();
-	SetBufferStallThreshold(20000);
 	SetClockReference(cOmx::eClockRefVideo);
 
-	FlushVideo();
 	FlushAudio();
 
 	Start();
@@ -468,31 +420,104 @@ int cOmx::DeInit(void)
 	Cancel(-1);
 	m_portEvents->Add(0);
 
-	for (int i = 0; i < eNumTunnels; i++)
-		ilclient_disable_tunnel(&m_tun[i]);
+	DisableTunnel(eClockToAudioRender);
 
-	ilclient_teardown_tunnels(m_tun);
-	ilclient_state_transition(m_comp, OMX_StateIdle);
-	ilclient_state_transition(m_comp, OMX_StateLoaded);
-	ilclient_cleanup_components(m_comp);
+	ChangeComponentState(eClock, OMX_StateIdle);
+	ChangeComponentState(eAudioRender, OMX_StateIdle);
+
+	CleanupComponent(eClock);
+	CleanupComponent(eAudioRender);
+	CleanupComponent(eVideoScheduler);
+	CleanupComponent(eVideoRender);
 
 	OMX_Deinit();
-
 	ilclient_destroy(m_client);
-
 	return 0;
 }
 
-bool cOmx::ChangeState(eOmxComponent comp, OMX_STATETYPE state)
+bool cOmx::CreateComponent(eOmxComponent comp, bool enableInputBuffers)
+{
+	return (comp >= 0 && comp < eNumComponents &&
+			!ilclient_create_component(m_client, &m_comp[comp],
+					comp == eClock          ? "clock"           :
+					comp == eVideoDecoder   ? "video_decode"    :
+					comp == eVideoFx        ? "image_fx"        :
+					comp == eVideoScheduler ? "video_scheduler" :
+					comp == eVideoRender    ? "video_render"    :
+					comp == eAudioRender    ? "audio_render"    : "",
+					(ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS |
+					(enableInputBuffers ? ILCLIENT_ENABLE_INPUT_BUFFERS : 0))));
+}
+
+void cOmx::CleanupComponent(eOmxComponent comp)
+{
+	if (comp >= 0 && comp < eNumComponents)
+	{
+		COMPONENT_T *c[2] = { m_comp[comp], 0 };
+		ilclient_cleanup_components(c);
+	}
+}
+
+bool cOmx::ChangeComponentState(eOmxComponent comp, OMX_STATETYPE state)
 {
 	return comp >= 0 && comp < eNumComponents &&
 			!ilclient_change_component_state(m_comp[comp], state);
+}
+
+bool cOmx::FlushComponent(eOmxComponent comp, int port)
+{
+	if (comp >= 0 && comp < eNumComponents)
+	{
+		if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[comp]), OMX_CommandFlush,
+				port, NULL) == OMX_ErrorNone)
+		{
+			ilclient_wait_for_event(m_comp[comp], OMX_EventCmdComplete,
+				OMX_CommandFlush, 0, port, 0, ILCLIENT_PORT_FLUSH,
+				VCOS_EVENT_FLAGS_SUSPEND);
+
+			return true;
+		}
+	}
+	return false;
+}
+
+bool cOmx::EnablePortBuffers(eOmxComponent comp, int port)
+{
+	return comp >= 0 && comp < eNumComponents &&
+			!ilclient_enable_port_buffers(m_comp[comp], port, NULL, NULL, NULL);
+}
+
+void cOmx::DisablePortBuffers(eOmxComponent comp, int port,
+		OMX_BUFFERHEADERTYPE *buffers)
+{
+	if (comp >= 0 && comp < eNumComponents)
+		ilclient_disable_port_buffers(m_comp[comp], port, buffers, NULL, NULL);
+}
+
+OMX_BUFFERHEADERTYPE* cOmx::GetBuffer(eOmxComponent comp, int port)
+{
+	return (comp >= 0 && comp < eNumComponents) ?
+			ilclient_get_input_buffer(m_comp[comp], port, 0) : 0;
+}
+
+bool cOmx::EmptyBuffer(eOmxComponent comp, OMX_BUFFERHEADERTYPE *buf)
+{
+	return buf && comp >= 0 && comp < eNumComponents &&
+			(OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[comp]), buf)
+				== OMX_ErrorNone);
 }
 
 bool cOmx::GetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param)
 {
 	return param && comp >= 0 && comp < eNumComponents &&
 			(OMX_GetParameter(ILC_GET_HANDLE(m_comp[comp]), index, param)
+					== OMX_ErrorNone);
+}
+
+bool cOmx::SetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param)
+{
+	return param && comp >= 0 && comp < eNumComponents &&
+			(OMX_SetParameter(ILC_GET_HANDLE(m_comp[comp]), index, param)
 					== OMX_ErrorNone);
 }
 
@@ -503,10 +528,47 @@ bool cOmx::GetConfig(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR config)
 					== OMX_ErrorNone);
 }
 
+bool cOmx::SetConfig(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR config)
+{
+	return config && comp >= 0 && comp < eNumComponents &&
+			(OMX_SetConfig(ILC_GET_HANDLE(m_comp[comp]), index, config)
+					== OMX_ErrorNone);
+}
+
+void cOmx::SetTunnel(eOmxTunnel tunnel, eOmxComponent srcComp, int srcPort,
+		eOmxComponent dstComp, int dstPort)
+{
+	if (tunnel >= 0 && tunnel < eNumTunnels && srcComp >= 0 && srcComp
+			< eNumComponents && dstComp >= 0 && dstComp < eNumComponents)
+		set_tunnel(&m_tun[tunnel],
+			m_comp[srcComp], srcPort, m_comp[dstComp], dstPort);
+}
+
 bool cOmx::SetupTunnel(eOmxTunnel tunnel, int timeout)
 {
 	return tunnel >= 0 && tunnel < eNumTunnels &&
 			!ilclient_setup_tunnel(&m_tun[tunnel], 0, timeout);
+}
+
+void cOmx::DisableTunnel(eOmxTunnel tunnel)
+{
+	if (tunnel >= 0 && tunnel < eNumTunnels)
+		ilclient_disable_tunnel(&m_tun[tunnel]);
+}
+
+void cOmx::TeardownTunnel(eOmxTunnel tunnel)
+{
+	if (tunnel >= 0 && tunnel < eNumTunnels)
+	{
+		TUNNEL_T t[2] = { m_tun[tunnel], 0 };
+		ilclient_teardown_tunnels(t);
+	}
+}
+
+void cOmx::FlushTunnel(eOmxTunnel tunnel)
+{
+	if (tunnel >= 0 && tunnel < eNumTunnels)
+		ilclient_flush_tunnels(&m_tun[tunnel], 1);
 }
 
 void cOmx::AddEventHandler(cOmxEventHandler *handler)
@@ -600,7 +662,6 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 	if (waitForVideo)
 	{
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		m_setVideoStartTime = true;
 		cstate.nWaitMask |= OMX_CLOCKPORT0;
 	}
 	if (waitForAudio)
@@ -744,30 +805,6 @@ void cOmx::SetClockLatencyTarget(void)
 		ELOG("failed set video render latency target!");
 }
 
-void cOmx::SetBufferStallThreshold(int delayMs)
-{
-	if (delayMs > 0)
-	{
-		OMX_CONFIG_BUFFERSTALLTYPE stallConf;
-		OMX_INIT_STRUCT(stallConf);
-		stallConf.nPortIndex = 131;
-		stallConf.nDelay = delayMs * 1000;
-		if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-				OMX_IndexConfigBufferStall, &stallConf) != OMX_ErrorNone)
-			ELOG("failed to set video decoder stall config!");
-	}
-
-	// set buffer stall call back
-	OMX_CONFIG_REQUESTCALLBACKTYPE reqCallback;
-	OMX_INIT_STRUCT(reqCallback);
-	reqCallback.nPortIndex = 131;
-	reqCallback.nIndex = OMX_IndexConfigBufferStall;
-	reqCallback.bEnable = delayMs > 0 ? OMX_TRUE : OMX_FALSE;
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexConfigRequestCallback, &reqCallback) != OMX_ErrorNone)
-		ELOG("failed to set video decoder stall call back!");
-}
-
 bool cOmx::IsBufferStall(void)
 {
 	OMX_CONFIG_BUFFERSTALLTYPE stallConf;
@@ -805,40 +842,6 @@ void cOmx::SetMute(bool mute)
 		ELOG("failed to set mute state!");
 }
 
-void cOmx::StopVideo(void)
-{
-	Lock();
-
-	// disable port buffers and allow video decoder to reconfig
-	ilclient_disable_port_buffers(m_comp[eVideoDecoder], 130,
-			m_spareVideoBuffers, NULL, NULL);
-
-	m_spareVideoBuffers = 0;
-	m_handlePortEvents = false;
-
-	// put video decoder into idle
-	ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle);
-
-	// put video fx into idle
-	ilclient_flush_tunnels(&m_tun[eVideoDecoderToVideoFx], 1);
-	ilclient_disable_tunnel(&m_tun[eVideoDecoderToVideoFx]);
-	ilclient_change_component_state(m_comp[eVideoFx], OMX_StateIdle);
-
-	// put video scheduler into idle
-	ilclient_flush_tunnels(&m_tun[eVideoFxToVideoScheduler], 1);
-	ilclient_disable_tunnel(&m_tun[eVideoFxToVideoScheduler]);
-	ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
-	ilclient_disable_tunnel(&m_tun[eClockToVideoScheduler]);
-	ilclient_change_component_state(m_comp[eVideoScheduler], OMX_StateIdle);
-
-	// put video render into idle
-	ilclient_flush_tunnels(&m_tun[eVideoSchedulerToVideoRender], 1);
-	ilclient_disable_tunnel(&m_tun[eVideoSchedulerToVideoRender]);
-	ilclient_change_component_state(m_comp[eVideoRender], OMX_StateIdle);
-
-	Unlock();
-}
-
 void cOmx::StopAudio(void)
 {
 	Lock();
@@ -854,16 +857,6 @@ void cOmx::StopAudio(void)
 	Unlock();
 }
 
-void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
-{
-	OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE ectype;
-	OMX_INIT_STRUCT(ectype);
-	ectype.bStartWithValidFrame = startWithValidFrame ? OMX_TRUE : OMX_FALSE;
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamBrcmVideoDecodeErrorConcealment, &ectype) != OMX_ErrorNone)
-		ELOG("failed to set video decode error concealment failed\n");
-}
-
 void cOmx::FlushAudio(void)
 {
 	Lock();
@@ -877,137 +870,6 @@ void cOmx::FlushAudio(void)
 
 	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
 	Unlock();
-}
-
-void cOmx::FlushVideo(bool flushRender)
-{
-	Lock();
-	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eVideoDecoder]), OMX_CommandFlush, 130, NULL) != OMX_ErrorNone)
-		ELOG("failed to flush video decoder!");
-
-	ilclient_wait_for_event(m_comp[eVideoDecoder], OMX_EventCmdComplete,
-		OMX_CommandFlush, 0, 130, 0, ILCLIENT_PORT_FLUSH,
-		VCOS_EVENT_FLAGS_SUSPEND);
-
-	ilclient_flush_tunnels(&m_tun[eVideoDecoderToVideoFx], 1);
-	ilclient_flush_tunnels(&m_tun[eVideoFxToVideoScheduler], 1);
-
-	if (flushRender)
-		ilclient_flush_tunnels(&m_tun[eVideoSchedulerToVideoRender], 1);
-
-	ilclient_flush_tunnels(&m_tun[eClockToVideoScheduler], 1);
-
-	m_setVideoDiscontinuity = true;
-	Unlock();
-}
-
-int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
-{
-	Lock();
-
-	if (ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateIdle) != 0)
-		ELOG("failed to set video decoder to idle state!");
-
-	// configure video decoder
-	OMX_VIDEO_PARAM_PORTFORMATTYPE videoFormat;
-	OMX_INIT_STRUCT(videoFormat);
-	videoFormat.nPortIndex = 130;
-	videoFormat.eCompressionFormat =
-			codec == cVideoCodec::eMPEG2 ? OMX_VIDEO_CodingMPEG2 :
-			codec == cVideoCodec::eH264  ? OMX_VIDEO_CodingAVC   :
-					OMX_VIDEO_CodingAutoDetect;
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamVideoPortFormat, &videoFormat) != OMX_ErrorNone)
-		ELOG("failed to set video decoder parameters!");
-
-	OMX_PARAM_PORTDEFINITIONTYPE param;
-	OMX_INIT_STRUCT(param);
-	param.nPortIndex = 130;
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to get video decoder port parameters!");
-
-	param.nBufferSize = OMX_VIDEO_BUFFERSIZE;
-	param.nBufferCountActual = OMX_VIDEO_BUFFERS;
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-		m_usedVideoBuffers[i] = 0;
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to set video decoder port parameters!");
-
-	// start with valid frames only if codec is MPEG2
-	// update: with FW from 2015/01/18 this is not necessary anymore
-	SetVideoErrorConcealment(true /*codec == cVideoCodec::eMPEG2*/);
-
-	// update: with FW from 2014/02/04 this is not necessary anymore
-	//SetVideoDecoderExtraBuffers(3);
-
-	if (ilclient_enable_port_buffers(m_comp[eVideoDecoder], 130, NULL, NULL, NULL) != 0)
-		ELOG("failed to enable port buffer on video decoder!");
-
-	if (ilclient_change_component_state(m_comp[eVideoDecoder], OMX_StateExecuting) != 0)
-		ELOG("failed to set video decoder to executing state!");
-
-	// setup clock tunnels first
-	if (ilclient_setup_tunnel(&m_tun[eClockToVideoScheduler], 0, 0) != 0)
-		ELOG("failed to setup up tunnel from clock to video scheduler!");
-
-	m_handlePortEvents = true;
-
-	Unlock();
-	return 0;
-}
-
-int cOmx::SetupDeinterlacer(cDeinterlacerMode::eMode mode)
-{
-	OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
-	OMX_INIT_STRUCT(filterparam);
-	filterparam.nPortIndex = 191;
-	filterparam.eImageFilter = OMX_ImageFilterNone;
-
-	OMX_PARAM_U32TYPE extraBuffers;
-	OMX_INIT_STRUCT(extraBuffers);
-	extraBuffers.nPortIndex = 130;
-
-	if (cDeinterlacerMode::Active(mode))
-	{
-		mode = cDeinterlacerMode::eFast;
-
-		filterparam.nNumParams = 4;
-		filterparam.nParams[0] = 3;
-		filterparam.nParams[1] = 0; // default frame interval
-		filterparam.nParams[2] = 0; // half framerate
-		filterparam.nParams[3] = 1; // use qpus
-
-		filterparam.eImageFilter = mode == cDeinterlacerMode::eFast ?
-				OMX_ImageFilterDeInterlaceFast :
-				OMX_ImageFilterDeInterlaceAdvanced;
-
-		if (mode == cDeinterlacerMode::eFast)
-			extraBuffers.nU32 = -2;
-	}
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoFx]),
-			OMX_IndexConfigCommonImageFilterParameters, &filterparam) != OMX_ErrorNone)
-		ELOG("failed to set deinterlacing paramaters!");
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoFx]),
-			OMX_IndexParamBrcmExtraBuffers, &extraBuffers) != OMX_ErrorNone)
-		ELOG("failed to set video fx extra buffers!");
-
-	return 0;
-}
-
-void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
-{
-	OMX_PARAM_U32TYPE u32;
-	OMX_INIT_STRUCT(u32);
-	u32.nPortIndex = 130;
-	u32.nU32 = extraBuffers;
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
-			OMX_IndexParamBrcmExtraBuffers, &u32) != OMX_ErrorNone)
-		ELOG("failed to set video decoder extra buffers!");
 }
 
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
@@ -1258,48 +1120,6 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(int64_t pts)
 	return buf;
 }
 
-OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(int64_t pts)
-{
-	Lock();
-	OMX_BUFFERHEADERTYPE* buf = 0;
-	if (m_spareVideoBuffers)
-	{
-		buf = m_spareVideoBuffers;
-		m_spareVideoBuffers =
-				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
-		buf->pAppPrivate = 0;
-	}
-	else
-	{
-		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
-		if (buf)
-			m_usedVideoBuffers[0]++;
-	}
-
-	if (buf)
-	{
-		buf->nFilledLen = 0;
-		buf->nOffset = 0;
-		buf->nFlags = 0;
-
-		if (pts == OMX_INVALID_PTS)
-			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
-		else if (m_setVideoStartTime)
-		{
-			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
-			m_setVideoStartTime = false;
-		}
-		if (m_setVideoDiscontinuity)
-		{
-			buf->nFlags |= OMX_BUFFERFLAG_DISCONTINUITY;
-			m_setVideoDiscontinuity = false;
-		}
-		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-	}
-	Unlock();
-	return buf;
-}
-
 #ifdef DEBUG_BUFFERS
 void cOmx::DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix)
 {
@@ -1346,40 +1166,9 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
 			m_setAudioStartTime = true;
 
-		if (buf->nFlags & OMX_BUFFERFLAG_DISCONTINUITY)
-			m_setVideoDiscontinuity = true;
-
 		buf->nFilledLen = 0;
 		buf->pAppPrivate = m_spareAudioBuffers;
 		m_spareAudioBuffers = buf;
-		ret = false;
-	}
-	Unlock();
-	return ret;
-}
-
-bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
-{
-	if (!buf)
-		return false;
-
-	Lock();
-	bool ret = true;
-#ifdef DEBUG_BUFFERS
-	DumpBuffer(buf, "V");
-#endif
-
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf)
-			!= OMX_ErrorNone)
-	{
-		ELOG("failed to empty OMX video buffer");
-
-		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
-			m_setVideoStartTime = true;
-
-		buf->nFilledLen = 0;
-		buf->pAppPrivate = m_spareVideoBuffers;
-		m_spareVideoBuffers = buf;
 		ret = false;
 	}
 	Unlock();

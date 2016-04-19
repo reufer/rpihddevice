@@ -46,6 +46,8 @@ public:
 
 	const cVideoFrameFormat *GetFrameFormat(void) { return &m_format; }
 
+	virtual int GetBufferUsage(void) { return 0; };
+
 protected:
 
 	static const unsigned char s_mpeg2EndOfSequence[4];
@@ -79,8 +81,10 @@ public:
 			unsigned int length, int64_t pts, bool eof);
 
 	virtual bool Poll(void);
-	virtual void Clear(bool flushVideoRender = false);
+	virtual void Clear(bool flushRender = false);
 	virtual void Flush(void);
+
+	virtual int GetBufferUsage(void);
 
 protected:
 
@@ -88,8 +92,20 @@ protected:
 	virtual void EndOfStreamReceived(int port);
 	virtual void BufferEmptied(cOmx::eOmxComponent comp);
 	virtual void BufferStalled(void);
+	virtual void Tick(void);
 
-	cOmx *m_omx;
+	OMX_BUFFERHEADERTYPE* GetBuffer(void);
+	bool EmptyBuffer(OMX_BUFFERHEADERTYPE *buf);
+
+	void SetupDeinterlacer(cDeinterlacerMode::eMode mode);
+
+	cMutex m_mutex;
+	cOmx  *m_omx;
+	int    m_usedBuffers[BUFFERSTAT_FILTER_SIZE];
+	bool   m_setDiscontinuity;
+	bool   m_setStartTime;
+
+	OMX_BUFFERHEADERTYPE *m_spareBuffers;
 
 private:
 

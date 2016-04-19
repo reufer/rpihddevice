@@ -70,22 +70,143 @@ void cRpiVideoDecoder::NotifyEndOfStream(void)
 
 /* ------------------------------------------------------------------------- */
 
+// default: 20x 81920 bytes, now 128x 64k (8M)
+#define OMX_VIDEO_BUFFERS 128
+#define OMX_VIDEO_BUFFERSIZE KILOBYTE(64);
+
+#define OMX_VIDEO_BUFFERSTALL_TIMEOUT_MS 20000
+
 cRpiOmxVideoDecoder::cRpiOmxVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
 		void (*onStreamStart)(void*, const cVideoFrameFormat *format),
 		void (*onEndOfStream)(void*), void* callbackData) :
 	cRpiVideoDecoder(codec, onStreamStart, onEndOfStream, callbackData),
 	cOmxEventHandler(),
-	m_omx(omx)
+	m_omx(omx),
+	m_setDiscontinuity(true),
+	m_setStartTime(true),
+	m_spareBuffers(0)
 {
 	ILOG("new OMX %s video codec", cVideoCodec::Str(codec));
+
+	// create video_decode
+	if (!m_omx->CreateComponent(cOmx::eVideoDecoder, true))
+		ELOG("failed creating video decoder!");
+
+	// create image_fx
+	if (!m_omx->CreateComponent(cOmx::eVideoFx))
+		ELOG("failed creating video fx!");
+
+	m_omx->SetTunnel(cOmx::eVideoDecoderToVideoFx,
+			cOmx::eVideoDecoder, 131, cOmx::eVideoFx, 190);
+
+	m_omx->SetTunnel(cOmx::eVideoFxToVideoScheduler,
+			cOmx::eVideoFx, 191, cOmx::eVideoScheduler, 10);
+
+	if (!m_omx->ChangeComponentState(cOmx::eVideoDecoder, OMX_StateIdle))
+		ELOG("failed to set video decoder to idle state!");
+
+	if (!m_omx->ChangeComponentState(cOmx::eVideoFx, OMX_StateIdle))
+		ELOG("failed to set video fx to idle state!");
+
+	OMX_CONFIG_BUFFERSTALLTYPE stallConf;
+	OMX_INIT_STRUCT(stallConf);
+	stallConf.nPortIndex = 131;
+	stallConf.nDelay = OMX_VIDEO_BUFFERSTALL_TIMEOUT_MS * 1000;
+	if (!m_omx->SetConfig(cOmx::eVideoDecoder,
+			OMX_IndexConfigBufferStall, &stallConf))
+		ELOG("failed to set video decoder stall config!");
+
+	// set buffer stall call back
+	OMX_CONFIG_REQUESTCALLBACKTYPE reqCallback;
+	OMX_INIT_STRUCT(reqCallback);
+	reqCallback.nPortIndex = 131;
+	reqCallback.nIndex = OMX_IndexConfigBufferStall;
+	reqCallback.bEnable = OMX_TRUE;
+	if (!m_omx->SetConfig(cOmx::eVideoDecoder,
+			OMX_IndexConfigRequestCallback, &reqCallback))
+		ELOG("failed to set video decoder stall call back!");
+
+	// configure video decoder
+	OMX_VIDEO_PARAM_PORTFORMATTYPE videoFormat;
+	OMX_INIT_STRUCT(videoFormat);
+	videoFormat.nPortIndex = 130;
+	videoFormat.eCompressionFormat =
+			codec == cVideoCodec::eMPEG2 ? OMX_VIDEO_CodingMPEG2 :
+			codec == cVideoCodec::eH264  ? OMX_VIDEO_CodingAVC   :
+					OMX_VIDEO_CodingAutoDetect;
+
+	if (!m_omx->SetParameter(cOmx::eVideoDecoder,
+			OMX_IndexParamVideoPortFormat, &videoFormat))
+		ELOG("failed to set video decoder parameters!");
+
+	OMX_PARAM_PORTDEFINITIONTYPE param;
+	OMX_INIT_STRUCT(param);
+	param.nPortIndex = 130;
+	if (!m_omx->GetParameter(cOmx::eVideoDecoder,
+			OMX_IndexParamPortDefinition, &param))
+		ELOG("failed to get video decoder port parameters!");
+
+	param.nBufferSize = OMX_VIDEO_BUFFERSIZE;
+	param.nBufferCountActual = OMX_VIDEO_BUFFERS;
+	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		m_usedBuffers[i] = 0;
+
+	if (!m_omx->SetParameter(cOmx::eVideoDecoder,
+			OMX_IndexParamPortDefinition, &param))
+		ELOG("failed to set video decoder port parameters!");
+
+	OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE ectype;
+	OMX_INIT_STRUCT(ectype);
+	ectype.bStartWithValidFrame = OMX_TRUE;
+	if (!m_omx->SetParameter(cOmx::eVideoDecoder,
+			OMX_IndexParamBrcmVideoDecodeErrorConcealment, &ectype))
+		ELOG("failed to set video decode error concealment failed!");
+
+	if (!m_omx->EnablePortBuffers(cOmx::eVideoDecoder, 130))
+		ELOG("failed to enable port buffer on video decoder!");
+
+	if (!m_omx->ChangeComponentState(cOmx::eVideoDecoder, OMX_StateExecuting))
+		ELOG("failed to set video decoder to executing state!");
+
+	// setup clock tunnels first
+	if (!m_omx->SetupTunnel(cOmx::eClockToVideoScheduler))
+		ELOG("failed to setup up tunnel from clock to video scheduler!");
+
 	m_omx->AddEventHandler(this);
-	m_omx->SetVideoCodec(codec);
 }
 
 cRpiOmxVideoDecoder::~cRpiOmxVideoDecoder()
 {
 	Clear(true);
-	m_omx->StopVideo();
+
+	// disable port buffers
+	m_omx->DisablePortBuffers(cOmx::eVideoDecoder, 130, m_spareBuffers);
+	m_spareBuffers = 0;
+
+	// put video decoder into idle
+	m_omx->ChangeComponentState(cOmx::eVideoDecoder, OMX_StateIdle);
+
+	// put video fx into idle
+	m_omx->FlushTunnel(cOmx::eVideoDecoderToVideoFx);
+	m_omx->DisableTunnel(cOmx::eVideoDecoderToVideoFx);
+	m_omx->ChangeComponentState(cOmx::eVideoFx, OMX_StateIdle);
+
+	// put video scheduler into idle
+	m_omx->FlushTunnel(cOmx::eVideoFxToVideoScheduler);
+	m_omx->DisableTunnel(cOmx::eVideoFxToVideoScheduler);
+	m_omx->FlushTunnel(cOmx::eClockToVideoScheduler);
+	m_omx->DisableTunnel(cOmx::eClockToVideoScheduler);
+	m_omx->ChangeComponentState(cOmx::eVideoScheduler, OMX_StateIdle);
+
+	// put video render into idle
+	m_omx->FlushTunnel(cOmx::eVideoSchedulerToVideoRender);
+	m_omx->DisableTunnel(cOmx::eVideoSchedulerToVideoRender);
+	m_omx->ChangeComponentState(cOmx::eVideoRender, OMX_StateIdle);
+
+	// clean up image_fx & decoder
+	m_omx->CleanupComponent(cOmx::eVideoFx);
+	m_omx->CleanupComponent(cOmx::eVideoDecoder);
+
 	m_omx->RemoveEventHandler(this);
 }
 
@@ -94,8 +215,22 @@ bool cRpiOmxVideoDecoder::WriteData(const unsigned char *data,
 {
 	while (length > 0)
 	{
-		if (OMX_BUFFERHEADERTYPE *buf =	m_omx->GetVideoBuffer(pts))
+		if (OMX_BUFFERHEADERTYPE *buf =	GetBuffer())
 		{
+			if (pts == OMX_INVALID_PTS)
+				buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+			else if (m_setStartTime)
+			{
+				buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+				m_setStartTime = false;
+			}
+			if (m_setDiscontinuity)
+			{
+				buf->nFlags |= OMX_BUFFERFLAG_DISCONTINUITY;
+				m_setDiscontinuity = false;
+			}
+			cOmx::PtsToTicks(pts, buf->nTimeStamp);
+
 			buf->nFilledLen = buf->nAllocLen < length ?	buf->nAllocLen : length;
 
 			memcpy(buf->pBuffer, data, buf->nFilledLen);
@@ -105,7 +240,7 @@ bool cRpiOmxVideoDecoder::WriteData(const unsigned char *data,
 			if (eof && !length)
 				buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
 
-			if (!m_omx->EmptyVideoBuffer(buf))
+			if (!EmptyBuffer(buf))
 			{
 				ELOG("failed to pass buffer to video decoder!");
 				return false;
@@ -121,28 +256,55 @@ bool cRpiOmxVideoDecoder::WriteData(const unsigned char *data,
 
 bool cRpiOmxVideoDecoder::Poll(void)
 {
-	return m_omx->PollVideo();
+	return (m_usedBuffers[0] * 100 / OMX_VIDEO_BUFFERS) < 90;
 }
 
 void cRpiOmxVideoDecoder::Flush(void)
 {
 	DBG("SubmitEOS()");
-	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(0);
+	OMX_BUFFERHEADERTYPE *buf = GetBuffer();
 	if (buf)
 	{
-		buf->nFlags = OMX_BUFFERFLAG_EOS | OMX_BUFFERFLAG_ENDOFFRAME;
+		cOmx::PtsToTicks(0, buf->nTimeStamp);
+		buf->nFlags = OMX_BUFFERFLAG_EOS | OMX_BUFFERFLAG_ENDOFFRAME |
+				OMX_BUFFERFLAG_TIME_UNKNOWN;
 		buf->nFilledLen = m_codec == cVideoCodec::eMPEG2 ?
 				sizeof(s_mpeg2EndOfSequence) : sizeof(s_h264EndOfSequence);
 		memcpy(buf->pBuffer, m_codec == cVideoCodec::eMPEG2 ?
 				s_mpeg2EndOfSequence : s_h264EndOfSequence, buf->nFilledLen);
 	}
-	if (!m_omx->EmptyVideoBuffer(buf))
+	if (!EmptyBuffer(buf))
 		ELOG("failed to submit EOS packet!");
 }
 
-void cRpiOmxVideoDecoder::Clear(bool flushVideoRender)
+int cRpiOmxVideoDecoder::GetBufferUsage(void)
 {
-	m_omx->FlushVideo(flushVideoRender);
+	int usage = 0;
+	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		usage += m_usedBuffers[i];
+
+	return usage * 100 / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS;
+}
+
+void cRpiOmxVideoDecoder::Clear(bool flushRender)
+{
+	if (!m_omx->FlushComponent(cOmx::eVideoDecoder, 130))
+		ELOG("failed to flush video decoder!");
+
+	m_omx->FlushTunnel(cOmx::eVideoDecoderToVideoFx);
+
+	if (!m_omx->FlushComponent(cOmx::eVideoFx, 190))
+		ELOG("failed to flush video fx!");
+
+	m_omx->FlushTunnel(cOmx::eVideoFxToVideoScheduler);
+
+	if (flushRender)
+		m_omx->FlushTunnel(cOmx::eVideoSchedulerToVideoRender);
+
+	m_omx->FlushTunnel(cOmx::eClockToVideoScheduler);
+
+	m_setDiscontinuity = true;
+	m_setStartTime = true;
 }
 
 void cRpiOmxVideoDecoder::PortSettingsChanged(int port)
@@ -194,7 +356,7 @@ void cRpiOmxVideoDecoder::PortSettingsChanged(int port)
 			NotifyStreamStart();
 
 			// if necessary, setup deinterlacer
-			m_omx->SetupDeinterlacer(
+			SetupDeinterlacer(
 					cRpiDisplay::IsProgressive() && m_format.Interlaced() ? (
 							m_format.width * m_format.height > 576 * 720 ?
 									cDeinterlacerMode::eFast :
@@ -204,7 +366,7 @@ void cRpiOmxVideoDecoder::PortSettingsChanged(int port)
 
 		if (!m_omx->SetupTunnel(cOmx::eVideoDecoderToVideoFx, 0))
 			ELOG("failed to setup up tunnel from video decoder to fx!");
-		if (!m_omx->ChangeState(cOmx::eVideoFx, OMX_StateExecuting))
+		if (!m_omx->ChangeComponentState(cOmx::eVideoFx, OMX_StateExecuting))
 			ELOG("failed to enable video fx!");
 
 		break;
@@ -219,13 +381,111 @@ void cRpiOmxVideoDecoder::EndOfStreamReceived(int port)
 
 void cRpiOmxVideoDecoder::BufferEmptied(cOmx::eOmxComponent comp)
 {
-
+	if (comp == cOmx::eVideoDecoder)
+	{
+		cMutexLock MutexLock(&m_mutex);
+		m_usedBuffers[0]--;
+	}
 }
 
 void cRpiOmxVideoDecoder::BufferStalled(void)
 {
 	ILOG("Buffer stall!");
 	Clear();
+}
+
+void cRpiOmxVideoDecoder::Tick(void)
+{
+	for (int i = BUFFERSTAT_FILTER_SIZE - 1; i > 0; i--)
+		m_usedBuffers[i] = m_usedBuffers[i - 1];
+}
+
+OMX_BUFFERHEADERTYPE* cRpiOmxVideoDecoder::GetBuffer(void)
+{
+	OMX_BUFFERHEADERTYPE* buf = 0;
+	cMutexLock MutexLock(&m_mutex);
+
+	if (m_spareBuffers)
+	{
+		buf = m_spareBuffers;
+		m_spareBuffers = static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
+		buf->pAppPrivate = 0;
+	}
+	else
+	{
+		buf = m_omx->GetBuffer(cOmx::eVideoDecoder, 130);
+		if (buf)
+			m_usedBuffers[0]++;
+	}
+
+	if (buf)
+	{
+		buf->nFilledLen = 0;
+		buf->nOffset = 0;
+		buf->nFlags = 0;
+	}
+	return buf;
+}
+
+bool cRpiOmxVideoDecoder::EmptyBuffer(OMX_BUFFERHEADERTYPE *buf)
+{
+	bool ret = true;
+
+#ifdef DEBUG_BUFFERS
+	cOmx::DumpBuffer(buf, "V");
+#endif
+
+	if (!m_omx->EmptyBuffer(cOmx::eVideoDecoder, buf))
+	{
+		ELOG("failed to empty OMX video buffer");
+		cMutexLock MutexLock(&m_mutex);
+
+		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
+			m_setStartTime = true;
+
+		buf->nFilledLen = 0;
+		buf->pAppPrivate = m_spareBuffers;
+		m_spareBuffers = buf;
+		ret = false;
+	}
+	return ret;
+}
+
+void cRpiOmxVideoDecoder::SetupDeinterlacer(cDeinterlacerMode::eMode mode)
+{
+	DBG("SetupDeinterlacer(%s)", cDeinterlacerMode::Str(mode));
+
+	OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
+	OMX_INIT_STRUCT(filterparam);
+	filterparam.nPortIndex = 191;
+	filterparam.eImageFilter = OMX_ImageFilterNone;
+
+	OMX_PARAM_U32TYPE extraBuffers;
+	OMX_INIT_STRUCT(extraBuffers);
+	extraBuffers.nPortIndex = 130;
+
+	if (cDeinterlacerMode::Active(mode))
+	{
+		filterparam.nNumParams = 4;
+		filterparam.nParams[0] = 3;
+		filterparam.nParams[1] = 0; // default frame interval
+		filterparam.nParams[2] = 0; // half framerate
+		filterparam.nParams[3] = 1; // use qpus
+
+		filterparam.eImageFilter = mode == cDeinterlacerMode::eFast ?
+				OMX_ImageFilterDeInterlaceFast :
+				OMX_ImageFilterDeInterlaceAdvanced;
+
+		if (mode == cDeinterlacerMode::eFast)
+			extraBuffers.nU32 = -2;
+	}
+	if (!m_omx->SetConfig(cOmx::eVideoFx,
+			OMX_IndexConfigCommonImageFilterParameters, &filterparam))
+		ELOG("failed to set deinterlacing paramaters!");
+
+	if (!m_omx->SetParameter(cOmx::eVideoFx,
+			OMX_IndexParamBrcmExtraBuffers, &extraBuffers))
+		ELOG("failed to set video fx extra buffers!");
 }
 
 /* ------------------------------------------------------------------------- */

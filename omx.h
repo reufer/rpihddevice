@@ -67,9 +67,23 @@ public:
 		eInvalidComponent
 	};
 
-	bool ChangeState(eOmxComponent comp, OMX_STATETYPE state);
+	bool CreateComponent(eOmxComponent comp, bool enableInputBuffers = false);
+	void CleanupComponent(eOmxComponent comp);
+	bool ChangeComponentState(eOmxComponent comp, OMX_STATETYPE state);
+	bool FlushComponent(eOmxComponent comp, int port);
+
+	bool EnablePortBuffers(eOmxComponent comp, int port);
+	void DisablePortBuffers(eOmxComponent comp, int port,
+			OMX_BUFFERHEADERTYPE *buffers = 0);
+
+	OMX_BUFFERHEADERTYPE* GetBuffer(eOmxComponent comp, int port);
+	bool EmptyBuffer(eOmxComponent comp, OMX_BUFFERHEADERTYPE *buf);
+
 	bool GetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param);
+	bool SetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param);
+
 	bool GetConfig(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR config);
+	bool SetConfig(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR config);
 
 	enum eOmxTunnel {
 		eVideoDecoderToVideoFx = 0,
@@ -80,7 +94,13 @@ public:
 		eNumTunnels
 	};
 
+	void SetTunnel(eOmxTunnel tunnel, eOmxComponent srcComp, int srcPort,
+			eOmxComponent dstComp, int dstPort);
+
 	bool SetupTunnel(eOmxTunnel tunnel, int timeout = 0);
+	void DisableTunnel(eOmxTunnel tunnel);
+	void TeardownTunnel(eOmxTunnel tunnel);
+	void FlushTunnel(eOmxTunnel tunnel);
 
 	static OMX_TICKS ToOmxTicks(int64_t val);
 	static int64_t FromOmxTicks(OMX_TICKS &ticks);
@@ -116,17 +136,10 @@ public:
 	void SetClockLatencyTarget(void);
 	void SetVolume(int vol);
 	void SetMute(bool mute);
-	void StopVideo(void);
 	void StopAudio(void);
 
-	void SetVideoErrorConcealment(bool startWithValidFrame);
-	void SetVideoDecoderExtraBuffers(int extraBuffers);
-
 	void FlushAudio(void);
-	void FlushVideo(bool flushRender = false);
 
-	int SetVideoCodec(cVideoCodec::eCodec codec);
-	int SetupDeinterlacer(cDeinterlacerMode::eMode mode);
 	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
 			int channels, cRpiAudioPort::ePort audioPort,
 			int samplingRate = 0, int frameSize = 0);
@@ -137,12 +150,8 @@ public:
 	void SetDisplay(int display, int layer);
 
 	OMX_BUFFERHEADERTYPE* GetAudioBuffer(int64_t pts = OMX_INVALID_PTS);
-	OMX_BUFFERHEADERTYPE* GetVideoBuffer(int64_t pts = OMX_INVALID_PTS);
-
-	bool PollVideo(void);
 
 	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf);
-	bool EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf);
 
 	void GetBufferUsage(int &audio, int &video);
 
@@ -161,8 +170,6 @@ private:
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
 	bool m_setAudioStartTime;
-	bool m_setVideoStartTime;
-	bool m_setVideoDiscontinuity;
 
 #define BUFFERSTAT_FILTER_SIZE 64
 
@@ -170,19 +177,16 @@ private:
 	int m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
 
 	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
-	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers;
 
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
 
 	cOmxEvents *m_portEvents;
-	bool m_handlePortEvents;
 
 	cList<cOmxEventHandler> *m_eventHandlers;
 
 	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);
-	void SetBufferStallThreshold(int delayMs);
 	bool IsBufferStall(void);
 
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);
