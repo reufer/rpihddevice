@@ -1,6 +1,11 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2016-04-23: Version 1.0.3
+-------------------------
+- fixed:
+  - don't ignore audio frames for slow trick speeds to keep clock in sync
+  
 2016-04-04: Version 1.0.2
 -------------------------
 - fixed:
