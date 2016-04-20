@@ -888,13 +888,43 @@ const uint32_t cRpiAudioDecoder::cParser::DtsSampleRateTable[16] =
 
 /* ------------------------------------------------------------------------- */
 
-class cRpiAudioRender
+// default: 16x 4096 bytes, now 128x 16k (2M)
+#define OMX_AUDIO_BUFFERS 128
+#define OMX_AUDIO_BUFFERSIZE KILOBYTE(16);
+
+#define OMX_AUDIO_CHANNEL_MAPPING(s, c) \
+switch (c) { \
+case 4: \
+	(s).eChannelMapping[0] = OMX_AUDIO_ChannelLF; \
+	(s).eChannelMapping[1] = OMX_AUDIO_ChannelRF; \
+	(s).eChannelMapping[2] = OMX_AUDIO_ChannelLR; \
+	(s).eChannelMapping[3] = OMX_AUDIO_ChannelRR; \
+	break; \
+case 1: \
+	(s).eChannelMapping[0] = OMX_AUDIO_ChannelCF; \
+	break; \
+case 8: \
+	(s).eChannelMapping[6] = OMX_AUDIO_ChannelLS; \
+	(s).eChannelMapping[7] = OMX_AUDIO_ChannelRS; \
+case 6: \
+	(s).eChannelMapping[2] = OMX_AUDIO_ChannelCF; \
+	(s).eChannelMapping[3] = OMX_AUDIO_ChannelLFE; \
+	(s).eChannelMapping[4] = OMX_AUDIO_ChannelLR; \
+	(s).eChannelMapping[5] = OMX_AUDIO_ChannelRR; \
+case 2: \
+default: \
+	(s).eChannelMapping[0] = OMX_AUDIO_ChannelLF; \
+	(s).eChannelMapping[1] = OMX_AUDIO_ChannelRF; \
+	break; }
+
+class cRpiOmxAudioRender : protected cOmxEventHandler
 {
 
 public:
 
-	cRpiAudioRender(cOmx *omx) :
-		m_mutex(new cMutex()),
+	cRpiOmxAudioRender(cOmx *omx) :
+		cOmxEventHandler(),
+		m_mutex(),
 		m_omx(omx),
 		m_port(cRpiAudioPort::eLocal),
 		m_codec(cAudioCodec::eInvalid),
@@ -909,17 +939,36 @@ public:
 		m_resamplerConfigured(false),
 #endif
 		m_pcmSampleFormat(AV_SAMPLE_FMT_NONE),
-		m_pts(0)
+		m_pts(0),
+		m_setStartTime(true),
+		m_spareBuffers(0)
 	{
+		// create audio_render
+		if (!m_omx->CreateComponent(cOmx::eAudioRender, true))
+			ELOG("failed creating audio render!");
+
+		m_omx->SetTunnel(cOmx::eClockToAudioRender,
+				cOmx::eClock, 81, cOmx::eAudioRender, 101);
+
+		if (!m_omx->SetupTunnel(cOmx::eClockToAudioRender))
+			ELOG("failed to setup up tunnel from clock to audio render!");
+
+		m_omx->ChangeComponentState(cOmx::eAudioRender, OMX_StateIdle);
+		m_omx->AddEventHandler(this);
 	}
 
-	~cRpiAudioRender()
+	~cRpiOmxAudioRender()
 	{
 		Flush();
 #ifdef DO_RESAMPLE
 		swr_free(&m_resample);
 #endif
-		delete m_mutex;
+
+		m_omx->DisableTunnel(cOmx::eClockToAudioRender);
+		m_omx->ChangeComponentState(cOmx::eAudioRender, OMX_StateIdle);
+		m_omx->CleanupComponent(cOmx::eAudioRender);
+
+		m_omx->RemoveEventHandler(this);
 	}
 
 	int WriteSamples(uint8_t** data, int samples, int64_t pts,
@@ -928,7 +977,7 @@ public:
 		if (!Ready())
 			return 0;
 
-		m_mutex->Lock();
+		cMutexLock MutexLock(&m_mutex);
 		int copied = 0;
 
 		if (sampleFormat == AV_SAMPLE_FMT_NONE)
@@ -936,9 +985,18 @@ public:
 			// pass through
 			while (samples > copied)
 			{
-				OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(pts);
+				OMX_BUFFERHEADERTYPE *buf = GetBuffer();
 				if (!buf)
 					break;
+
+				if (pts == OMX_INVALID_PTS)
+					buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+				else if (m_setStartTime)
+				{
+					buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+					m_setStartTime = false;
+				}
+				cOmx::PtsToTicks(pts, buf->nTimeStamp);
 
 				unsigned int len = samples - copied;
 				if (len > buf->nAllocLen)
@@ -947,16 +1005,17 @@ public:
 				memcpy(buf->pBuffer, *data + copied, len);
 				buf->nFilledLen = len;
 
-				if (!m_omx->EmptyAudioBuffer(buf))
+				if (!EmptyBuffer(buf))
 					break;
 
 				copied += len;
-				pts = 0;
+				pts = OMX_INVALID_PTS;
 			}
 		}
 		else
 		{
 #ifdef DO_RESAMPLE
+
 			// local decode, do resampling
 			if (!m_resamplerConfigured || m_pcmSampleFormat != sampleFormat)
 			{
@@ -965,10 +1024,18 @@ public:
 			}
 			if (m_resample)
 			{
-				m_pts = pts ? pts : m_pts;
-				OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(m_pts);
-				if (buf)
+				m_pts = pts != OMX_INVALID_PTS ? pts : m_pts;
+				if (OMX_BUFFERHEADERTYPE *buf = GetBuffer())
 				{
+					if (m_pts == OMX_INVALID_PTS)
+						buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+					else if (m_setStartTime)
+					{
+						buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+						m_setStartTime = false;
+					}
+					cOmx::PtsToTicks(m_pts, buf->nTimeStamp);
+
 					if (buf->nAllocLen >= (samples * m_outChannels *
 						av_get_bytes_per_sample(AV_SAMPLE_FMT_S16)))
 					{
@@ -981,15 +1048,23 @@ public:
 
 						m_pts += copiedSamples * 90000 / m_samplingRate;
 					}
-					copied = m_omx->EmptyAudioBuffer(buf) ? samples : 0;
+					copied = EmptyBuffer(buf) ? samples : 0;
 				}
 			}
 #else
 			// local decode, no resampling
-			m_pts = pts ? pts : m_pts;
-			OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(m_pts);
-			if (buf)
+			m_pts = pts != OMX_INVALID_PTS ? pts : m_pts;
+			if (OMX_BUFFERHEADERTYPE *buf = GetBuffer())
 			{
+				if (m_pts == OMX_INVALID_PTS)
+					buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
+				else if (m_setStartTime)
+				{
+					buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+					m_setStartTime = false;
+				}
+				cOmx::PtsToTicks(m_pts, buf->nTimeStamp);
+
 				unsigned int size = samples * m_outChannels *
 						av_get_bytes_per_sample(AV_SAMPLE_FMT_S16);
 				if (buf->nAllocLen >= size)
@@ -998,29 +1073,28 @@ public:
 					buf->nFilledLen = size;
 					m_pts += samples * 90000 / m_samplingRate;
 				}
-				copied = m_omx->EmptyAudioBuffer(buf) ? samples : 0;
+				copied = EmptyBuffer(buf) ? samples : 0;
 			}
 #endif
 		}
-		m_mutex->Unlock();
 		return copied;
 	}
 
 	void Flush(void)
 	{
-		m_mutex->Lock();
+		cMutexLock MutexLock(&m_mutex);
 		if (m_running)
-			m_omx->StopAudio();
+			Stop();
 		m_configured = false;
 		m_running = false;
 		m_pts = 0;
-		m_mutex->Unlock();
+		m_setStartTime = true;
 	}
 
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int channels,
 			unsigned int samplingRate, unsigned int frameSize)
 	{
-		m_mutex->Lock();
+		cMutexLock MutexLock(&m_mutex);
 		if (codec != cAudioCodec::eInvalid && channels > 0)
 		{
 			m_inChannels = channels;
@@ -1063,7 +1137,6 @@ public:
 			m_resamplerConfigured = false;
 #endif
 		}
-		m_mutex->Unlock();
 	}
 
 	bool IsPassthrough(void)
@@ -1081,7 +1154,7 @@ public:
 		if (!m_configured)
 		{
 			// wait until render is ready before applying new settings
-			if (m_running && m_omx->GetAudioLatency())
+			if (m_running && GetLatency())
 				return false;
 
 			ApplyRenderSettings();
@@ -1089,15 +1162,51 @@ public:
 		return true;
 	}
 
+	void SetVolume(int vol)
+	{
+		OMX_AUDIO_CONFIG_VOLUMETYPE volume;
+		OMX_INIT_STRUCT(volume);
+		volume.nPortIndex = 100;
+		volume.bLinear = OMX_TRUE;
+		volume.sVolume.nValue = vol * 100 / 255;
+
+		if (!m_omx->SetConfig(cOmx::eAudioRender,
+				OMX_IndexConfigAudioVolume, &volume))
+			ELOG("failed to set volume!");
+	}
+
+	void SetMute(bool mute)
+	{
+		OMX_AUDIO_CONFIG_MUTETYPE amute;
+		OMX_INIT_STRUCT(amute);
+		amute.nPortIndex = 100;
+		amute.bMute = mute ? OMX_TRUE : OMX_FALSE;
+
+		if (!m_omx->SetConfig(cOmx::eAudioRender,
+				OMX_IndexConfigAudioMute, &amute))
+			ELOG("failed to set mute state!");
+	}
+
+	int GetBufferUsage(void)
+	{
+		int usage = 0;
+		for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+			usage += m_usedBuffers[i];
+
+		return usage * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
+	}
+
 private:
 
-	cRpiAudioRender(const cRpiAudioRender&);
-	cRpiAudioRender& operator= (const cRpiAudioRender&);
+	cRpiOmxAudioRender(const cRpiOmxAudioRender&);
+	cRpiOmxAudioRender& operator= (const cRpiOmxAudioRender&);
 
 	void ApplyRenderSettings(void)
 	{
+		cMutexLock MutexLock(&m_mutex);
+
 		if (m_running)
-			m_omx->StopAudio();
+			Stop();
 
 		if (m_codec != cAudioCodec::eInvalid)
 		{
@@ -1105,8 +1214,7 @@ private:
 				cRpiSetup::SetHDMIChannelMapping(m_codec != cAudioCodec::ePCM,
 						m_outChannels);
 
-			m_omx->SetupAudioRender(m_codec, m_outChannels, m_port,
-					m_samplingRate, m_frameSize);
+			Setup(m_codec, m_outChannels, m_port, m_samplingRate, m_frameSize);
 
 			DLOG("set %s audio output format to %dch %s, %d.%dkHz%s",
 					cRpiAudioPort::Str(m_port), m_outChannels,
@@ -1116,6 +1224,176 @@ private:
 		}
 		m_running = m_codec != cAudioCodec::eInvalid;
 		m_configured = true;
+	}
+
+	void Setup(cAudioCodec::eCodec outputFormat, int channels,
+			cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
+	{
+		OMX_AUDIO_PARAM_PORTFORMATTYPE format;
+		OMX_INIT_STRUCT(format);
+		format.nPortIndex = 100;
+		if (!m_omx->GetParameter(cOmx::eAudioRender,
+				OMX_IndexParamAudioPortFormat, &format))
+			ELOG("failed to get audio port format parameters!");
+
+		format.eEncoding =
+			outputFormat == cAudioCodec::ePCM  ? OMX_AUDIO_CodingPCM :
+			outputFormat == cAudioCodec::eMPG  ? OMX_AUDIO_CodingMP3 :
+			outputFormat == cAudioCodec::eAC3  ? OMX_AUDIO_CodingDDP :
+			outputFormat == cAudioCodec::eEAC3 ? OMX_AUDIO_CodingDDP :
+			outputFormat == cAudioCodec::eAAC  ? OMX_AUDIO_CodingAAC :
+			outputFormat == cAudioCodec::eDTS  ? OMX_AUDIO_CodingDTS :
+					OMX_AUDIO_CodingAutoDetect;
+
+		if (!m_omx->SetParameter(cOmx::eAudioRender,
+				OMX_IndexParamAudioPortFormat, &format))
+			ELOG("failed to set audio port format parameters!");
+
+		switch (outputFormat)
+		{
+		case cAudioCodec::eMPG:
+			OMX_AUDIO_PARAM_MP3TYPE mp3;
+			OMX_INIT_STRUCT(mp3);
+			mp3.nPortIndex = 100;
+			mp3.nChannels = channels;
+			mp3.nSampleRate = samplingRate;
+			mp3.eChannelMode = OMX_AUDIO_ChannelModeStereo; // ?
+			mp3.eFormat = OMX_AUDIO_MP3StreamFormatMP1Layer3; // should be MPEG-1 layer 2
+
+			if (!m_omx->SetParameter(cOmx::eAudioRender,
+					OMX_IndexParamAudioMp3, &mp3))
+				ELOG("failed to set audio render mp3 parameters!");
+			break;
+
+		case cAudioCodec::eAC3:
+		case cAudioCodec::eEAC3:
+			OMX_AUDIO_PARAM_DDPTYPE ddp;
+			OMX_INIT_STRUCT(ddp);
+			ddp.nPortIndex = 100;
+			ddp.nChannels = channels;
+			ddp.nSampleRate = samplingRate;
+			OMX_AUDIO_CHANNEL_MAPPING(ddp, channels);
+
+			if (!m_omx->SetParameter(cOmx::eAudioRender,
+					OMX_IndexParamAudioDdp, &ddp))
+				ELOG("failed to set audio render ddp parameters!");
+			break;
+
+		case cAudioCodec::eAAC:
+			OMX_AUDIO_PARAM_AACPROFILETYPE aac;
+			OMX_INIT_STRUCT(aac);
+			aac.nPortIndex = 100;
+			aac.nChannels = channels;
+			aac.nSampleRate = samplingRate;
+			aac.eAACStreamFormat = OMX_AUDIO_AACStreamFormatMP4ADTS;
+
+			if (!m_omx->SetParameter(cOmx::eAudioRender,
+					OMX_IndexParamAudioAac, &aac))
+				ELOG("failed to set audio render aac parameters!");
+			break;
+
+		case cAudioCodec::eDTS:
+			OMX_AUDIO_PARAM_DTSTYPE dts;
+			OMX_INIT_STRUCT(dts);
+			dts.nPortIndex = 100;
+			dts.nChannels = channels;
+			dts.nSampleRate = samplingRate;
+			dts.nDtsType = 1;
+			dts.nFormat = 3; /* 16bit, LE */
+			dts.nDtsFrameSizeBytes = frameSize;
+			OMX_AUDIO_CHANNEL_MAPPING(dts, channels);
+
+			if (!m_omx->SetParameter(cOmx::eAudioRender,
+					OMX_IndexParamAudioDts, &dts))
+				ELOG("failed to set audio render dts parameters!");
+			break;
+
+		case cAudioCodec::ePCM:
+			OMX_AUDIO_PARAM_PCMMODETYPE pcm;
+			OMX_INIT_STRUCT(pcm);
+			pcm.nPortIndex = 100;
+			pcm.nChannels = channels;
+			pcm.eNumData = OMX_NumericalDataSigned;
+			pcm.eEndian = OMX_EndianLittle;
+			pcm.bInterleaved = OMX_TRUE;
+			pcm.nBitPerSample = 16;
+			pcm.nSamplingRate = samplingRate;
+			pcm.ePCMMode = OMX_AUDIO_PCMModeLinear;
+			OMX_AUDIO_CHANNEL_MAPPING(pcm, channels);
+
+			if (!m_omx->SetParameter(cOmx::eAudioRender,
+					OMX_IndexParamAudioPcm, &pcm))
+				ELOG("failed to set audio render pcm parameters!");
+			break;
+
+		default:
+			ELOG("output codec not supported: %s!",
+					cAudioCodec::Str(outputFormat));
+			break;
+		}
+
+		OMX_CONFIG_BRCMAUDIODESTINATIONTYPE audioDest;
+		OMX_INIT_STRUCT(audioDest);
+		strcpy((char *)audioDest.sName,
+				audioPort == cRpiAudioPort::eLocal ? "local" : "hdmi");
+
+		if (!m_omx->SetConfig(cOmx::eAudioRender,
+				OMX_IndexConfigBrcmAudioDestination, &audioDest))
+			ELOG("failed to set audio destination!");
+
+		// set up the number and size of buffers for audio render
+		OMX_PARAM_PORTDEFINITIONTYPE param;
+		OMX_INIT_STRUCT(param);
+		param.nPortIndex = 100;
+		if (!m_omx->GetParameter(cOmx::eAudioRender,
+				OMX_IndexParamPortDefinition, &param))
+			ELOG("failed to get audio render port parameters!");
+
+		param.nBufferSize = OMX_AUDIO_BUFFERSIZE;
+		param.nBufferCountActual = OMX_AUDIO_BUFFERS;
+		for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+			m_usedBuffers[i] = 0;
+
+		if (!m_omx->SetParameter(cOmx::eAudioRender,
+				OMX_IndexParamPortDefinition, &param))
+			ELOG("failed to set audio render port parameters!");
+
+		if (!m_omx->EnablePortBuffers(cOmx::eAudioRender, 100))
+			ELOG("failed to enable port buffer on audio render!");
+
+		if (!m_omx->ChangeComponentState(cOmx::eAudioRender, OMX_StateExecuting))
+			ELOG("failed to set audio render to executing state!");
+
+		if (!m_omx->SetupTunnel(cOmx::eClockToAudioRender))
+			ELOG("failed to setup up tunnel from clock to audio render!");
+	}
+
+	void Stop(void)
+	{
+		// put audio render onto idle
+		m_omx->FlushTunnel(cOmx::eClockToAudioRender);
+		m_omx->DisableTunnel(cOmx::eClockToAudioRender);
+		m_omx->ChangeComponentState(cOmx::eAudioRender, OMX_StateIdle);
+
+		m_omx->DisablePortBuffers(cOmx::eAudioRender, 100, m_spareBuffers);
+		m_spareBuffers = 0;
+	}
+
+	unsigned int GetLatency(void)
+	{
+		unsigned int ret = 0;
+
+		OMX_PARAM_U32TYPE u32;
+		OMX_INIT_STRUCT(u32);
+		u32.nPortIndex = 100;
+
+		if (!m_omx->GetConfig(cOmx::eAudioRender,
+			OMX_IndexConfigAudioRenderingLatency, &u32))
+			ELOG("failed get audio render latency!");
+		else
+			ret = u32.nU32;
+
+		return ret;
 	}
 
 #ifdef DO_RESAMPLE
@@ -1145,25 +1423,93 @@ private:
 	}
 #endif
 
-	cMutex		        *m_mutex;
-	cOmx		        *m_omx;
+	OMX_BUFFERHEADERTYPE* GetBuffer(void)
+	{
+		OMX_BUFFERHEADERTYPE* buf = 0;
+		cMutexLock MutexLock(&m_mutex);
 
-	cRpiAudioPort::ePort m_port;
-	cAudioCodec::eCodec  m_codec;
-	unsigned int         m_inChannels;
-	unsigned int         m_outChannels;
-	unsigned int         m_samplingRate;
-	unsigned int         m_frameSize;
-	bool                 m_configured;
-	bool                 m_running;
+		if (m_spareBuffers)
+		{
+			buf = m_spareBuffers;
+			m_spareBuffers =
+					static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
+			buf->pAppPrivate = 0;
+		}
+		else
+		{
+			buf = m_omx->GetBuffer(cOmx::eAudioRender, 100);
+			if (buf)
+				m_usedBuffers[0]++;
+		}
+
+		if (buf)
+		{
+			buf->nFilledLen = 0;
+			buf->nOffset = 0;
+			buf->nFlags = 0;
+		}
+		return buf;
+	}
+
+	bool EmptyBuffer(OMX_BUFFERHEADERTYPE *buf)
+	{
+		bool ret = true;
+
+	#ifdef DEBUG_BUFFERS
+		cOmx::DumpBuffer(buf, "A");
+	#endif
+
+		if (!m_omx->EmptyBuffer(cOmx::eAudioRender, buf))
+		{
+			ELOG("failed to empty OMX audio buffer");
+			cMutexLock MutexLock(&m_mutex);
+
+			buf->nFilledLen = 0;
+			buf->pAppPrivate = m_spareBuffers;
+			m_spareBuffers = buf;
+			ret = false;
+		}
+		return ret;
+	}
+
+	void BufferEmptied(cOmx::eOmxComponent comp)
+	{
+		if (comp == cOmx::eAudioRender)
+		{
+			cMutexLock MutexLock(&m_mutex);
+			m_usedBuffers[0]--;
+		}
+	}
+
+	void Tick(void)
+	{
+		for (int i = BUFFERSTAT_FILTER_SIZE - 1; i > 0; i--)
+			m_usedBuffers[i] = m_usedBuffers[i - 1];
+	}
+
+	cMutex		          m_mutex;
+	cOmx		         *m_omx;
+
+	cRpiAudioPort::ePort  m_port;
+	cAudioCodec::eCodec   m_codec;
+	unsigned int          m_inChannels;
+	unsigned int          m_outChannels;
+	unsigned int          m_samplingRate;
+	unsigned int          m_frameSize;
+	bool                  m_configured;
+	bool                  m_running;
 
 #ifdef DO_RESAMPLE
-	SwrContext          *m_resample;
-	bool                 m_resamplerConfigured;
+	SwrContext           *m_resample;
+	bool                  m_resamplerConfigured;
 #endif
 
-	AVSampleFormat       m_pcmSampleFormat;
-	int64_t              m_pts;
+	AVSampleFormat        m_pcmSampleFormat;
+	int64_t               m_pts;
+
+	int                   m_usedBuffers[BUFFERSTAT_FILTER_SIZE];
+	bool                  m_setStartTime;
+	OMX_BUFFERHEADERTYPE *m_spareBuffers;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -1175,7 +1521,7 @@ cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	m_setupChanged(true),
 	m_wait(new cCondWait()),
 	m_parser(new cParser()),
-	m_render(new cRpiAudioRender(omx))
+	m_render(new cRpiOmxAudioRender(omx))
 {
 	memset(m_codecs, 0, sizeof(m_codecs));
 }
@@ -1444,4 +1790,19 @@ void cRpiAudioDecoder::Log(void* ptr, int level, const char* fmt, va_list vl)
 		ILOG("[libav] %s", line);
 	else if (level <= AV_LOG_VERBOSE)
 		DLOG("[libav] %s", line);
+}
+
+int cRpiAudioDecoder::GetBufferUsage(void)
+{
+	return m_render->GetBufferUsage();
+}
+
+void cRpiAudioDecoder::SetVolume(int vol)
+{
+	m_render->SetVolume(vol);
+}
+
+void cRpiAudioDecoder::SetMute(bool mute)
+{
+	m_render->SetMute(mute);
 }

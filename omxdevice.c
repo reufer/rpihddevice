@@ -55,7 +55,7 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
 	m_omx(new cOmx()),
-	m_audio(new cRpiAudioDecoder(m_omx)),
+	m_audio(0),
 	m_video(0),
 	m_mutex(new cMutex()),
 	m_timer(new cTimeMs()),
@@ -81,7 +81,6 @@ cOmxDevice::~cOmxDevice()
 	DeInit();
 
 	delete m_omx;
-	delete m_audio;
 	delete m_mutex;
 	delete m_timer;
 }
@@ -93,6 +92,8 @@ int cOmxDevice::Init(void)
 		ELOG("failed to initialize OMX!");
 		return -1;
 	}
+
+	m_audio = new cRpiAudioDecoder(m_omx);
 	if (m_audio->Init() < 0)
 	{
 		ELOG("failed to initialize audio!");
@@ -110,6 +111,8 @@ int cOmxDevice::DeInit(void)
 		ELOG("failed to deinitialize audio!");
 		return -1;
 	}
+	delete m_audio;
+
 	if (m_omx->DeInit() < 0)
 	{
 		ELOG("failed to deinitialize OMX!");
@@ -587,30 +590,32 @@ void cOmxDevice::AdjustLiveSpeed(void)
 {
 	if (m_timer->TimedOut())
 	{
-		int usedBuffers, usedAudioBuffers, usedVideoBuffers;
-		m_omx->GetBufferUsage(usedAudioBuffers, usedVideoBuffers);
-		usedBuffers = m_hasAudio ? usedAudioBuffers : usedVideoBuffers;
+		int usedBuffers = m_hasAudio ? m_audio->GetBufferUsage() :
+				(m_video ? m_video->GetBufferUsage() : -1);
 
-		if (usedBuffers < 5)
-			m_liveSpeed = eNegCorrection;
+		if (usedBuffers >= 0)
+		{
+			if (usedBuffers < 5)
+				m_liveSpeed = eNegCorrection;
 
-		else if (usedBuffers > 15)
-			m_liveSpeed = ePosCorrection;
+			else if (usedBuffers > 15)
+				m_liveSpeed = ePosCorrection;
 
-		else if ((usedBuffers > 10 && m_liveSpeed == eNegCorrection) ||
-				(usedBuffers < 10 && m_liveSpeed == ePosCorrection))
-			m_liveSpeed = eNoCorrection;
+			else if ((usedBuffers > 10 && m_liveSpeed == eNegCorrection) ||
+					(usedBuffers < 10 && m_liveSpeed == ePosCorrection))
+				m_liveSpeed = eNoCorrection;
 
-#ifdef DEBUG_BUFFERSTAT
-		DLOG("buffer usage: A=%3d%%, V=%3d%%, Corr=%d",
-				usedAudioBuffers, usedVideoBuffers,
-				m_liveSpeed == eNegMaxCorrection ? -2 :
-				m_liveSpeed == eNegCorrection    ? -1 :
-				m_liveSpeed == eNoCorrection     ?  0 :
-				m_liveSpeed == ePosCorrection    ?  1 :
-				m_liveSpeed == ePosMaxCorrection ?  2 : 0);
-#endif
-		m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
+	#ifdef DEBUG_BUFFERSTAT
+			DLOG("buffer usage: A=%3d%%, V=%3d%%, Corr=%d",
+					usedAudioBuffers, usedVideoBuffers,
+					m_liveSpeed == eNegMaxCorrection ? -2 :
+					m_liveSpeed == eNegCorrection    ? -1 :
+					m_liveSpeed == eNoCorrection     ?  0 :
+					m_liveSpeed == ePosCorrection    ?  1 :
+					m_liveSpeed == ePosMaxCorrection ?  2 : 0);
+	#endif
+			m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
+		}
 		m_timer->Set(1000);
 	}
 }
@@ -624,6 +629,9 @@ void cOmxDevice::HandleEndOfStream(void)
 
 	if (m_hasVideo && m_video)
 		m_video->Clear();
+
+	if (m_hasAudio)
+		m_audio->Reset();
 
 	m_omx->ResetClock();
 
@@ -674,11 +682,11 @@ void cOmxDevice::SetVolumeDevice(int Volume)
 	DBG("SetVolume(%d)", Volume);
 	if (Volume)
 	{
-		m_omx->SetVolume(Volume);
-		m_omx->SetMute(false);
+		m_audio->SetVolume(Volume);
+		m_audio->SetMute(false);
 	}
 	else
-		m_omx->SetMute(true);
+		m_audio->SetMute(true);
 }
 
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)

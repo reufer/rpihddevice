@@ -38,6 +38,8 @@ extern "C" {
 	(a).nVersion.s.nRevision = OMX_VERSION_REVISION; \
 	(a).nVersion.s.nStep = OMX_VERSION_STEP
 
+#define BUFFERSTAT_FILTER_SIZE 64
+
 class cOmxEvents;
 class cOmxEventHandler;
 
@@ -124,7 +126,6 @@ public:
 
 	void SetClockScale(OMX_S32 scale);
 	bool IsClockFreezed(void) { return m_clockScale == 0; }
-	unsigned int GetAudioLatency(void);
 
 	enum eClockReference {
 		eClockRefAudio,
@@ -134,26 +135,15 @@ public:
 
 	void SetClockReference(eClockReference clockReference);
 	void SetClockLatencyTarget(void);
-	void SetVolume(int vol);
-	void SetMute(bool mute);
-	void StopAudio(void);
-
-	void FlushAudio(void);
-
-	int SetupAudioRender(cAudioCodec::eCodec outputFormat,
-			int channels, cRpiAudioPort::ePort audioPort,
-			int samplingRate = 0, int frameSize = 0);
 
 	void SetDisplayMode(bool letterbox, bool noaspect);
 	void SetPixelAspectRatio(int width, int height);
 	void SetDisplayRegion(int x, int y, int width, int height);
 	void SetDisplay(int display, int layer);
 
-	OMX_BUFFERHEADERTYPE* GetAudioBuffer(int64_t pts = OMX_INVALID_PTS);
-
-	bool EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf);
-
-	void GetBufferUsage(int &audio, int &video);
+#ifdef DEBUG_BUFFERS
+	static void DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix = "");
+#endif
 
 private:
 
@@ -161,22 +151,9 @@ private:
 
 	static const char* errStr(int err);
 
-#ifdef DEBUG_BUFFERS
-	static void DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix = "");
-#endif
-
 	ILCLIENT_T 	*m_client;
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
-
-	bool m_setAudioStartTime;
-
-#define BUFFERSTAT_FILTER_SIZE 64
-
-	int m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
-	int m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
-
-	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
 
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
@@ -185,7 +162,6 @@ private:
 
 	cList<cOmxEventHandler> *m_eventHandlers;
 
-	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);
 	bool IsBufferStall(void);
 
@@ -194,7 +170,6 @@ private:
 	static void OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnError(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
-
 };
 
 /* ------------------------------------------------------------------------- */

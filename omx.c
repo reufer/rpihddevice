@@ -33,35 +33,6 @@ extern "C" {
 
 #define OMX_PRE_ROLL 0
 
-// default: 16x 4096 bytes, now 128x 16k (2M)
-#define OMX_AUDIO_BUFFERS 128
-#define OMX_AUDIO_BUFFERSIZE KILOBYTE(16);
-
-#define OMX_AUDIO_CHANNEL_MAPPING(s, c) \
-switch (c) { \
-case 4: \
-	(s).eChannelMapping[0] = OMX_AUDIO_ChannelLF; \
-	(s).eChannelMapping[1] = OMX_AUDIO_ChannelRF; \
-	(s).eChannelMapping[2] = OMX_AUDIO_ChannelLR; \
-	(s).eChannelMapping[3] = OMX_AUDIO_ChannelRR; \
-	break; \
-case 1: \
-	(s).eChannelMapping[0] = OMX_AUDIO_ChannelCF; \
-	break; \
-case 8: \
-	(s).eChannelMapping[6] = OMX_AUDIO_ChannelLS; \
-	(s).eChannelMapping[7] = OMX_AUDIO_ChannelRS; \
-case 6: \
-	(s).eChannelMapping[2] = OMX_AUDIO_ChannelCF; \
-	(s).eChannelMapping[3] = OMX_AUDIO_ChannelLFE; \
-	(s).eChannelMapping[4] = OMX_AUDIO_ChannelLR; \
-	(s).eChannelMapping[5] = OMX_AUDIO_ChannelRR; \
-case 2: \
-default: \
-	(s).eChannelMapping[0] = OMX_AUDIO_ChannelLF; \
-	(s).eChannelMapping[1] = OMX_AUDIO_ChannelRF; \
-	break; }
-
 class cOmxEvents
 {
 
@@ -212,8 +183,6 @@ void cOmx::Action(void)
 				break;
 
 			case cOmxEvents::eBufferEmptied:
-				HandlePortBufferEmptied((eOmxComponent)event->data);
-
 				for (cOmxEventHandler *handler = m_eventHandlers->First();
 						handler; handler = m_eventHandlers->Next(handler))
 					handler->BufferEmptied((eOmxComponent)event->data);
@@ -230,50 +199,11 @@ void cOmx::Action(void)
 		if (timer.TimedOut())
 		{
 			timer.Set(100);
-			Lock();
-			for (int i = BUFFERSTAT_FILTER_SIZE - 1; i > 0; i--)
-			{
-				m_usedAudioBuffers[i] = m_usedAudioBuffers[i - 1];
-				m_usedVideoBuffers[i] = m_usedVideoBuffers[i - 1];
-			}
-
 			for (cOmxEventHandler *handler = m_eventHandlers->First(); handler;
 					handler = m_eventHandlers->Next(handler))
 				handler->Tick();
-			Unlock();
 		}
 	}
-}
-
-void cOmx::GetBufferUsage(int &audio, int &video)
-{
-	audio = 0;
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-	{
-		audio += m_usedAudioBuffers[i];
-	}
-	audio = audio * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
-}
-
-void cOmx::HandlePortBufferEmptied(eOmxComponent component)
-{
-	Lock();
-
-	switch (component)
-	{
-	case eVideoDecoder:
-		m_usedVideoBuffers[0]--;
-		break;
-
-	case eAudioRender:
-		m_usedAudioBuffers[0]--;
-		break;
-
-	default:
-		ELOG("HandlePortBufferEmptied: invalid component!");
-		break;
-	}
-	Unlock();
 }
 
 void cOmx::HandlePortSettingsChanged(unsigned int portId)
@@ -341,8 +271,6 @@ void cOmx::OnError(void *instance, COMPONENT_T *comp, OMX_U32 data)
 cOmx::cOmx() :
 	cThread(),
 	m_client(NULL),
-	m_setAudioStartTime(false),
-	m_spareAudioBuffers(0),
 	m_clockReference(eClockRefNone),
 	m_clockScale(0),
 	m_portEvents(new cOmxEvents()),
@@ -381,10 +309,6 @@ int cOmx::Init(int display, int layer)
 	if (!CreateComponent(eClock))
 		ELOG("failed creating clock!");
 
-	// create audio_render
-	if (!CreateComponent(eAudioRender, true))
-		ELOG("failed creating audio render!");
-
 	//create video_scheduler
 	if (!CreateComponent(eVideoScheduler))
 		ELOG("failed creating video scheduler!");
@@ -392,26 +316,18 @@ int cOmx::Init(int display, int layer)
 	// set tunnels
 	SetTunnel(eVideoSchedulerToVideoRender, eVideoScheduler, 11, eVideoRender, 90);
 	SetTunnel(eClockToVideoScheduler, eClock, 80, eVideoScheduler, 12);
-	SetTunnel(eClockToAudioRender, eClock, 81, eAudioRender, 101);
 
 	// setup clock tunnels first
 	if (!SetupTunnel(eClockToVideoScheduler))
 		ELOG("failed to setup up tunnel from clock to video scheduler!");
 
-	if (!SetupTunnel(eClockToAudioRender))
-		ELOG("failed to setup up tunnel from clock to audio render!");
-
 	ChangeComponentState(eClock, OMX_StateExecuting);
-	ChangeComponentState(eAudioRender, OMX_StateIdle);
 
 	SetDisplay(display, layer);
 	SetClockLatencyTarget();
 	SetClockReference(cOmx::eClockRefVideo);
 
-	FlushAudio();
-
 	Start();
-
 	return 0;
 }
 
@@ -420,13 +336,9 @@ int cOmx::DeInit(void)
 	Cancel(-1);
 	m_portEvents->Add(0);
 
-	DisableTunnel(eClockToAudioRender);
-
 	ChangeComponentState(eClock, OMX_StateIdle);
-	ChangeComponentState(eAudioRender, OMX_StateIdle);
 
 	CleanupComponent(eClock);
-	CleanupComponent(eAudioRender);
 	CleanupComponent(eVideoScheduler);
 	CleanupComponent(eVideoRender);
 
@@ -504,7 +416,7 @@ bool cOmx::EmptyBuffer(eOmxComponent comp, OMX_BUFFERHEADERTYPE *buf)
 {
 	return buf && comp >= 0 && comp < eNumComponents &&
 			(OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[comp]), buf)
-				== OMX_ErrorNone);
+					== OMX_ErrorNone);
 }
 
 bool cOmx::GetParameter(eOmxComponent comp, OMX_INDEXTYPE index, OMX_PTR param)
@@ -667,7 +579,6 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 	if (waitForAudio)
 	{
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-		m_setAudioStartTime = true;
 		cstate.nWaitMask |= OMX_CLOCKPORT1;
 	}
 
@@ -727,23 +638,6 @@ void cOmx::ResetClock(void)
 				!= OMX_ErrorNone)
 			ELOG("failed to set current video reference time!");
 	}
-}
-
-unsigned int cOmx::GetAudioLatency(void)
-{
-	unsigned int ret = 0;
-
-	OMX_PARAM_U32TYPE u32;
-	OMX_INIT_STRUCT(u32);
-	u32.nPortIndex = 100;
-
-	if (OMX_GetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
-		OMX_IndexConfigAudioRenderingLatency, &u32) != OMX_ErrorNone)
-		ELOG("failed get audio render latency!");
-	else
-		ret = u32.nU32;
-
-	return ret;
 }
 
 void cOmx::SetClockReference(eClockReference clockReference)
@@ -817,207 +711,6 @@ bool cOmx::IsBufferStall(void)
 	return stallConf.bStalled == OMX_TRUE;
 }
 
-void cOmx::SetVolume(int vol)
-{
-	OMX_AUDIO_CONFIG_VOLUMETYPE volume;
-	OMX_INIT_STRUCT(volume);
-	volume.nPortIndex = 100;
-	volume.bLinear = OMX_TRUE;
-	volume.sVolume.nValue = vol * 100 / 255;
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexConfigAudioVolume, &volume) != OMX_ErrorNone)
-		ELOG("failed to set volume!");
-}
-
-void cOmx::SetMute(bool mute)
-{
-	OMX_AUDIO_CONFIG_MUTETYPE amute;
-	OMX_INIT_STRUCT(amute);
-	amute.nPortIndex = 100;
-	amute.bMute = mute ? OMX_TRUE : OMX_FALSE;
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexConfigAudioMute, &amute) != OMX_ErrorNone)
-		ELOG("failed to set mute state!");
-}
-
-void cOmx::StopAudio(void)
-{
-	Lock();
-
-	// put audio render onto idle
-	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
-	ilclient_disable_tunnel(&m_tun[eClockToAudioRender]);
-	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateIdle);
-	ilclient_disable_port_buffers(m_comp[eAudioRender], 100,
-			m_spareAudioBuffers, NULL, NULL);
-
-	m_spareAudioBuffers = 0;
-	Unlock();
-}
-
-void cOmx::FlushAudio(void)
-{
-	Lock();
-
-	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eAudioRender]), OMX_CommandFlush, 100, NULL) != OMX_ErrorNone)
-		ELOG("failed to flush audio render!");
-
-	ilclient_wait_for_event(m_comp[eAudioRender], OMX_EventCmdComplete,
-		OMX_CommandFlush, 0, 100, 0, ILCLIENT_PORT_FLUSH,
-		VCOS_EVENT_FLAGS_SUSPEND);
-
-	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
-	Unlock();
-}
-
-int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
-		cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
-{
-	Lock();
-
-	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
-	OMX_INIT_STRUCT(format);
-	format.nPortIndex = 100;
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamAudioPortFormat, &format) != OMX_ErrorNone)
-		ELOG("failed to get audio port format parameters!");
-
-	format.eEncoding =
-		outputFormat == cAudioCodec::ePCM  ? OMX_AUDIO_CodingPCM :
-		outputFormat == cAudioCodec::eMPG  ? OMX_AUDIO_CodingMP3 :
-		outputFormat == cAudioCodec::eAC3  ? OMX_AUDIO_CodingDDP :
-		outputFormat == cAudioCodec::eEAC3 ? OMX_AUDIO_CodingDDP :
-		outputFormat == cAudioCodec::eAAC  ? OMX_AUDIO_CodingAAC :
-		outputFormat == cAudioCodec::eDTS  ? OMX_AUDIO_CodingDTS :
-				OMX_AUDIO_CodingAutoDetect;
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamAudioPortFormat, &format) != OMX_ErrorNone)
-		ELOG("failed to set audio port format parameters!");
-
-	switch (outputFormat)
-	{
-	case cAudioCodec::eMPG:
-		OMX_AUDIO_PARAM_MP3TYPE mp3;
-		OMX_INIT_STRUCT(mp3);
-		mp3.nPortIndex = 100;
-		mp3.nChannels = channels;
-		mp3.nSampleRate = samplingRate;
-		mp3.eChannelMode = OMX_AUDIO_ChannelModeStereo; // ?
-		mp3.eFormat = OMX_AUDIO_MP3StreamFormatMP1Layer3; // should be MPEG-1 layer 2
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-				OMX_IndexParamAudioMp3, &mp3) != OMX_ErrorNone)
-			ELOG("failed to set audio render mp3 parameters!");
-		break;
-
-	case cAudioCodec::eAC3:
-	case cAudioCodec::eEAC3:
-		OMX_AUDIO_PARAM_DDPTYPE ddp;
-		OMX_INIT_STRUCT(ddp);
-		ddp.nPortIndex = 100;
-		ddp.nChannels = channels;
-		ddp.nSampleRate = samplingRate;
-		OMX_AUDIO_CHANNEL_MAPPING(ddp, channels);
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-				OMX_IndexParamAudioDdp, &ddp) != OMX_ErrorNone)
-			ELOG("failed to set audio render ddp parameters!");
-		break;
-
-	case cAudioCodec::eAAC:
-		OMX_AUDIO_PARAM_AACPROFILETYPE aac;
-		OMX_INIT_STRUCT(aac);
-		aac.nPortIndex = 100;
-		aac.nChannels = channels;
-		aac.nSampleRate = samplingRate;
-		aac.eAACStreamFormat = OMX_AUDIO_AACStreamFormatMP4ADTS;
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-				OMX_IndexParamAudioAac, &aac) != OMX_ErrorNone)
-			ELOG("failed to set audio render aac parameters!");
-		break;
-
-	case cAudioCodec::eDTS:
-		OMX_AUDIO_PARAM_DTSTYPE dts;
-		OMX_INIT_STRUCT(dts);
-		dts.nPortIndex = 100;
-		dts.nChannels = channels;
-		dts.nSampleRate = samplingRate;
-		dts.nDtsType = 1;
-		dts.nFormat = 3; /* 16bit, LE */
-		dts.nDtsFrameSizeBytes = frameSize;
-		OMX_AUDIO_CHANNEL_MAPPING(dts, channels);
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-				OMX_IndexParamAudioDts, &dts) != OMX_ErrorNone)
-			ELOG("failed to set audio render dts parameters!");
-		break;
-
-	case cAudioCodec::ePCM:
-		OMX_AUDIO_PARAM_PCMMODETYPE pcm;
-		OMX_INIT_STRUCT(pcm);
-		pcm.nPortIndex = 100;
-		pcm.nChannels = channels;
-		pcm.eNumData = OMX_NumericalDataSigned;
-		pcm.eEndian = OMX_EndianLittle;
-		pcm.bInterleaved = OMX_TRUE;
-		pcm.nBitPerSample = 16;
-		pcm.nSamplingRate = samplingRate;
-		pcm.ePCMMode = OMX_AUDIO_PCMModeLinear;
-		OMX_AUDIO_CHANNEL_MAPPING(pcm, channels);
-
-		if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-				OMX_IndexParamAudioPcm, &pcm) != OMX_ErrorNone)
-			ELOG("failed to set audio render pcm parameters!");
-		break;
-
-	default:
-		ELOG("output codec not supported: %s!",
-				cAudioCodec::Str(outputFormat));
-		break;
-	}
-
-	OMX_CONFIG_BRCMAUDIODESTINATIONTYPE audioDest;
-	OMX_INIT_STRUCT(audioDest);
-	strcpy((char *)audioDest.sName,
-			audioPort == cRpiAudioPort::eLocal ? "local" : "hdmi");
-
-	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexConfigBrcmAudioDestination, &audioDest) != OMX_ErrorNone)
-		ELOG("failed to set audio destination!");
-
-	// set up the number and size of buffers for audio render
-	OMX_PARAM_PORTDEFINITIONTYPE param;
-	OMX_INIT_STRUCT(param);
-	param.nPortIndex = 100;
-	if (OMX_GetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to get audio render port parameters!");
-
-	param.nBufferSize = OMX_AUDIO_BUFFERSIZE;
-	param.nBufferCountActual = OMX_AUDIO_BUFFERS;
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-		m_usedAudioBuffers[i] = 0;
-
-	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
-			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
-		ELOG("failed to set audio render port parameters!");
-
-	if (ilclient_enable_port_buffers(m_comp[eAudioRender], 100, NULL, NULL, NULL) != 0)
-		ELOG("failed to enable port buffer on audio render!");
-
-	ilclient_change_component_state(m_comp[eAudioRender], OMX_StateExecuting);
-
-	if (ilclient_setup_tunnel(&m_tun[eClockToAudioRender], 0, 0) != 0)
-		ELOG("failed to setup up tunnel from clock to audio render!");
-
-	Unlock();
-	return 0;
-}
-
 void cOmx::SetDisplayMode(bool fill, bool noaspect)
 {
 	OMX_CONFIG_DISPLAYREGIONTYPE region;
@@ -1083,43 +776,6 @@ void cOmx::SetDisplay(int display, int layer)
 		ELOG("failed to set display number and layer!");
 }
 
-OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(int64_t pts)
-{
-	Lock();
-	OMX_BUFFERHEADERTYPE* buf = 0;
-	if (m_spareAudioBuffers)
-	{
-		buf = m_spareAudioBuffers;
-		m_spareAudioBuffers =
-				static_cast <OMX_BUFFERHEADERTYPE*>(buf->pAppPrivate);
-		buf->pAppPrivate = 0;
-	}
-	else
-	{
-		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
-		if (buf)
-			m_usedAudioBuffers[0]++;
-	}
-
-	if (buf)
-	{
-		buf->nFilledLen = 0;
-		buf->nOffset = 0;
-		buf->nFlags = 0;
-
-		if (pts == OMX_INVALID_PTS)
-			buf->nFlags |= OMX_BUFFERFLAG_TIME_UNKNOWN;
-		else if (m_setAudioStartTime)
-		{
-			buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
-			m_setAudioStartTime = false;
-		}
-		cOmx::PtsToTicks(pts, buf->nTimeStamp);
-	}
-	Unlock();
-	return buf;
-}
-
 #ifdef DEBUG_BUFFERS
 void cOmx::DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix)
 {
@@ -1146,31 +802,3 @@ void cOmx::DumpBuffer(OMX_BUFFERHEADERTYPE *buf, const char *prefix)
 	);
 }
 #endif
-
-bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
-{
-	if (!buf)
-		return false;
-
-	Lock();
-	bool ret = true;
-#ifdef DEBUG_BUFFERS
-	DumpBuffer(buf, "A");
-#endif
-
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eAudioRender]), buf)
-			!= OMX_ErrorNone)
-	{
-		ELOG("failed to empty OMX audio buffer");
-
-		if (buf->nFlags & OMX_BUFFERFLAG_STARTTIME)
-			m_setAudioStartTime = true;
-
-		buf->nFilledLen = 0;
-		buf->pAppPrivate = m_spareAudioBuffers;
-		m_spareAudioBuffers = buf;
-		ret = false;
-	}
-	Unlock();
-	return ret;
-}
