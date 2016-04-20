@@ -258,8 +258,8 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 
 int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 {
-	// ignore audio packets during trick speeds for non-radio recordings
-	if (m_playbackSpeed != eNormal && m_playMode != pmAudioOnly)
+	// ignore audio packets during fast trick speeds for non-radio recordings
+	if (m_playbackSpeed > eNormal && m_playMode != pmAudioOnly)
 	{
 		DLOG("audio packet ignored!");
 		return Length;
