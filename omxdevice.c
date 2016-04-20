@@ -222,20 +222,26 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		m_hasVideo = false;
 		m_omx->StopClock();
 
-		int length = pesPacket ? pesLength : Length;
-		const uchar *data = pesPacket ? pesPacket : Data;
-
-		// play every single PES packet, rise ENDOFFRAME flag on last
-		while (PesLongEnough(length))
+		// since the stream might be interlaced, we send each frame twice, so
+		// the advanced deinterlacer is able to render an output picture
+		int repeat = 2;
+		while (repeat--)
 		{
-			int pktLen = PesHasLength(data) ? PesLength(data) : length;
+			int length = pesPacket ? pesLength : Length;
+			const uchar *data = pesPacket ? pesPacket : Data;
 
-			// skip non-video packets as they may occur in PES recordings
-			if ((data[3] & 0xf0) == 0xe0)
-				PlayVideo(data, pktLen, pktLen == length);
+			// play every single PES packet, rise ENDOFFRAME flag on last
+			while (PesLongEnough(length))
+			{
+				int pktLen = PesHasLength(data) ? PesLength(data) : length;
 
-			data += pktLen;
-			length -= pktLen;
+				// skip non-video packets as they may occur in PES recordings
+				if ((data[3] & 0xf0) == 0xe0)
+					PlayVideo(data, pktLen, pktLen == length);
+
+				data += pktLen;
+				length -= pktLen;
+			}
 		}
 		if (pesPacket)
 			free(pesPacket);
