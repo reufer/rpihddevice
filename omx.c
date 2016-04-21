@@ -472,7 +472,7 @@ void cOmx::TeardownTunnel(eOmxTunnel tunnel)
 {
 	if (tunnel >= 0 && tunnel < eNumTunnels)
 	{
-		TUNNEL_T t[2] = { m_tun[tunnel], 0 };
+		TUNNEL_T t[2] = { m_tun[tunnel], { 0, 0, 0, 0 } };
 		ilclient_teardown_tunnels(t);
 	}
 }
