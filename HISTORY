@@ -3,6 +3,8 @@ VDR Plugin 'rpihddevice' Revision History
 
 2016-04-23: Version 1.0.3
 -------------------------
+- new:
+  - re-enable advanced deinterlacer for SD streams, requires recent firmware
 - fixed:
   - don't ignore audio frames for slow trick speeds to keep clock in sync
   
