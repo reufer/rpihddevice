@@ -87,6 +87,7 @@ public:
 
 	cParser() :
 		m_mutex(new cMutex()),
+		m_packet(0),
 		m_codec(cAudioCodec::eInvalid),
 		m_channels(0),
 		m_samplingRate(0),
@@ -102,7 +103,7 @@ public:
 
 	AVPacket* Packet(void)
 	{
-		return &m_packet;
+		return m_packet;
 	}
 
 	cAudioCodec::eCodec GetCodec(void)
@@ -130,7 +131,7 @@ public:
 	{
 		if (!m_parsed)
 			Parse();
-		return m_packet.size;
+		return m_packet->size;
 	}
 
 	int64_t GetPts(void)
@@ -154,12 +155,13 @@ public:
 	{
 		if (!m_parsed)
 			Parse();
-		return m_packet.size == 0;
+		return m_packet->size == 0;
 	}
 
 	int Init(void)
 	{
-		if (!av_new_packet(&m_packet, AVPKT_BUFFER_SIZE))
+		m_packet = av_packet_alloc();
+		if (!av_new_packet(m_packet, AVPKT_BUFFER_SIZE))
 		{
 			Reset();
 			return 0;
@@ -169,7 +171,7 @@ public:
 
 	int DeInit(void)
 	{
-		av_free_packet(&m_packet);
+		av_packet_free(&m_packet);
 		return 0;
 	}
 
@@ -179,10 +181,10 @@ public:
 		m_codec = cAudioCodec::eInvalid;
 		m_channels = 0;
 		m_samplingRate = 0;
-		m_packet.size = 0;
+		m_packet->size = 0;
 		m_size = 0;
 		m_parsed = true; // parser is empty, no need for parsing
-		memset(m_packet.data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+		memset(m_packet->data, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
 		while (!m_ptsQueue.empty())
 		{
@@ -201,9 +203,9 @@ public:
 			ret = false;
 		else
 		{
-			memcpy(m_packet.data + m_size, data, length);
+			memcpy(m_packet->data + m_size, data, length);
 			m_size += length;
-			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			memset(m_packet->data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
 			Pts* entry = new Pts(pts, length);
 			m_ptsQueue.push(entry);
@@ -220,9 +222,9 @@ public:
 
 		if (length < m_size)
 		{
-			memmove(m_packet.data, m_packet.data + length, m_size - length);
+			memmove(m_packet->data, m_packet->data + length, m_size - length);
 			m_size -= length;
-			memset(m_packet.data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			memset(m_packet->data + m_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
 
 			while (!m_ptsQueue.empty() && length)
 			{
@@ -283,7 +285,7 @@ private:
 			// 0x7FFE8001... DTS audio
 			// PCM audio can't be found
 
-			const uint8_t *p = m_packet.data + offset;
+			const uint8_t *p = m_packet->data + offset;
 			unsigned int n = m_size - offset;
 
 			switch (FastCheck(p))
@@ -354,10 +356,10 @@ private:
 			m_codec = codec;
 			m_channels = channels;
 			m_samplingRate = samplingRate;
-			m_packet.size = frameSize;
+			m_packet->size = frameSize;
 		}
 		else
-			m_packet.size = 0;
+			m_packet->size = 0;
 
 		m_parsed = true;
 		m_mutex->Unlock();
@@ -372,14 +374,14 @@ private:
 		unsigned int 	length;
 	};
 
-	cMutex*				m_mutex;
-	AVPacket 			m_packet;
+	cMutex             *m_mutex;
+	AVPacket           *m_packet;
 	cAudioCodec::eCodec m_codec;
-	unsigned int		m_channels;
-	unsigned int		m_samplingRate;
-	unsigned int		m_size;
-	std::queue<Pts*> 	m_ptsQueue;
-	bool				m_parsed;
+	unsigned int        m_channels;
+	unsigned int        m_samplingRate;
+	unsigned int        m_size;
+	std::queue<Pts*>    m_ptsQueue;
+	bool                m_parsed;
 
 	/* ---------------------------------------------------------------------- */
 	/*     audio codec parser helper functions, based on vdr-softhddevice     */
@@ -1611,7 +1613,10 @@ int cRpiAudioDecoder::DeInit(void)
 	{
 		cAudioCodec::eCodec codec = static_cast<cAudioCodec::eCodec>(i);
 		if (m_codecs[codec].codec)
+		{
 			avcodec_close(m_codecs[codec].context);
+			avcodec_free_context(&m_codecs[codec].context);
+		}
 	}
 
 	av_log_set_callback(&av_log_default_callback);
@@ -1658,7 +1663,6 @@ void cRpiAudioDecoder::HandleAudioSetupChanged()
 void cRpiAudioDecoder::Action(void)
 {
 	SetPriority(-15);
-	DLOG("cAudioDecoder() thread started");
 
 	unsigned int channels = 0;
 	unsigned int samplingRate = 0;
@@ -1773,7 +1777,6 @@ void cRpiAudioDecoder::Action(void)
 	}
 
 	av_frame_free(&frame);
-	DLOG("cAudioDecoder() thread ended");
 }
 
 void cRpiAudioDecoder::Log(void* ptr, int level, const char* fmt, va_list vl)
