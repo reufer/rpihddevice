@@ -20,6 +20,8 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
+#include <queue>
+
 #include <vdr/thread.h>
 
 #include "tools.h"
@@ -35,13 +37,14 @@ public:
 			void (*onEndOfStream)(void*), void* callbackData);
 	virtual ~cRpiVideoDecoder();
 
+	virtual const char* Description(void) = 0;
 	cVideoCodec::eCodec GetCodec(void) { return m_codec; };
 
 	virtual bool WriteData(const unsigned char *data,
 			unsigned int length, int64_t pts, bool eof) = 0;
 
 	virtual bool Poll(void) { return true; };
-	virtual void Clear(bool flushVideoRender = false) { };
+	virtual void Clear(bool flushRender = false) { };
 	virtual void Flush(void) { };
 
 	const cVideoFrameFormat *GetFrameFormat(void) { return &m_format; }
@@ -52,6 +55,7 @@ protected:
 
 	static const unsigned char s_mpeg2EndOfSequence[4];
 	static const unsigned char s_h264EndOfSequence[8];
+	static const unsigned char s_h265EndOfSequence[5];
 
 	cVideoCodec::eCodec m_codec;
 	cVideoFrameFormat   m_format;
@@ -77,6 +81,8 @@ public:
 			void (*onEndOfStream)(void*), void* callbackData);
 	virtual ~cRpiOmxVideoDecoder();
 
+	virtual const char* Description(void) { return "OpenMax"; };
+
 	virtual bool WriteData(const unsigned char *data,
 			unsigned int length, int64_t pts, bool eof);
 
@@ -94,6 +100,8 @@ protected:
 	virtual void BufferStalled(void);
 	virtual void Tick(void);
 
+private:
+
 	OMX_BUFFERHEADERTYPE* GetBuffer(void);
 	bool EmptyBuffer(OMX_BUFFERHEADERTYPE *buf);
 
@@ -106,34 +114,64 @@ protected:
 	bool   m_setStartTime;
 
 	OMX_BUFFERHEADERTYPE *m_spareBuffers;
-
-private:
-
 };
 
-/*
-class cRpiFfmpegVideoDecoder : public cRpiVideoDecoder, public cThread
+/* ------------------------------------------------------------------------- */
+
+struct AVFrame;
+struct AVPacket;
+struct AVCodec;
+struct AVCodecContext;
+
+class cYuv422Geometry;
+
+class cRpiFfmpegVideoDecoder : public cRpiVideoDecoder, public cThread,
+	protected cOmxEventHandler
 {
 
 public:
 
-	cRpiFfmpegVideoDecoder();
+	cRpiFfmpegVideoDecoder(cVideoCodec::eCodec codec, cOmx *omx,
+			void (*onStreamStart)(void*, const cVideoFrameFormat *format),
+			void (*onEndOfStream)(void*), void* callbackData);
 	virtual ~cRpiFfmpegVideoDecoder();
+
+	virtual const char* Description(void) { return "FFmpeg"; };
+
+	virtual bool WriteData(const unsigned char *data,
+			unsigned int length, int64_t pts, bool eof);
+
+	virtual bool Poll(void);
+	virtual void Clear(bool flushRender = false);
+	virtual void Flush(void);
 
 protected:
 
-	static void Log(void* ptr, int level, const char* fmt, va_list vl);
-
-	struct Codec
-	{
-		class AVCodec		 *codec;
-	    class AVCodecContext *context;
-	};
-
-	Codec m_codec;
+	virtual void Action(void);
+	virtual void BufferEmptied(cOmx::eOmxComponent comp);
 
 private:
 
+	static int GetBuffer2(AVCodecContext *ctx, AVFrame *frame, int flags);
+	static void FreeBuffer(void *opaque, uint8_t *data);
+
+	int GetAvBuffer(AVFrame *frame, int flags);
+
+	OMX_BUFFERHEADERTYPE* GetBuffer(void);
+	void EmptyBuffer(OMX_BUFFERHEADERTYPE *buf);
+
+	cOmx                 *m_omx;
+	cMutex                m_bufferMutex;
+	cCondWait            *m_newData;
+	cCondWait            *m_newBuffer;
+	bool                  m_reset;
+	bool                  m_setStartTime;
+	OMX_BUFFERHEADERTYPE *m_spareBuffers;
+	AVCodec              *m_avCodec;
+	AVCodecContext       *m_avContext;
+	AVPacket*             m_packet;
+	std::queue<AVPacket*> m_packets;
+	cYuv422Geometry      *m_geometry;
 };
-*/
+
 #endif
