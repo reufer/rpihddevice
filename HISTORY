@@ -9,6 +9,7 @@ VDR Plugin 'rpihddevice' Revision History
   - implement omx event handler and get rid of omx callbacks
   - use PatPmtParser to determine video codec
   - decouple audio and video specific functions from cOmx class
+  - add debug option to log number of executed OpenVG commands and flushes
 - fixed:
   - don't ignore audio frames for slow trick speeds to keep clock in sync
 
