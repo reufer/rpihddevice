@@ -757,6 +757,7 @@ public:
 
 	virtual bool Execute(cEgl *egl) = 0;
 	virtual const char* Description(void) = 0;
+	virtual bool IsFlush(void) { return false; };
 
 protected:
 
@@ -776,6 +777,7 @@ public:
 		cOvgCmd(target) { }
 
 	virtual const char* Description(void) { return "Flush"; }
+	virtual bool IsFlush(void) { return true; };
 
 	virtual bool Execute(cEgl *egl)
 	{
@@ -1866,6 +1868,11 @@ protected:
 			vgSetfv(VG_CLEAR_COLOR, 4, color);
 			vgClear(0, 0, egl.window.width, egl.window.height);
 
+#ifdef DEBUG_OVGSTAT
+			cTimeMs timer;
+			int commands = 0, flushes = 0;
+#endif
+
 			bool reset = false;
 			while (!reset)
 			{
@@ -1878,6 +1885,22 @@ protected:
 					m_commands.pop();
 					Unlock();
 
+#ifdef DEBUG_OVGSTAT
+					if (timer.TimedOut())
+					{
+						if (commands || flushes)
+						{
+							DLOG("[OpenVG] commands executed: %d, flushes: %d",
+									commands, flushes);
+							commands = 0;
+							flushes = 0;
+						}
+						timer.Set(1000);
+					}
+					commands++;
+					if (cmd->IsFlush())
+						flushes++;
+#endif
 					reset = cmd ? !cmd->Execute(&egl) : true;
 
 					VGErrorCode err = vgGetError();
