@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - make use of advanced deinterlacer configurable
   - add debug option to log number of executed OpenVG commands and flushes
 
 2016-04-23: Version 1.0.3

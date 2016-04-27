@@ -21,6 +21,7 @@
 
 #include "omx.h"
 #include "display.h"
+#include "setup.h"
 
 #include <vdr/tools.h>
 #include <vdr/thread.h>
@@ -362,8 +363,9 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 
 		if (cRpiDisplay::IsProgressive() && m_videoFrameFormat.Interlaced())
 		{
-			bool fastDeinterlace = portdef.format.video.nFrameWidth *
-					portdef.format.video.nFrameHeight > 576 * 720;
+			bool fastDeinterlace = !cRpiSetup::UseAdvancedDeinterlacer(
+					portdef.format.video.nFrameWidth,
+					portdef.format.video.nFrameHeight);
 
 			filterparam.nNumParams = 4;
 			filterparam.nParams[0] = 3;

@@ -74,6 +74,10 @@ public:
 		m_videoFrameRate[7] = "60i";
 		m_videoFrameRate[8] = "60p";
 
+		m_useAdvancedDeinterlacer[0] = trVDR("no");
+		m_useAdvancedDeinterlacer[1] = tr("for SD video only");
+		m_useAdvancedDeinterlacer[2] = tr("always");
+
 		Setup();
 	}
 
@@ -101,6 +105,7 @@ protected:
 		SetupStore("VideoFraming", m_video.framing);
 		SetupStore("Resolution", m_video.resolution);
 		SetupStore("FrameRate", m_video.frameRate);
+		SetupStore("AdvancedDeinterlacer", m_video.advancedDeinterlacer);
 
 		SetupStore("AcceleratedOsd", m_osd.accelerated);
 
@@ -122,6 +127,11 @@ private:
 			Add(new cMenuEditStraItem(
 				tr("Frame Rate"), &m_video.frameRate, 9, m_videoFrameRate));
 		}
+		if (cRpiDisplay::IsProgressive())
+			Add(new cMenuEditStraItem(
+					tr("Use Advanced Deinterlacer"),
+					&m_video.advancedDeinterlacer, 3,
+					m_useAdvancedDeinterlacer));
 
 		Add(new cMenuEditStraItem(
 				tr("Video Framing"), &m_video.framing, 3, m_videoFraming));
@@ -151,6 +161,7 @@ private:
 	const char *m_videoFraming[3];
 	const char *m_videoResolution[6];
 	const char *m_videoFrameRate[9];
+	const char *m_useAdvancedDeinterlacer[3];
 };
 
 /* ------------------------------------------------------------------------- */
@@ -310,6 +321,8 @@ bool cRpiSetup::Parse(const char *name, const char *value)
 		m_video.resolution = atoi(value);
 	else if (!strcasecmp(name, "FrameRate"))
 		m_video.frameRate = atoi(value);
+	else if (!strcasecmp(name, "AdvancedDeinterlacer"))
+		m_video.advancedDeinterlacer = atoi(value);
 	else if (!strcasecmp(name, "AcceleratedOsd"))
 		m_osd.accelerated = atoi(value);
 	else return false;
