@@ -21,6 +21,7 @@
 #include "tools.h"
 #include "display.h"
 #include "omx.h"
+#include "setup.h"
 
 #include <vdr/tools.h>
 
@@ -360,9 +361,10 @@ void cRpiOmxVideoDecoder::PortSettingsChanged(int port)
 			// if necessary, setup deinterlacer
 			SetupDeinterlacer(
 					cRpiDisplay::IsProgressive() && m_format.Interlaced() ? (
-							m_format.width * m_format.height > 576 * 720 ?
-									cDeinterlacerMode::eFast :
-									cDeinterlacerMode::eAdvanced) :
+							cRpiSetup::UseAdvancedDeinterlacer(m_format.width,
+									m_format.height) ?
+									cDeinterlacerMode::eAdvanced :
+									cDeinterlacerMode::eFast) :
 							cDeinterlacerMode::eDisabled);
 		}
 
@@ -559,8 +561,8 @@ cRpiFfmpegVideoDecoder::cRpiFfmpegVideoDecoder(
 	m_avContext->get_buffer2 = &GetBuffer2;
 	m_avContext->opaque = this;
 
-	m_avContext->thread_count = 4;
-	m_avContext->thread_safe_callbacks = 1;
+//	m_avContext->thread_count = 4;
+//	m_avContext->thread_safe_callbacks = 1;
 
 	if (!avcodec_open2(m_avContext, m_avCodec, NULL) < 0)
 		ELOG("failed to open %s ffmpeg codec!", cVideoCodec::Str(codec));
@@ -642,6 +644,7 @@ void cRpiFfmpegVideoDecoder::FreeBuffer(void *opaque, uint8_t *data)
 int cRpiFfmpegVideoDecoder::GetAvBuffer(AVFrame *frame, int flags)
 {
 	// we got the first decoded frame, so setup image fx to provide buffers
+	Lock();
 	if (!m_format.width)
 	{
 		m_format.width = frame->width;
@@ -694,9 +697,10 @@ int cRpiFfmpegVideoDecoder::GetAvBuffer(AVFrame *frame, int flags)
 		// if necessary, configure deinterlacer
 		cDeinterlacerMode::eMode mode =
 				cRpiDisplay::IsProgressive() && m_format.Interlaced() ? (
-						m_format.width * m_format.height > 576 * 720 ?
-								cDeinterlacerMode::eFast :
-								cDeinterlacerMode::eAdvanced) :
+						cRpiSetup::UseAdvancedDeinterlacer(m_format.width,
+								m_format.height) ?
+								cDeinterlacerMode::eAdvanced :
+								cDeinterlacerMode::eFast) :
 						cDeinterlacerMode::eDisabled;
 
 		OMX_CONFIG_IMAGEFILTERPARAMSTYPE filterparam;
@@ -748,6 +752,7 @@ int cRpiFfmpegVideoDecoder::GetAvBuffer(AVFrame *frame, int flags)
 				OMX_IndexParamBrcmPixelAspectRatio, &aspect))
 			ELOG("failed to set video render pixel aspect ratio!");
 	}
+	Unlock();
 
 	if (OMX_BUFFERHEADERTYPE *buf = GetBuffer())
 	{
@@ -955,6 +960,7 @@ void cRpiFfmpegVideoDecoder::Action(void)
 
 				if (frameComplete)
 				{
+					Lock();
 					OMX_BUFFERHEADERTYPE *buf =
 							static_cast <OMX_BUFFERHEADERTYPE*> (frame->opaque);
 
@@ -975,6 +981,7 @@ void cRpiFfmpegVideoDecoder::Action(void)
 						}
 					}
 					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+					Unlock();
 				}
 			}
 		}

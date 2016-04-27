@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-rpihddevice 1.0.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2015-10-14 17:58+0200\n"
+"POT-Creation-Date: 2016-04-27 15:09+0200\n"
 "PO-Revision-Date: 2015-10-15 06:56+0100\n"
 "Last-Translator: Cyril Jaquier <cyril.jaquier@jaqpot.net>\n"
 "Language-Team: French\n"
@@ -53,11 +53,20 @@ msgstr "par défaut"
 msgid "follow video"
 msgstr "comme l'original"
 
+msgid "for SD video only"
+msgstr ""
+
+msgid "always"
+msgstr ""
+
 msgid "Resolution"
 msgstr "Résolution"
 
 msgid "Frame Rate"
 msgstr "Cadence d'images"
+
+msgid "Use Advanced Deinterlacer"
+msgstr ""
 
 msgid "Video Framing"
 msgstr "Aspect de l'image"

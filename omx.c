@@ -21,6 +21,7 @@
 
 #include "omx.h"
 #include "display.h"
+#include "setup.h"
 
 #include <vdr/tools.h>
 #include <vdr/thread.h>

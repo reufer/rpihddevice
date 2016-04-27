@@ -4,6 +4,7 @@ VDR Plugin 'rpihddevice' Revision History
 2016-xx-xx: Version 1.2.0
 -------------------------
 - new:
+  - make use of advanced deinterlacer configurable
   - re-enable advanced deinterlacer for SD streams, requires recent firmware
   - separate video decoder
   - implement omx event handler and get rid of omx callbacks

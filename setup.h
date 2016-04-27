@@ -52,15 +52,18 @@ public:
 		VideoParameters() :
 			framing(0),
 			resolution(0),
-			frameRate(0) { }
+			frameRate(0),
+			advancedDeinterlacer(1){ }
 
 		int framing;
 		int resolution;
 		int frameRate;
+		int advancedDeinterlacer;
 
 		bool operator!=(const VideoParameters& a) {
 			return (a.framing != framing) || (a.resolution != resolution) ||
-					(a.frameRate != frameRate);
+					(a.frameRate != frameRate) ||
+					(a.advancedDeinterlacer != advancedDeinterlacer);
 		}
 	};
 
@@ -124,6 +127,12 @@ public:
 				GetInstance()->m_video.frameRate == 7 ? cVideoFrameRate::e60i :
 				GetInstance()->m_video.frameRate == 8 ? cVideoFrameRate::e60p :
 						cVideoFrameRate::eDontChange;
+	}
+
+	static bool UseAdvancedDeinterlacer(int width, int height) {
+		return !GetInstance()->m_video.advancedDeinterlacer ? false :
+				GetInstance()->m_video.advancedDeinterlacer == 1 &&
+				(width * height <= 576 * 720) ? true : true;
 	}
 
 	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,
