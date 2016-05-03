@@ -55,10 +55,10 @@ msgid "follow video"
 msgstr "video szerinti"
 
 msgid "for SD video only"
-msgstr ""
+msgstr "csak SD videónál"
 
 msgid "always"
-msgstr ""
+msgstr "mindig"
 
 msgid "Resolution"
 msgstr "Felbontás"
@@ -67,7 +67,7 @@ msgid "Frame Rate"
 msgstr "Képfrissítés"
 
 msgid "Use Advanced Deinterlacer"
-msgstr ""
+msgstr "Fejlett deinterlacer használata"
 
 msgid "Video Framing"
 msgstr "Video képarány"

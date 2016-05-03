@@ -2,6 +2,7 @@ VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
 - new:
+  - updated Hungarian translations (thanks to Füley István)
   - make use of advanced deinterlacer configurable
   - add debug option to log number of executed OpenVG commands and flushes
 
