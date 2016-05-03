@@ -130,9 +130,9 @@ public:
 	}
 
 	static bool UseAdvancedDeinterlacer(int width, int height) {
-		return !GetInstance()->m_video.advancedDeinterlacer ? false :
-				GetInstance()->m_video.advancedDeinterlacer == 1 &&
-				(width * height <= 576 * 720) ? true : true;
+		return GetInstance()->m_video.advancedDeinterlacer == 0 ? false :
+				GetInstance()->m_video.advancedDeinterlacer == 1 ?
+						(width * height <= 576 * 720 ? true : false) : true;
 	}
 
 	static bool IsAudioFormatSupported(cAudioCodec::eCodec codec,

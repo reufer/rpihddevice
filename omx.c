@@ -367,6 +367,8 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 					portdef.format.video.nFrameWidth,
 					portdef.format.video.nFrameHeight);
 
+			DBG("using %s deinterlacer", fastDeinterlace ? "fast" : "advanced");
+
 			filterparam.nNumParams = 4;
 			filterparam.nParams[0] = 3;
 			filterparam.nParams[1] = 0; // default frame interval
