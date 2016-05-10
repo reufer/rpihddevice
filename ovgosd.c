@@ -1242,12 +1242,9 @@ public:
 		vgSeti(VG_BLEND_MODE, VG_BLEND_SRC);
 		vgSeti(VG_MATRIX_MODE, VG_MATRIX_GLYPH_USER_TO_SURFACE);
 
-		// some magic offset to conform with VDR's text rendering
-		offsetY -= 0.06f * m_fontSize;
-
 		vgLoadIdentity();
 		vgTranslate(m_x + offsetX,
-				m_target->height - m_y - m_fontSize - offsetY + 1);
+				m_target->height - m_y - height + descender - offsetY + 1);
 		vgScale(m_fontSize, m_fontSize);
 
 		VGfloat origin[2] = { 0.0f, 0.0f };
@@ -1255,10 +1252,11 @@ public:
 
 		cOvgPaintBox::SetScissoring(
 				m_w ? m_x : m_x + floor(offsetX),
-				m_h ? m_target->height - m_y - m_h : m_target->height - m_y -
-						m_fontSize - floor(descender) + 1,
-				m_w ? m_w : floor(width) + 1,
-				m_h ? m_h : m_fontSize + floor(descender) - 1);
+				m_h ? m_target->height - m_y - m_h :
+						m_target->height - m_y - floor(height),
+				m_w ? m_w : floor(width),
+				m_h ? m_h : floor(height));
+
 
 		if (m_colorBg != clrTransparent)
 		{
