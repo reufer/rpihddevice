@@ -59,10 +59,12 @@ public:
 
 		m_videoResolution[0] = tr("default");
 		m_videoResolution[1] = tr("follow video");
-		m_videoResolution[2] = "720x480";
-		m_videoResolution[3] = "720x576";
-		m_videoResolution[4] = "1280x720";
-		m_videoResolution[5] = "1920x1080";
+		m_videoResolution[2] = "720x480 (4:3)";
+		m_videoResolution[3] = "720x480 (16:9)";
+		m_videoResolution[4] = "720x576 (4:3)";
+		m_videoResolution[5] = "720x576 (16:9)";
+		m_videoResolution[6] = "1280x720";
+		m_videoResolution[7] = "1920x1080";
 
 		m_videoFrameRate[0] = tr("default");
 		m_videoFrameRate[1] = tr("follow video");
@@ -122,7 +124,7 @@ private:
 		if (!cRpiDisplay::IsFixedMode())
 		{
 			Add(new cMenuEditStraItem(
-				tr("Resolution"), &m_video.resolution, 6, m_videoResolution));
+				tr("Resolution"), &m_video.resolution, 8, m_videoResolution));
 
 			Add(new cMenuEditStraItem(
 				tr("Frame Rate"), &m_video.frameRate, 9, m_videoFrameRate));
@@ -159,7 +161,7 @@ private:
 	const char *m_audioPort[2];
 	const char *m_audioFormat[3];
 	const char *m_videoFraming[3];
-	const char *m_videoResolution[6];
+	const char *m_videoResolution[8];
 	const char *m_videoFrameRate[9];
 	const char *m_useAdvancedDeinterlacer[3];
 };

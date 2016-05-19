@@ -38,7 +38,9 @@ public:
 		eDontChange = 0,
 		eFollowVideo,
 		e480,
+		e480w,
 		e576,
+		e576w,
 		e720,
 		e1080
 	};
@@ -47,7 +49,9 @@ public:
 		return	(resolution == eDontChange)  ? "don't change" :
 				(resolution == eFollowVideo) ? "follow video" :
 				(resolution == e480)         ? "480"          :
+				(resolution == e480w)        ? "480w"         :
 				(resolution == e576)         ? "576"          :
+				(resolution == e576w)        ? "576w"         :
 				(resolution == e720)         ? "720"          :
 				(resolution == e1080)        ? "1080"         :	"unknown";
 	}
@@ -213,6 +217,24 @@ public:
 	bool Interlaced(void) const {
 		return cScanMode::Interlaced(scanMode);
 	}
+};
+
+class cRational
+{
+public:
+
+	cRational(double d);
+	cRational(int _num, int _den) : num(_num), den(_den) { }
+
+	bool Reduce(int max);
+
+	int num;
+	int den;
+
+private:
+
+	cRational();
+	static int Gcd(int u, int v);
 };
 
 #endif

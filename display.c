@@ -55,6 +55,7 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 						tvstate.display.hdmi.width,
 						tvstate.display.hdmi.height,
 						tvstate.display.hdmi.frame_rate,
+						tvstate.display.hdmi.aspect_ratio,
 						tvstate.display.hdmi.scan_mode != 0,
 						tvstate.display.hdmi.group,
 						tvstate.display.hdmi.mode);
@@ -70,7 +71,7 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 				DISPMANX_MODEINFO_T mode;
 				if (vc_dispmanx_display_get_info(display, &mode) >= 0)
 					s_instance = new cRpiDefaultDisplay(id,
-							mode.width, mode.height);
+							mode.width, mode.height, SDTV_ASPECT_4_3);
 
 				vc_dispmanx_display_close(display);
 			}
@@ -78,7 +79,7 @@ cRpiDisplay* cRpiDisplay::GetInstance(void)
 		if (!s_instance)
 		{
 			ELOG("failed to get display information!");
-			s_instance = new cRpiDefaultDisplay(id, 720, 576);
+			s_instance = new cRpiDefaultDisplay(id, 720, 576, SDTV_ASPECT_4_3);
 		}
 	}
 
@@ -93,11 +94,12 @@ void cRpiDisplay::DropInstance(void)
 }
 
 cRpiDisplay::cRpiDisplay(int id, int width, int height, int frameRate,
-		bool interlaced, bool fixedMode) :
+		int aspectRatio, bool interlaced, bool fixedMode) :
 	m_id(id),
 	m_width(width),
 	m_height(height),
 	m_frameRate(frameRate),
+	m_aspectRatio(aspectRatio),
 	m_interlaced(interlaced),
 	m_fixedMode(fixedMode)
 {
@@ -126,7 +128,19 @@ int cRpiDisplay::GetSize(int &width, int &height, double &aspect)
 	{
 		width = instance->m_width;
 		height = instance->m_height;
-		aspect = (double)width / height;
+		switch (instance->m_aspectRatio)
+		{
+		case HDMI_ASPECT_4_3:
+			aspect = 4.0 / 3.0;
+			break;
+		case HDMI_ASPECT_16_9:
+			aspect = 16.0 / 9.0;
+			break;
+		default:
+			aspect = (double)width / height;
+			break;
+		}
+		aspect /= (double)width / height;
 		return 0;
 	}
 	return -1;
@@ -205,6 +219,62 @@ int cRpiDisplay::Snapshot(unsigned char* frame, int width, int height)
 	return -1;
 }
 
+void cRpiDisplay::GetModeFormat(const cVideoFrameFormat *format,
+		int &modeX, int &modeY, int &aspectRatio)
+{
+	/*                |  Format   |  PAR  |   Mode    |  DAR |
+	 * -------------------------------------------------------
+	 * NTSC SD MPEG-2 |  720x480  |  8:9  |  720x480  |  4:3 |
+	 * NTSC SD MPEG-4 |  720x480  | 10:11 |  720x480  |  4:3 |
+	 * NTSC SD MPEG-2 |  720x480  | 32:27 |  720x480  | 16:9 |
+	 * NTSC SD MPEG-4 |  720x480  | 40:33 |  720x480  | 16:9 |
+	 * PAL  SD MPEG-2 |  720x576  | 16:15 |  720x576  |  4:3 |
+	 * PAL  SD MPEG-4 |  720x576  | 12:11 |  720x576  |  4:3 |
+	 * PAL  SD MPEG-2 |  720x576  | 64:45 |  720x576  | 16:9 |
+	 * PAL  SD MPEG-4 |  720x576  | 16:11 |  720x576  | 16:9 |
+	 *      HD        | 1280x720  |  1:1  | 1280x720  | 16:9 |
+	 *      HD        | 1280x1080 |  3:2  | 1920x1080 | 16:9 |
+	 *      HD        | 1920x1080 |  1:1  | 1920x1080 | 16:9 |
+	 */
+
+	aspectRatio = HDMI_ASPECT_UNKNOWN;
+	modeY = format->height;
+
+	switch (modeY)
+	{
+	case 480:
+		if ((format->pixelWidth == 8 && format->pixelHeight == 9) ||
+				(format->pixelWidth == 10 && format->pixelHeight == 11))
+			aspectRatio = HDMI_ASPECT_4_3;
+		else if ((format->pixelWidth == 32 && format->pixelHeight == 27) ||
+				(format->pixelWidth == 40 && format->pixelHeight == 33))
+			aspectRatio = HDMI_ASPECT_16_9;
+		modeX = format->width;
+		break;
+
+	case 576:
+		if ((format->pixelWidth == 16 && format->pixelHeight == 15) ||
+				(format->pixelWidth == 12 && format->pixelHeight == 11))
+			aspectRatio = HDMI_ASPECT_4_3;
+		else if ((format->pixelWidth == 64 && format->pixelHeight == 45) ||
+				(format->pixelWidth == 16 && format->pixelHeight == 11))
+			aspectRatio = HDMI_ASPECT_16_9;
+		modeX = format->width;
+		break;
+
+	default:
+		ILOG("unknown video frame format: %dx%d@%d%s PAR(%d:%d)",
+				format->width, format->height, format->frameRate,
+				format->Interlaced() ? "i" : "p",
+				format->pixelWidth, format->pixelHeight);
+	case 720:
+	case 1080:
+		aspectRatio = HDMI_ASPECT_16_9;
+		modeX = format->width *	format->pixelWidth / format->pixelHeight;
+		break;
+	}
+}
+
 int cRpiDisplay::Update(const cVideoFrameFormat *frameFormat)
 {
 	if (m_fixedMode || (
@@ -215,21 +285,49 @@ int cRpiDisplay::Update(const cVideoFrameFormat *frameFormat)
 	int newWidth = m_width;
 	int newHeight = m_height;
 	int newFrameRate = m_frameRate;
+	int newAspectRatio = m_aspectRatio;
 	bool newInterlaced = m_interlaced;
 
 	switch (cRpiSetup::GetVideoResolution())
 	{
-	case cVideoResolution::e480:  newWidth = 720;  newHeight = 480;  break;
-	case cVideoResolution::e576:  newWidth = 720;  newHeight = 576;  break;
-	case cVideoResolution::e720:  newWidth = 1280; newHeight = 720;  break;
-	case cVideoResolution::e1080: newWidth = 1920; newHeight = 1080; break;
+	case cVideoResolution::e480:
+		newWidth = 720;
+		newHeight = 480;
+		newAspectRatio = HDMI_ASPECT_4_3;
+		break;
+
+	case cVideoResolution::e480w:
+		newWidth = 720;
+		newHeight = 480;
+		newAspectRatio = HDMI_ASPECT_16_9;
+		break;
+
+	case cVideoResolution::e576:
+		newWidth = 720;
+		newHeight = 576;
+		newAspectRatio = HDMI_ASPECT_4_3;
+		break;
+
+	case cVideoResolution::e576w:
+		newWidth = 720;
+		newHeight = 576;
+		newAspectRatio = HDMI_ASPECT_16_9;
+		break;
+
+	case cVideoResolution::e720:
+		newWidth = 1280;
+		newHeight = 720;
+		newAspectRatio = HDMI_ASPECT_16_9;
+		break;
+
+	case cVideoResolution::e1080:
+		newWidth = 1920;
+		newHeight = 1080;
+		newAspectRatio = HDMI_ASPECT_16_9;
+		break;
 
 	case cVideoResolution::eFollowVideo:
-		if (frameFormat->width && frameFormat->height)
-		{
-			newWidth = frameFormat->width;
-			newHeight = frameFormat->height;
-		}
+		GetModeFormat(frameFormat, newWidth, newHeight, newAspectRatio);
 		break;
 
 	default:
@@ -262,11 +360,24 @@ int cRpiDisplay::Update(const cVideoFrameFormat *frameFormat)
 
 	// set new mode only if necessary
 	if (newWidth != m_width || newHeight != m_height ||
-			newFrameRate != m_frameRate || newInterlaced != m_interlaced)
-		return SetMode(newWidth, newHeight, newFrameRate,
+			newFrameRate != m_frameRate || newInterlaced != m_interlaced ||
+			newAspectRatio != m_aspectRatio)
+		return SetMode(newWidth, newHeight, newFrameRate, newAspectRatio,
 				newInterlaced ? frameFormat->scanMode : cScanMode::eProgressive);
 
 	return 0;
+}
+
+const char* cRpiDisplay::AspectRatioStr(int aspectRatio)
+{
+	return	aspectRatio == HDMI_ASPECT_4_3   ? "4:3"   :
+			aspectRatio == HDMI_ASPECT_14_9  ? "14:9"  :
+			aspectRatio == HDMI_ASPECT_16_9  ? "16:9"  :
+			aspectRatio == HDMI_ASPECT_5_4   ? "5:4"   :
+			aspectRatio == HDMI_ASPECT_16_10 ? "16:10" :
+			aspectRatio == HDMI_ASPECT_15_9  ? "15:9"  :
+			aspectRatio == HDMI_ASPECT_64_27 ? "64:27" :
+			aspectRatio == HDMI_ASPECT_21_9  ? "21:9"  : "unknown";
 }
 
 /* ------------------------------------------------------------------------- */
@@ -281,8 +392,8 @@ public:
 };
 
 cRpiHDMIDisplay::cRpiHDMIDisplay(int id, int width, int height, int frameRate,
-		bool interlaced, int group, int mode) :
-	cRpiDisplay(id, width, height, frameRate, interlaced, false),
+		int aspectRatio, bool interlaced, int group, int mode) :
+	cRpiDisplay(id, width, height, frameRate, aspectRatio, interlaced, false),
 	m_modes(new cRpiHDMIDisplay::ModeList()),
 	m_group(group),
 	m_mode(mode),
@@ -304,7 +415,7 @@ cRpiHDMIDisplay::cRpiHDMIDisplay(int id, int width, int height, int frameRate,
 		DLOG("supported HDMI modes:");
 		for (int i = 0; i < m_modes->nModes; i++)
 		{
-			DLOG("%s[%02d]: %4dx%4d@%2d%s | %s | %3d.%03dMHz%s%s",
+			DLOG("%s[%02d]: %4dx%4d@%2d%s | %*s | %3d.%03dMHz%s%s",
 				m_modes->modes[i].group == HDMI_RES_GROUP_CEA ? "CEA" :
 				m_modes->modes[i].group == HDMI_RES_GROUP_DMT ? "DMT" : "---",
 				m_modes->modes[i].code,
@@ -312,14 +423,7 @@ cRpiHDMIDisplay::cRpiHDMIDisplay(int id, int width, int height, int frameRate,
 				m_modes->modes[i].height,
 				m_modes->modes[i].frame_rate,
 				m_modes->modes[i].scan_mode ? "i" : "p",
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_4_3   ? " 4:3 " :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_14_9  ? "14:9 " :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_16_9  ? "16:9 " :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_5_4   ? " 5:4 " :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_16_10 ? "16:10" :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_15_9  ? "15:9 " :
-				m_modes->modes[i].aspect_ratio == HDMI_ASPECT_21_9  ? "21:9 " :
-					"unknown aspect ratio",
+				5, AspectRatioStr(m_modes->modes[i].aspect_ratio),
 				m_modes->modes[i].pixel_freq / 1000000,
 				m_modes->modes[i].pixel_freq % 1000000 / 1000,
 				m_modes->modes[i].native ? " (native)" : "",
@@ -354,31 +458,50 @@ cRpiHDMIDisplay::~cRpiHDMIDisplay()
 }
 
 int cRpiHDMIDisplay::SetMode(int width, int height, int frameRate,
-		cScanMode::eMode scanMode)
+		int aspectRatio, cScanMode::eMode scanMode)
 {
 	SetHvsSyncUpdate(scanMode);
-	bool interlaced = cScanMode::Interlaced(scanMode);
+	int interlaced = cScanMode::Interlaced(scanMode) ? 1 : 0;
+	int mode = -1, altMode = -1;
 
-	for (int i = 0; i < m_modes->nModes; i++)
+	for (int i = 0; i < m_modes->nModes && mode == -1; i++)
 	{
 		if (m_modes->modes[i].width == width &&
 				m_modes->modes[i].height == height &&
 				m_modes->modes[i].frame_rate == frameRate &&
+				m_modes->modes[i].aspect_ratio == aspectRatio &&
 				m_modes->modes[i].scan_mode == interlaced)
-		{
-			DLOG("setting HDMI mode to %dx%d@%2d%s", width, height,
-					frameRate, interlaced ? "i" : "p");
+			mode = i;
 
-			m_width = width;
-			m_height = height;
-			m_frameRate = frameRate;
-			m_interlaced = interlaced;
-			return SetMode(m_modes->modes[i].group, m_modes->modes[i].code);
-		}
+		else if (m_modes->modes[i].height == height &&
+				m_modes->modes[i].frame_rate == frameRate &&
+				m_modes->modes[i].aspect_ratio == aspectRatio &&
+				m_modes->modes[i].scan_mode == interlaced)
+			altMode = i;
 	}
 
-	DLOG("failed to set HDMI mode to %dx%d@%2d%s",
-		width, height, frameRate, interlaced ? "i" : "p");
+	if (mode == -1 && altMode != -1)
+		mode = altMode;
+
+	if (mode != -1)
+	{
+		m_width = m_modes->modes[mode].width;
+		m_height = m_modes->modes[mode].height;
+		m_frameRate = m_modes->modes[mode].frame_rate;
+		m_aspectRatio = m_modes->modes[mode].aspect_ratio;
+		m_interlaced = m_modes->modes[mode].scan_mode;
+
+		DLOG("setting HDMI mode to %dx%d@%2d%s (%s)", m_width, m_height,
+				m_frameRate, m_interlaced ? "i" : "p",
+				AspectRatioStr(m_aspectRatio));
+
+		return SetMode(m_modes->modes[mode].group, m_modes->modes[mode].code);
+	}
+
+	DLOG("failed to set HDMI mode to %dx%d@%2d%s (%s)",
+			width, height, frameRate, interlaced ? "i" : "p",
+			AspectRatioStr(aspectRatio));
+
 	return -1;
 }
 
@@ -414,7 +537,8 @@ void cRpiHDMIDisplay::TvServiceCallback(void *data, unsigned int reason,
 
 /* ------------------------------------------------------------------------- */
 
-cRpiDefaultDisplay::cRpiDefaultDisplay(int id, int width, int height) :
-	cRpiDisplay(id, width, height, 50, false, true)
+cRpiDefaultDisplay::cRpiDefaultDisplay(int id, int width, int height,
+		int aspectRatio) :
+	cRpiDisplay(id, width, height, 50, aspectRatio, false, true)
 {
 }

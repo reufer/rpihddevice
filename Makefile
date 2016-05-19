@@ -59,7 +59,7 @@ VCLIBDIR =$(SDKSTAGE)/opt/vc/lib
 
 INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads 
 INCLUDES += -I$(VCINCDIR)/interface/vmcs_host/linux
- 
+
 LDLIBS  += -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt
 LDLIBS  += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
 LDFLAGS += -L$(VCLIBDIR)
@@ -117,7 +117,7 @@ INCLUDES += $(shell pkg-config --cflags freetype2)
 ### The object files (add further files here):
 
 ILCLIENT = $(ILCDIR)/libilclient.a
-OBJS = $(PLUGIN).o setup.o omx.o audio.o omxdevice.o ovgosd.o display.o
+OBJS = $(PLUGIN).o tools.o setup.o omx.o audio.o omxdevice.o ovgosd.o display.o
 
 ### The main target:
 

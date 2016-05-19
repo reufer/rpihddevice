@@ -111,9 +111,11 @@ public:
 	static cVideoResolution::eResolution GetVideoResolution(void) {
 		return	GetInstance()->m_video.resolution == 1 ? cVideoResolution::eFollowVideo :
 				GetInstance()->m_video.resolution == 2 ? cVideoResolution::e480 :
-				GetInstance()->m_video.resolution == 3 ? cVideoResolution::e576 :
-				GetInstance()->m_video.resolution == 4 ? cVideoResolution::e720 :
-				GetInstance()->m_video.resolution == 5 ? cVideoResolution::e1080 :
+				GetInstance()->m_video.resolution == 3 ? cVideoResolution::e480w :
+				GetInstance()->m_video.resolution == 4 ? cVideoResolution::e576 :
+				GetInstance()->m_video.resolution == 5 ? cVideoResolution::e576w :
+				GetInstance()->m_video.resolution == 6 ? cVideoResolution::e720 :
+				GetInstance()->m_video.resolution == 7 ? cVideoResolution::e1080 :
 						cVideoResolution::eDontChange;
 	}
 

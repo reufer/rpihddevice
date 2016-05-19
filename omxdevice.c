@@ -22,6 +22,7 @@
 #include "audio.h"
 #include "display.h"
 #include "setup.h"
+#include "tools.h"
 
 #include <vdr/thread.h>
 #include <vdr/remux.h>
@@ -696,18 +697,17 @@ void cOmxDevice::HandleStreamStart()
 	DBG("HandleStreamStart()");
 
 	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
-	DLOG("video stream started %dx%d@%d%s PAR(%d:%d)",
+	DLOG("video stream started %dx%d@%d%s, PAR=%d/%d",
 			format->width, format->height, format->frameRate,
 			format->Interlaced() ? "i" : "p",
 			format->pixelWidth, format->pixelHeight);
 
-	cRpiDisplay::SetVideoFormat(format);
+	HandleVideoSetupChanged();
 }
 
 void cOmxDevice::HandleVideoSetupChanged()
 {
-	DBG("HandleVideoSetupChanged()");
-
+	// apply framing parameters
 	switch (cRpiSetup::GetVideoFraming())
 	{
 	default:
@@ -724,7 +724,24 @@ void cOmxDevice::HandleVideoSetupChanged()
 		break;
 	}
 
-	cRpiDisplay::SetVideoFormat(m_omx->GetVideoFrameFormat());
+	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
+	double videoPAR = format->pixelHeight ?
+			(double)format->pixelWidth / format->pixelHeight : 1.0f;
+
+	// update display format according current video stream
+	cRpiDisplay::SetVideoFormat(format);
+
+	// get updated display format ...
+	int width, height;
+	double displayPAR;
+	cRpiDisplay::GetSize(width, height, displayPAR);
+
+	// ... and set video render format accordingly
+	cRational renderPAR = cRational(videoPAR / displayPAR);
+	renderPAR.Reduce(100);
+	m_omx->SetPixelAspectRatio(renderPAR.num, renderPAR.den);
+	DLOG("display PAR=%0.3f, setting video render PAR=%d/%d",
+			displayPAR, renderPAR.num, renderPAR.den);
 }
 
 void cOmxDevice::FlushStreams(bool flushVideoRender)

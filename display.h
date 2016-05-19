@@ -44,23 +44,29 @@ public:
 
 protected:
 
-	cRpiDisplay(int id, int width, int height, int frameRate, bool interlaced,
-			bool fixedMode);
+	cRpiDisplay(int id, int width, int height, int frameRate, int aspectRatio,
+			bool interlaced, bool fixedMode);
 	virtual ~cRpiDisplay();
 
 	int Update(const cVideoFrameFormat *videoFormat);
 
-	virtual int SetMode(int width, int height, int frameRate,
+	virtual int SetMode(int width, int height, int frameRate, int aspectRatio,
 			cScanMode::eMode scanMode) {
 		return 0;
 	}
 
 	static int SetHvsSyncUpdate(cScanMode::eMode scanMode);
 
+	static void GetModeFormat(const cVideoFrameFormat *format,
+			int &modeX, int &modeY, int &aspectRatio);
+
+	static const char* AspectRatioStr(int aspectRatio);
+
 	int m_id;
 	int m_width;
 	int m_height;
 	int m_frameRate;
+	int m_aspectRatio;
 	bool m_interlaced;
 	bool m_fixedMode;
 
@@ -78,13 +84,13 @@ class cRpiHDMIDisplay : public cRpiDisplay
 
 public:
 
-	cRpiHDMIDisplay(int id, int width, int height, int frameRate, bool interlaced,
-			int group, int mode);
+	cRpiHDMIDisplay(int id, int width, int height, int frameRate,
+			int aspectRatio, bool interlaced, int group, int mode);
 	virtual ~cRpiHDMIDisplay();
 
 private:
 
-	virtual int SetMode(int width, int height, int frameRate,
+	virtual int SetMode(int width, int height, int frameRate, int aspectRatio,
 			cScanMode::eMode scanMode);
 	int SetMode(int group, int mode);
 
@@ -107,7 +113,7 @@ class cRpiDefaultDisplay : public cRpiDisplay
 
 public:
 
-	cRpiDefaultDisplay(int id, int width, int height);
+	cRpiDefaultDisplay(int id, int width, int height, int aspectRatio);
 
 };
 

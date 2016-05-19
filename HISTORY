@@ -6,6 +6,7 @@ VDR Plugin 'rpihddevice' Revision History
   - make use of advanced deinterlacer configurable
   - add debug option to log number of executed OpenVG commands and flushes
 - fixed:
+  - implement proper handling of display and pixel aspect ratios
   - fixed vertical text position
 
 2016-04-23: Version 1.0.3
