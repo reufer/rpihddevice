@@ -20,6 +20,7 @@
 #include <limits.h>
 #include <vdr/tools.h>
 #include "tools.h"
+#include <algorithm>
 
 /*
  * ffmpeg's implementation for rational numbers:
@@ -32,7 +33,7 @@ cRational::cRational(double d) :
 	int exp;
 	frexp(d, &exp);
 
-	den = 1LL << (29 - max(exp - 1, 0));
+	den = 1LL << (29 - std::max(exp - 1, 0));
 	num = floor(d * den + 0.5);
 
 	Reduce(INT_MAX);
@@ -62,7 +63,7 @@ bool cRational::Reduce(int max)
 			if (a1.num)
 				x = (max - a0.num) / a1.num;
 			if (a1.den)
-				x = min(x, (max - a0.den) / a1.den);
+				x = std::min(x, (max - a0.den) / a1.den);
 			if (den * (2 * x * a1.den + a0.den) > num * a1.den)
 				a1 = cRational(x * a1.num + a0.num, x * a1.den + a0.den);
 			break;

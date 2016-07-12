@@ -1209,14 +1209,14 @@ public:
 			if (m_alignment & taLeft)
 			{
 				if (m_alignment & taBorder)
-					offsetX += max(height / TEXT_ALIGN_BORDER, 1.0f);
+					offsetX += std::max(height / TEXT_ALIGN_BORDER, 1.0f);
 			}
 			else if (m_alignment & taRight)
 			{
 				if (width < m_w)
 					offsetX += m_w - width;
 				if (m_alignment & taBorder)
-					offsetX -= max(height / TEXT_ALIGN_BORDER, 1.0f);
+					offsetX -= std::max(height / TEXT_ALIGN_BORDER, 1.0f);
 			}
 			else
 			{
@@ -1592,8 +1592,8 @@ public:
 
 	virtual bool Execute(cEgl *egl)
 	{
-		int w = min(m_w, vgGeti(VG_MAX_IMAGE_WIDTH));
-		int h = min(m_h, vgGeti(VG_MAX_IMAGE_HEIGHT));
+		int w = std::min(m_w, vgGeti(VG_MAX_IMAGE_WIDTH));
+		int h = std::min(m_h, vgGeti(VG_MAX_IMAGE_HEIGHT));
 
 		if (w <= 0 || h <= 0)
 			return true;
@@ -2375,11 +2375,11 @@ public:
 		{
 			ELOG("[OpenVG] cannot allocate pixmap of %dpx x %dpx, "
 					"clipped to %dpx x %dpx!", width, height,
-					min(width, m_ovg->MaxImageSize().Width()),
-					min(height, m_ovg->MaxImageSize().Height()));
+					std::min(width, m_ovg->MaxImageSize().Width()),
+					std::min(height, m_ovg->MaxImageSize().Height()));
 
-			width = min(width, m_ovg->MaxImageSize().Width());
-			height = min(height, m_ovg->MaxImageSize().Height());
+			width = std::min(width, m_ovg->MaxImageSize().Width());
+			height = std::min(height, m_ovg->MaxImageSize().Height());
 		}
 #endif
 		// create pixel buffer and wait until command has been completed
