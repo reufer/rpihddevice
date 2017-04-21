@@ -207,9 +207,19 @@ void cOmx::Action(void)
 				break;
 
 			case cOmxEvents::eConfigChanged:
-				if (event->data == OMX_IndexConfigBufferStall)
+				switch (event->data)
+				{
+				case OMX_IndexParamBrcmPixelAspectRatio:
+					if (m_handlePortEvents)
+						HandlePortSettingsChanged(131);
+					break;
+				case OMX_IndexConfigBufferStall:
 					if (IsBufferStall() && !IsClockFreezed() && m_onBufferStall)
 						m_onBufferStall(m_onBufferStallData);
+					break;
+				default:
+					break;
+				}
 				break;
 
 			case cOmxEvents::eEndOfStream:
@@ -555,6 +565,7 @@ int cOmx::Init(int display, int layer)
 
 	SetDisplay(display, layer);
 	SetClockLatencyTarget();
+	SetPARChangeCallback(true);
 	SetBufferStallThreshold(20000);
 	SetClockReference(cOmx::eClockRefVideo);
 
@@ -823,6 +834,18 @@ void cOmx::SetClockLatencyTarget(void)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoRender]),
 			OMX_IndexConfigLatencyTarget, &latencyTarget) != OMX_ErrorNone)
 		ELOG("failed set video render latency target!");
+}
+
+void cOmx::SetPARChangeCallback(bool enable)
+{
+	OMX_CONFIG_REQUESTCALLBACKTYPE reqCallback;
+	OMX_INIT_STRUCT(reqCallback);
+	reqCallback.nPortIndex = 131;
+	reqCallback.bEnable = enable ? OMX_TRUE : OMX_FALSE;
+	reqCallback.nIndex = OMX_IndexParamBrcmPixelAspectRatio;
+	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
+			OMX_IndexConfigRequestCallback, &reqCallback) != OMX_ErrorNone)
+		ELOG("failed to set video aspect ratio change call back!");
 }
 
 void cOmx::SetBufferStallThreshold(int delayMs)

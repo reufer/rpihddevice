@@ -178,6 +178,7 @@ private:
 
 	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);
+	void SetPARChangeCallback(bool enable);
 	void SetBufferStallThreshold(int delayMs);
 	bool IsBufferStall(void);
 

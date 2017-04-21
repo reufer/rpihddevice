@@ -6,6 +6,7 @@ VDR Plugin 'rpihddevice' Revision History
   - make use of advanced deinterlacer configurable
   - add debug option to log number of executed OpenVG commands and flushes
 - fixed:
+  - reset video format settings on pixel aspect ratio change 
   - always resample audio with less than 2 and  more than 6 channels
   - fixed compilation with GCC-6
   - implement proper handling of display and pixel aspect ratios
