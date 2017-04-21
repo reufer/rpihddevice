@@ -235,6 +235,9 @@ bool cRpiSetup::IsAudioFormatSupported(cAudioCodec::eCodec codec,
 	if (codec == cAudioCodec::eMPG || codec == cAudioCodec::eAAC)
 		return false;
 
+	if (channels < 2 || channels > 6)
+		return false;
+
 	switch (GetAudioFormat())
 	{
 	case cAudioFormat::ePassThrough:
