@@ -5,6 +5,7 @@ VDR Plugin 'rpihddevice' Revision History
   - updated Hungarian translations (thanks to Füley István)
   - make use of advanced deinterlacer configurable
   - add debug option to log number of executed OpenVG commands and flushes
+  - set OMX clock pre-roll to 250ms for live TV (transfer mode)
 - fixed:
   - reset video format settings on pixel aspect ratio change 
   - always resample audio with less than 2 and  more than 6 channels

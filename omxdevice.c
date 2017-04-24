@@ -34,6 +34,9 @@
 #define S(x) ((int)(floor(x * pow(2, 16))))
 #define PTS_START_OFFSET (32 * (MAX33BIT + 1))
 
+#define PRE_ROLL_LIVE 250
+#define PRE_ROLL_PLAYBACK 0
+
 // trick speeds as defined in vdr/dvbplayer.c
 const int cOmxDevice::s_playbackSpeeds[eNumDirections][eNumPlaybackSpeeds] = {
 	{ S(0.0f), S( 0.125f), S( 0.25f), S( 0.5f), S( 1.0f), S( 2.0f), S( 4.0f), S( 12.0f) },
@@ -290,7 +293,8 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 				DBG("audio first");
 				m_omx->SetClockScale(
 						s_playbackSpeeds[m_direction][m_playbackSpeed]);
-				m_omx->StartClock(m_hasVideo, m_hasAudio);
+				m_omx->StartClock(m_hasVideo, m_hasAudio,
+						Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 				m_audioPts = PTS_START_OFFSET + pts;
 				m_playMode = pmAudioOnly;
 			}
@@ -383,7 +387,8 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			DBG("video first");
 			m_omx->SetClockReference(cOmx::eClockRefVideo);
 			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-			m_omx->StartClock(m_hasVideo, m_hasAudio);
+			m_omx->StartClock(m_hasVideo, m_hasAudio,
+					Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 			m_videoPts = PTS_START_OFFSET + pts;
 			m_playMode = pmVideoOnly;
 		}
@@ -687,7 +692,8 @@ void cOmxDevice::HandleEndOfStream()
 	// flush pipes and restart clock after still image
 	FlushStreams();
 	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-	m_omx->StartClock(m_hasVideo, m_hasAudio);
+	m_omx->StartClock(m_hasVideo, m_hasAudio,
+			Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 
 	m_mutex->Unlock();
 }

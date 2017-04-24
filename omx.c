@@ -32,8 +32,6 @@ extern "C" {
 
 #include "bcm_host.h"
 
-#define OMX_PRE_ROLL 0
-
 // default: 20x 81920 bytes, now 128x 64k (8M)
 #define OMX_VIDEO_BUFFERS 128
 #define OMX_VIDEO_BUFFERSIZE KILOBYTE(64);
@@ -677,7 +675,7 @@ bool cOmx::IsClockRunning(void)
 		return false;
 }
 
-void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
+void cOmx::StartClock(bool waitForVideo, bool waitForAudio, int preRollMs)
 {
 	DBG("StartClock(%svideo, %saudio)",
 			waitForVideo ? "" : "no ",
@@ -687,7 +685,7 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio)
 	OMX_INIT_STRUCT(cstate);
 
 	cstate.eState = OMX_TIME_ClockStateRunning;
-	cstate.nOffset = ToOmxTicks(-1000LL * OMX_PRE_ROLL);
+	cstate.nOffset = ToOmxTicks(-1000LL * preRollMs);
 
 	if (waitForVideo)
 	{
@@ -713,7 +711,6 @@ void cOmx::StopClock(void)
 	OMX_INIT_STRUCT(cstate);
 
 	cstate.eState = OMX_TIME_ClockStateStopped;
-	cstate.nOffset = ToOmxTicks(-1000LL * OMX_PRE_ROLL);
 
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)

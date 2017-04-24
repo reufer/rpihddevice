@@ -62,7 +62,8 @@ public:
 		eClockStateWaitForAudioVideo
 	};
 
-	void StartClock(bool waitForVideo = false, bool waitForAudio = false);
+	void StartClock(bool waitForVideo = false, bool waitForAudio = false,
+			int preRollMs = 0);
 	void StopClock(void);
 	void ResetClock(void);
 
