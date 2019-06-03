@@ -58,10 +58,10 @@ ILCDIR   =ilclient
 VCINCDIR =$(SDKSTAGE)/opt/vc/include
 VCLIBDIR =$(SDKSTAGE)/opt/vc/lib
 
-INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads 
+INCLUDES += -I$(ILCDIR) -I$(VCINCDIR) -I$(VCINCDIR)/interface/vcos/pthreads
 INCLUDES += -I$(VCINCDIR)/interface/vmcs_host/linux
 
-LDLIBS  += -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lGLESv2 -lEGL -lpthread -lrt
+LDLIBS  += -lbcm_host -lvcos -lvchiq_arm -lopenmaxil -lbrcmGLESv2 -lbrcmEGL -lpthread -lrt
 LDLIBS  += -Wl,--whole-archive $(ILCDIR)/libilclient.a -Wl,--no-whole-archive
 LDFLAGS += -L$(VCLIBDIR)
 
