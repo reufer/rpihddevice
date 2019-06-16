@@ -26,7 +26,7 @@
 #include "display.h"
 #include "tools.h"
 
-static const char *VERSION        = "1.0.4";
+static const char *VERSION        = "1.0.5";
 static const char *DESCRIPTION    = trNOOP("HD output device for Raspberry Pi");
 
 class cPluginRpiHdDevice : public cPlugin
@@ -58,7 +58,7 @@ public:
 	virtual bool SetupParse(const char *Name, const char *Value);
 };
 
-cPluginRpiHdDevice::cPluginRpiHdDevice(void) : 
+cPluginRpiHdDevice::cPluginRpiHdDevice(void) :
 	m_device(0)
 {
 }
