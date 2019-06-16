@@ -2141,13 +2141,18 @@ public:
 			return;
 
 		if (len)
+		{
 			Utf8ToArray(s, symbols, len + 1);
-		else
-			symbols[0] = 0;
-
-		m_ovg->DoCmd(new cOvgCmdDrawText(m_buffer, Point.X(), Point.Y(),
+			m_ovg->DoCmd(new cOvgCmdDrawText(m_buffer, Point.X(), Point.Y(),
 				symbols, new cString(Font->FontName()), Font->Size(),
 				ColorFg, ColorBg, Width, Height, Alignment));
+		}
+		else
+		{
+			if (Width && Height)
+				m_ovg->DoCmd(new cOvgCmdDrawRectangle(m_buffer,
+					Point.X(), Point.Y(), Width, Height, ColorBg));
+		}
 
 		SetDirty();
 		MarkDrawPortDirty(cRect(Point.X(), Point.Y(),
