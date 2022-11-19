@@ -179,11 +179,14 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
+		if (m_playMode == pmNone) break;
 		FlushStreams(true);
 		m_omx->StopVideo();
 		m_hasAudio = false;
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
+		m_audio->DeInit();
+		m_omx->DeInit();
 		m_playMode = pmNone;
 		break;
 
@@ -191,6 +194,12 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmAudioOnly:
 	case pmAudioOnlyBlack:
 	case pmVideoOnly:
+		if (m_playMode == pmNone)
+		{
+			m_omx->Init(m_display, m_layer);
+			m_audio->Init();
+			SetVolumeDevice(IsMute() ? 0 : CurrentVolume());
+		}
 		m_playbackSpeed = eNormal;
 		m_direction = eForward;
 		break;
