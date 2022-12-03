@@ -70,7 +70,7 @@ private:
 	bool		  	m_reset;
 	bool		  	m_setupChanged;
 
-	cCondWait	 	*m_wait;
+	cCondWait	 	m_wait;
 	cParser		 	*m_parser;
 	cRpiAudioRender	*m_render;
 };

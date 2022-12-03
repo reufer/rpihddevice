@@ -2136,12 +2136,12 @@ public:
 	{
 		LOCK_PIXMAPS;
 		int len = s ? Utf8StrLen(s) : 0;
-		unsigned int *symbols = MALLOC(unsigned int, len + 1);
-		if (!symbols)
-			return;
 
 		if (len)
 		{
+			unsigned int *symbols = MALLOC(unsigned int, len + 1);
+			if (!symbols)
+				return;
 			Utf8ToArray(s, symbols, len + 1);
 			m_ovg->DoCmd(new cOvgCmdDrawText(m_buffer, Point.X(), Point.Y(),
 				symbols, new cString(Font->FontName()), Font->Size(),

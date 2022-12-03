@@ -86,18 +86,12 @@ class cRpiAudioDecoder::cParser
 public:
 
 	cParser() :
-		m_mutex(new cMutex()),
 		m_codec(cAudioCodec::eInvalid),
 		m_channels(0),
 		m_samplingRate(0),
 		m_size(0),
 		m_parsed(true)
 	{
-	}
-
-	~cParser()
-	{
-		delete m_mutex;
 	}
 
 	AVPacket* Packet(void)
@@ -136,12 +130,12 @@ public:
 	int64_t GetPts(void)
 	{
 		int64_t pts = OMX_INVALID_PTS;
-		m_mutex->Lock();
+		m_mutex.Lock();
 
 		if (!m_ptsQueue.empty())
-			pts = m_ptsQueue.front()->pts;
+			pts = m_ptsQueue.front().pts;
 
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 		return pts;
 	}
 
@@ -175,7 +169,7 @@ public:
 
 	void Reset(void)
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 		m_codec = cAudioCodec::eInvalid;
 		m_channels = 0;
 		m_samplingRate = 0;
@@ -183,19 +177,14 @@ public:
 		m_size = 0;
 		m_parsed = true; // parser is empty, no need for parsing
 		memset(m_packet.data, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-
-		while (!m_ptsQueue.empty())
-		{
-			delete m_ptsQueue.front();
-			m_ptsQueue.pop();
-		}
-		m_mutex->Unlock();
+		m_ptsQueue.clear();
+		m_mutex.Unlock();
 	}
 
 	bool Append(const unsigned char *data, int64_t pts, unsigned int length)
 	{
-		m_mutex->Lock();
 		bool ret = true;
+		m_mutex.Lock();
 
 		if (m_size + length + AV_INPUT_BUFFER_PADDING_SIZE > AVPKT_BUFFER_SIZE)
 			ret = false;
@@ -204,19 +193,21 @@ public:
 			memcpy(m_packet.data + m_size, data, length);
 			m_size += length;
 			memset(m_packet.data + m_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-
-			Pts* entry = new Pts(pts, length);
-			m_ptsQueue.push(entry);
+#if __cplusplus >= 201101L
+			m_ptsQueue.emplace(Pts(pts, length));
+#else
+			m_ptsQueue.push(Pts(pts, length));
+#endif
 
 			m_parsed = false;
 		}
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 		return ret;
 	}
 
 	void Shrink(unsigned int length, bool retainPts = false)
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 
 		if (length < m_size)
 		{
@@ -224,23 +215,25 @@ public:
 			m_size -= length;
 			memset(m_packet.data + m_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 
-			while (!m_ptsQueue.empty() && length)
+			while (!m_ptsQueue.empty())
 			{
-				if (m_ptsQueue.front()->length <= length)
+				Pts& front = m_ptsQueue.front();
+				if (front.length <= length)
 				{
-					length -= m_ptsQueue.front()->length;
-					delete m_ptsQueue.front();
+					length -= front.length;
 					m_ptsQueue.pop();
+					if (!length)
+						break;
 				}
 				else
 				{
 					// clear current PTS since it's not valid anymore after
 					// shrinking the packet
 					if (!retainPts)
-						m_ptsQueue.front()->pts = OMX_INVALID_PTS;
+						front.pts = OMX_INVALID_PTS;
 
-					m_ptsQueue.front()->length -= length;
-					length = 0;
+					front.length -= length;
+					break;
 				}
 			}
 
@@ -249,7 +242,7 @@ public:
 		else
 			Reset();
 
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 	}
 	
 private:
@@ -267,7 +260,7 @@ private:
 
 	void Parse()
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		unsigned int channels = 0;
@@ -359,8 +352,8 @@ private:
 		else
 			m_packet.size = 0;
 
+		m_mutex.Unlock();
 		m_parsed = true;
-		m_mutex->Unlock();
 	}
 
 	struct Pts
@@ -371,14 +364,18 @@ private:
 		int64_t 		pts;
 		unsigned int 	length;
 	};
+	struct PtsQueue : public std::queue<Pts>
+	{
+		void clear() { c.clear(); }
+	};
 
-	cMutex*				m_mutex;
+	cMutex				m_mutex;
 	AVPacket 			m_packet;
 	cAudioCodec::eCodec m_codec;
 	unsigned int		m_channels;
 	unsigned int		m_samplingRate;
 	unsigned int		m_size;
-	std::queue<Pts*> 	m_ptsQueue;
+	PtsQueue	 	m_ptsQueue;
 	bool				m_parsed;
 
 	/* ---------------------------------------------------------------------- */
@@ -894,7 +891,6 @@ class cRpiAudioRender
 public:
 
 	cRpiAudioRender(cOmx *omx) :
-		m_mutex(new cMutex()),
 		m_omx(omx),
 		m_port(cRpiAudioPort::eLocal),
 		m_codec(cAudioCodec::eInvalid),
@@ -919,7 +915,6 @@ public:
 #ifdef DO_RESAMPLE
 		swr_free(&m_resample);
 #endif
-		delete m_mutex;
 	}
 
 	int WriteSamples(uint8_t** data, int samples, int64_t pts,
@@ -928,7 +923,7 @@ public:
 		if (!Ready())
 			return 0;
 
-		m_mutex->Lock();
+		m_mutex.Lock();
 		int copied = 0;
 
 		if (sampleFormat == AV_SAMPLE_FMT_NONE)
@@ -986,7 +981,8 @@ public:
 			}
 #else
 			// local decode, no resampling
-			m_pts = pts ? pts : m_pts;
+			if (pts)
+				m_pts = pts;
 			OMX_BUFFERHEADERTYPE *buf = m_omx->GetAudioBuffer(m_pts);
 			if (buf)
 			{
@@ -1002,25 +998,25 @@ public:
 			}
 #endif
 		}
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 		return copied;
 	}
 
 	void Flush(void)
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 		if (m_running)
 			m_omx->StopAudio();
 		m_configured = false;
 		m_running = false;
 		m_pts = 0;
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 	}
 
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int channels,
 			unsigned int samplingRate, unsigned int frameSize)
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 		if (codec != cAudioCodec::eInvalid && channels > 0)
 		{
 			m_inChannels = channels;
@@ -1063,7 +1059,7 @@ public:
 			m_resamplerConfigured = false;
 #endif
 		}
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 	}
 
 	bool IsPassthrough(void)
@@ -1145,7 +1141,7 @@ private:
 	}
 #endif
 
-	cMutex		        *m_mutex;
+	cMutex		        m_mutex;
 	cOmx		        *m_omx;
 
 	cRpiAudioPort::ePort m_port;
@@ -1173,7 +1169,7 @@ cRpiAudioDecoder::cRpiAudioDecoder(cOmx *omx) :
 	m_passthrough(false),
 	m_reset(false),
 	m_setupChanged(true),
-	m_wait(new cCondWait()),
+	m_wait(),
 	m_parser(new cParser()),
 	m_render(new cRpiAudioRender(omx))
 {
@@ -1187,7 +1183,6 @@ cRpiAudioDecoder::~cRpiAudioDecoder()
 
 	delete m_render;
 	delete m_parser;
-	delete m_wait;
 }
 
 extern int SysLogLevel;
@@ -1253,7 +1248,7 @@ int cRpiAudioDecoder::DeInit(void)
 
 	Reset();
 	Cancel(-1);
-	m_wait->Signal();
+	m_wait.Signal();
 
 	while (Active())
 		cCondWait::SleepMs(5);
@@ -1282,7 +1277,7 @@ bool cRpiAudioDecoder::WriteData(const unsigned char *buf, unsigned int length,
 
 	bool ret = m_parser->Append(buf, pts, length);
 	if (ret)
-		m_wait->Signal();
+		m_wait.Signal();
 
 	Unlock();
 	return ret;
@@ -1292,7 +1287,7 @@ void cRpiAudioDecoder::Reset(void)
 {
 	Lock();
 	m_reset = true;
-	m_wait->Signal();
+	m_wait.Signal();
 	while (m_reset)
 		cCondWait::SleepMs(5);
 	Unlock();
@@ -1423,7 +1418,7 @@ void cRpiAudioDecoder::Action(void)
 			}
 		}
 		// nothing to be done...
-		m_wait->Wait(50);
+		m_wait.Wait(50);
 	}
 
 	av_frame_free(&frame);
