@@ -1288,7 +1288,7 @@ void cRpiAudioDecoder::Reset(void)
 	Lock();
 	m_reset = true;
 	m_wait.Signal();
-	while (m_reset)
+	while (m_reset && Active())
 		cCondWait::SleepMs(5);
 	Unlock();
 }

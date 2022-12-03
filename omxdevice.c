@@ -113,20 +113,10 @@ int cOmxDevice::Init(void)
 	return 0;
 }
 
-int cOmxDevice::DeInit(void)
+void cOmxDevice::DeInit(void)
 {
+	SetPlayMode(pmNone);
 	cRpiSetup::SetVideoSetupChangedCallback(0);
-	if (m_audio->DeInit() < 0)
-	{
-		ELOG("failed to deinitialize audio!");
-		return -1;
-	}
-	if (m_omx->DeInit() < 0)
-	{
-		ELOG("failed to deinitialize OMX!");
-		return -1;
-	}
-	return 0;
 }
 
 bool cOmxDevice::Start(void)
