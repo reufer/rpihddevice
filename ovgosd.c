@@ -400,6 +400,7 @@ public:
 				m_glyphIds.push_back(symbols[i]);
 				prevSym = symbols[i];
 			}
+		m_kerning.push_back(0.0f);
 	}
 
 	~cOvgString() { }
