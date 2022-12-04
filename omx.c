@@ -252,8 +252,8 @@ void cOmx::GetBufferUsage(int &audio, int &video)
 		audio += m_usedAudioBuffers[i];
 		video += m_usedVideoBuffers[i];
 	}
-	audio = audio * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
-	video = video * 100 / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS;
+	audio = audio / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS * 100;
+	video = video / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS * 100;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
@@ -461,6 +461,8 @@ cOmx::cOmx() :
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
+	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
+	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
 
 	m_videoFrameFormat.width = 0;
 	m_videoFrameFormat.height = 0;
