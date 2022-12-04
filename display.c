@@ -267,6 +267,7 @@ void cRpiDisplay::GetModeFormat(const cVideoFrameFormat *format,
 				format->width, format->height, format->frameRate,
 				format->Interlaced() ? "i" : "p",
 				format->pixelWidth, format->pixelHeight);
+		break;
 	case 720:
 	case 1080:
 		aspectRatio = HDMI_ASPECT_16_9;

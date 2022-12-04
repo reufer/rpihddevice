@@ -38,8 +38,8 @@ public:
 
 	virtual cString DeviceName(void) const { return "rpihddevice"; }
 
-	virtual int Init(void);
-	virtual int DeInit(void);
+	int Init(void);
+	void DeInit(void);
 
 	virtual bool Start(void);
 

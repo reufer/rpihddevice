@@ -93,50 +93,37 @@ public:
 		int		data;
 	};
 
-	cOmxEvents() :
-		m_signal(new cCondWait()),
-		m_mutex(new cMutex())
-	{ }
-
-	virtual ~cOmxEvents()
+	~cOmxEvents()
 	{
 		while (!m_events.empty())
 		{
 			delete m_events.front();
 			m_events.pop();
 		}
-		delete m_signal;
-		delete m_mutex;
 	}
 
 	Event* Get(void)
 	{
 		Event* event = 0;
+		m_mutex.Lock();
 		if (!m_events.empty())
 		{
-			m_mutex->Lock();
 			event = m_events.front();
 			m_events.pop();
-			m_mutex->Unlock();
 		}
+		m_mutex.Unlock();
 		return event;
 	}
 
 	void Add(Event* event)
 	{
-		m_mutex->Lock();
+		m_mutex.Lock();
 		m_events.push(event);
-		m_mutex->Unlock();
-		m_signal->Signal();
+		m_mutex.Unlock();
 	}
 
 private:
-
-	cOmxEvents(const cOmxEvents&);
-	cOmxEvents& operator= (const cOmxEvents&);
-
-	cCondWait*	m_signal;
-	cMutex*		m_mutex;
+	cMutex		m_mutex;
 	std::queue<Event*> m_events;
 };
 
@@ -265,8 +252,8 @@ void cOmx::GetBufferUsage(int &audio, int &video)
 		audio += m_usedAudioBuffers[i];
 		video += m_usedVideoBuffers[i];
 	}
-	audio = audio * 100 / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS;
-	video = video * 100 / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS;
+	audio = audio / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS * 100;
+	video = video / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS * 100;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
@@ -474,6 +461,8 @@ cOmx::cOmx() :
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
+	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
+	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
 
 	m_videoFrameFormat.width = 0;
 	m_videoFrameFormat.height = 0;
@@ -580,8 +569,8 @@ int cOmx::DeInit(void)
 	Cancel(-1);
 	m_portEvents->Add(0);
 
-	for (int i = 0; i < eNumTunnels; i++)
-		ilclient_disable_tunnel(&m_tun[i]);
+	while (Active())
+		cCondWait::SleepMs(5);
 
 	ilclient_teardown_tunnels(m_tun);
 	ilclient_state_transition(m_comp, OMX_StateIdle);

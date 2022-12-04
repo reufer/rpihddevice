@@ -113,20 +113,10 @@ int cOmxDevice::Init(void)
 	return 0;
 }
 
-int cOmxDevice::DeInit(void)
+void cOmxDevice::DeInit(void)
 {
+	SetPlayMode(pmNone);
 	cRpiSetup::SetVideoSetupChangedCallback(0);
-	if (m_audio->DeInit() < 0)
-	{
-		ELOG("failed to deinitialize audio!");
-		return -1;
-	}
-	if (m_omx->DeInit() < 0)
-	{
-		ELOG("failed to deinitialize OMX!");
-		return -1;
-	}
-	return 0;
 }
 
 bool cOmxDevice::Start(void)
@@ -179,11 +169,14 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	switch (PlayMode)
 	{
 	case pmNone:
+		if (m_playMode == pmNone) break;
 		FlushStreams(true);
 		m_omx->StopVideo();
 		m_hasAudio = false;
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
+		m_audio->DeInit();
+		m_omx->DeInit();
 		m_playMode = pmNone;
 		break;
 
@@ -191,6 +184,12 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmAudioOnly:
 	case pmAudioOnlyBlack:
 	case pmVideoOnly:
+		if (m_playMode == pmNone)
+		{
+			m_omx->Init(m_display, m_layer);
+			m_audio->Init();
+			SetVolumeDevice(IsMute() ? 0 : CurrentVolume());
+		}
 		m_playbackSpeed = eNormal;
 		m_direction = eForward;
 		break;
