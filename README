@@ -2,9 +2,9 @@ This is a "plugin" for the Video Disk Recorder (VDR).
 
 Written by:                  Thomas Reufer <thomas@reufer.ch>
 
-Project's homepage:          http://projects.vdr-developer.org/projects/plg-rpihddevice
+Project's homepage:          https://github.com/reufer/rpihddevice
 
-Latest version available at: git://projects.vdr-developer.org/vdr-plugin-rpihddevice.git
+Latest version available at: https://github.com/reufer/rpihddevice
 
 See the file COPYING for license information.
 
@@ -117,4 +117,4 @@ Plugin-Setup:
   Use GPU accelerated OSD: Use GPU capabilities to draw the on screen display.
   Disable acceleration in case of OSD problems to use VDR's internal rendering
   and report error to the author.
-  
+
