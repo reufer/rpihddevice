@@ -36,7 +36,7 @@ Requirements:
   - valid MPEG-2 license when watching MPEG-2 streams
   - Raspberry Pi userland libraries: https://github.com/raspberrypi/userland
   - Raspberry Pi firmware version of 2015/01/18 or newer
-  
+
 Install:
 
   Get the source code either as archive or with git and compile like any other
@@ -47,19 +47,19 @@ Install:
   $ cd rpihddevice
   $ make
   $ make install
-  
+
   If you want to link the plugin against a specific version of ffmpeg/libav, set
   EXT_LIBAV accordingly when compiling the plugin:
-  
+
   $ make EXT_LIBAV=/usr/src/ffmpeg-1.2.6
-  
+
 Usage:
 
   To start the plugin, just add '-P rpihddevice' to the VDR command line.
 
-  The plugin simply adds two new dispmanx layers on top of the framebuffer, one 
-  for video and one for the OSD. The plugin does not clear the current console 
-  or change any video mode settings. So it's the user's choice, what's being 
+  The plugin simply adds two new dispmanx layers on top of the framebuffer, one
+  for video and one for the OSD. The plugin does not clear the current console
+  or change any video mode settings. So it's the user's choice, what's being
   displayed when no video is shown, e.g. during channel switches or for radio
   channels.
 
@@ -99,21 +99,21 @@ Plugin-Setup:
   Video Framing: Determines how the video frame is displayed on the screen in
   case the aspect ratio differs. "box" and "cut" will preserve the video's
   aspect ratio, while "box" (often called "letter box", however "pillar box" is
-  used to show 4:3 videos on a wide screen) will fit the image on the 
-  screen by adding transparent borders. On the other hand, "cut" is cropping 
+  used to show 4:3 videos on a wide screen) will fit the image on the
+  screen by adding transparent borders. On the other hand, "cut" is cropping
   away the overlapping part of the video, so the entire display area is filled.
   When setting to "stretch", the videos' aspect ratio is adapted to the screen
   and the resulting image might appear distorted.
-  
+
   Audio Port: Set the audio output port to "analog" or "HDMI". When set to
   analog out, multi channel audio is sampled down to stereo.
-  
+
   Digital Audio Format: Specify the audio format when using the HDMI port as
   output. If set to "pass through", (E)AC-3 and DTS audio can be decoded by the
   connected HDMI device, if EDID indicates specific codec support. For local
   decoding, select "mutli channel PCM" or "Stereo PCM" if additional stereo
   dowmix of mutli channel audio is desired.
-  
+
   Use GPU accelerated OSD: Use GPU capabilities to draw the on screen display.
   Disable acceleration in case of OSD problems to use VDR's internal rendering
   and report error to the author.
