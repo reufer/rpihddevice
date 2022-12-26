@@ -1,6 +1,24 @@
 VDR Plugin 'rpihddevice' Revision History
 -----------------------------------------
 
+2022-12-26: Version 1.0.6
+-------------------------
+- fixed:
+  - project URL and whitespaces in README (thanks to Martin Dummer)
+  - overflows reported by GCC -fsanitize=undefined (thanks to Marko Mäkelä)
+  - hangs and crashes on shutdown due to OMX deinitialization (thanks to Marko Mäkelä)
+  - potential memory leak in cRpiAudioDecoder::m_ptsQueue (thanks to Marko Mäkelä)
+  - SIGFPE (division by 0) on startup if screen pixelHeight is 0 (thanks to Marko Mäkelä) 
+  - no picture after switching channels (thanks to Marko Mäkelä)
+  - link -lbrcmEGL before -lbrcmGLESv2 (thanks to Marko Mäkelä)
+
+2019-06-16: Version 1.0.5
+-------------------------
+- fixed:
+  - drawing of empty strings on high level OSD (thanks to Klaus Schmidinger)
+  - compilation for Raspbian Stretch (thanks to Klaus Schmidinger)
+  - compilation for ffmpeg-4 (thanks to Stefan Schallenberg)
+
 2018-07-16: Version 1.0.4
 -------------------------
 - new:
