@@ -60,10 +60,9 @@ const uchar cOmxDevice::s_h264EndOfSequence[8] = { 0x00, 0x00, 0x01, 0x0a, 0x00,
 cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 	cDevice(),
 	m_onPrimaryDevice(onPrimaryDevice),
-	m_omx(new cOmx()),
-	m_audio(new cRpiAudioDecoder(m_omx)),
-	m_mutex(new cMutex()),
-	m_timer(new cTimeMs()),
+	m_omx(),
+	m_audio(&m_omx),
+	m_mutex(),
 	m_videoCodec(cVideoCodec::eInvalid),
 	m_playMode(pmNone),
 	m_liveSpeed(eNoCorrection),
@@ -85,28 +84,23 @@ cOmxDevice::cOmxDevice(void (*onPrimaryDevice)(void), int display, int layer) :
 cOmxDevice::~cOmxDevice()
 {
 	DeInit();
-
-	delete m_omx;
-	delete m_audio;
-	delete m_mutex;
-	delete m_timer;
 }
 
 int cOmxDevice::Init(void)
 {
-	if (m_omx->Init(m_display, m_layer) < 0)
+	if (m_omx.Init(m_display, m_layer) < 0)
 	{
 		ELOG("failed to initialize OMX!");
 		return -1;
 	}
-	if (m_audio->Init() < 0)
+	if (m_audio.Init() < 0)
 	{
 		ELOG("failed to initialize audio!");
 		return -1;
 	}
-	m_omx->SetBufferStallCallback(&OnBufferStall, this);
-	m_omx->SetEndOfStreamCallback(&OnEndOfStream, this);
-	m_omx->SetStreamStartCallback(&OnStreamStart, this);
+	m_omx.SetBufferStallCallback(&OnBufferStall, this);
+	m_omx.SetEndOfStreamCallback(&OnEndOfStream, this);
+	m_omx.SetStreamStartCallback(&OnStreamStart, this);
 
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
 
@@ -132,8 +126,8 @@ void cOmxDevice::GetOsdSize(int &Width, int &Height, double &PixelAspect)
 
 void cOmxDevice::GetVideoSize(int &Width, int &Height, double &VideoAspect)
 {
-	Height = m_omx->GetVideoFrameFormat()->height;
-	Width = m_omx->GetVideoFrameFormat()->width;
+	Height = m_omx.GetVideoFrameFormat()->height;
+	Width = m_omx.GetVideoFrameFormat()->width;
 
 	if (Height)
 		VideoAspect = (double)Width / Height;
@@ -146,12 +140,12 @@ void cOmxDevice::ScaleVideo(const cRect &Rect)
 	DBG("ScaleVideo(%d, %d, %d, %d)",
 		Rect.X(), Rect.Y(), Rect.Width(), Rect.Height());
 
-	m_omx->SetDisplayRegion(Rect.X(), Rect.Y(), Rect.Width(), Rect.Height());
+	m_omx.SetDisplayRegion(Rect.X(), Rect.Y(), Rect.Width(), Rect.Height());
 }
 
 bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 {
-	m_mutex->Lock();
+	m_mutex.Lock();
 	DBG("SetPlayMode(%s)",
 		PlayMode == pmNone			 ? "none" 			   :
 		PlayMode == pmAudioVideo	 ? "Audio/Video" 	   :
@@ -171,12 +165,12 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmNone:
 		if (m_playMode == pmNone) break;
 		FlushStreams(true);
-		m_omx->StopVideo();
+		m_omx.StopVideo();
 		m_hasAudio = false;
 		m_hasVideo = false;
 		m_videoCodec = cVideoCodec::eInvalid;
-		m_audio->DeInit();
-		m_omx->DeInit();
+		m_audio.DeInit();
+		m_omx.DeInit();
 		m_playMode = pmNone;
 		break;
 
@@ -186,8 +180,8 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 	case pmVideoOnly:
 		if (m_playMode == pmNone)
 		{
-			m_omx->Init(m_display, m_layer);
-			m_audio->Init();
+			m_omx.Init(m_display, m_layer);
+			m_audio.Init();
 			SetVolumeDevice(IsMute() ? 0 : CurrentVolume());
 		}
 		m_playbackSpeed = eNormal;
@@ -198,7 +192,7 @@ bool cOmxDevice::SetPlayMode(ePlayMode PlayMode)
 		break;
 	}
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 	return true;
 }
 
@@ -232,11 +226,11 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 		if (codec == cVideoCodec::eInvalid)
 			return;
 
-		m_mutex->Lock();
+		m_mutex.Lock();
 		m_playbackSpeed = eNormal;
 		m_direction = eForward;
 		m_hasVideo = false;
-		m_omx->StopClock();
+		m_omx.StopClock();
 
 		// since the stream might be interlaced, we send each frame twice, so
 		// the advanced deinterlacer is able to render an output picture
@@ -263,7 +257,7 @@ void cOmxDevice::StillPicture(const uchar *Data, int Length)
 			free(pesPacket);
 
 		SubmitEOS();
-		m_mutex->Unlock();
+		m_mutex.Unlock();
 	}
 }
 
@@ -276,7 +270,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		return Length;
 	}
 
-	m_mutex->Lock();
+	m_mutex.Lock();
 	int ret = Length;
 	int64_t pts = PesHasPts(Data) ? PesGetPts(Data) : OMX_INVALID_PTS;
 
@@ -285,14 +279,14 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 		if (!m_hasAudio)
 		{
 			m_hasAudio = true;
-			m_omx->SetClockReference(cOmx::eClockRefAudio);
+			m_omx.SetClockReference(cOmx::eClockRefAudio);
 
 			if (!m_hasVideo)
 			{
 				DBG("audio first");
-				m_omx->SetClockScale(
+				m_omx.SetClockScale(
 						s_playbackSpeeds[m_direction][m_playbackSpeed]);
-				m_omx->StartClock(m_hasVideo, m_hasAudio,
+				m_omx.StartClock(m_hasVideo, m_hasAudio,
 						Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 				m_audioPts = PTS_START_OFFSET + pts;
 				m_playMode = pmAudioOnly;
@@ -331,11 +325,11 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 			data += 4;
 			length -= 4;
 		}
-		if (!m_audio->WriteData(data, length,
+		if (!m_audio.WriteData(data, length,
 				pts != OMX_INVALID_PTS ? m_audioPts : OMX_INVALID_PTS))
 			ret = 0;
 	}
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 
 	if (Transferring() && !ret)
 		DBG("failed to write %d bytes of audio packet!", Length);
@@ -349,10 +343,10 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 {
 	// prevent writing incomplete frames
-	if (m_hasVideo && !m_omx->PollVideo())
+	if (m_hasVideo && !m_omx.PollVideo())
 		return 0;
 
-	m_mutex->Lock();
+	m_mutex.Lock();
 	int ret = Length;
 
 	cVideoCodec::eCodec codec = ParseVideoCodec(Data + PesPayloadOffset(Data),
@@ -369,7 +363,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			m_videoCodec = codec;
 			if (cRpiSetup::IsVideoCodecSupported(m_videoCodec))
 			{
-				m_omx->SetVideoCodec(m_videoCodec);
+				m_omx.SetVideoCodec(m_videoCodec);
 				DLOG("set video codec to %s", cVideoCodec::Str(m_videoCodec));
 			}
 			else
@@ -384,9 +378,9 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 		if (!m_hasAudio)
 		{
 			DBG("video first");
-			m_omx->SetClockReference(cOmx::eClockRefVideo);
-			m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-			m_omx->StartClock(m_hasVideo, m_hasAudio,
+			m_omx.SetClockReference(cOmx::eClockRefVideo);
+			m_omx.SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
+			m_omx.StartClock(m_hasVideo, m_hasAudio,
 					Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 			m_videoPts = PTS_START_OFFSET + pts;
 			m_playMode = pmVideoOnly;
@@ -416,7 +410,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 
 		while (Length > 0)
 		{
-			if (OMX_BUFFERHEADERTYPE *buf =	m_omx->GetVideoBuffer(
+			if (OMX_BUFFERHEADERTYPE *buf =	m_omx.GetVideoBuffer(
 					pts != OMX_INVALID_PTS ? m_videoPts : OMX_INVALID_PTS))
 			{
 				buf->nFilledLen = buf->nAllocLen < (unsigned)Length ?
@@ -429,7 +423,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 				if (EndOfFrame && !Length)
 					buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
 
-				if (!m_omx->EmptyVideoBuffer(buf))
+				if (!m_omx.EmptyVideoBuffer(buf))
 				{
 					ret = 0;
 					ELOG("failed to pass buffer to video decoder!");
@@ -444,7 +438,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			pts = OMX_INVALID_PTS;
 		}
 	}
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 
 	if (Transferring() && !ret)
 		DBG("failed to write %d bytes of video packet!", Length);
@@ -458,7 +452,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 bool cOmxDevice::SubmitEOS(void)
 {
 	DBG("SubmitEOS()");
-	OMX_BUFFERHEADERTYPE *buf = m_omx->GetVideoBuffer(0);
+	OMX_BUFFERHEADERTYPE *buf = m_omx.GetVideoBuffer(0);
 	if (buf)
 	{
 		buf->nFlags = OMX_BUFFERFLAG_EOS | OMX_BUFFERFLAG_ENDOFFRAME;
@@ -467,12 +461,12 @@ bool cOmxDevice::SubmitEOS(void)
 		memcpy(buf->pBuffer, m_videoCodec == cVideoCodec::eMPEG2 ?
 				s_mpeg2EndOfSequence : s_h264EndOfSequence, buf->nFilledLen);
 	}
-	return m_omx->EmptyVideoBuffer(buf);
+	return m_omx.EmptyVideoBuffer(buf);
 }
 
 int64_t cOmxDevice::GetSTC(void)
 {
-	int64_t stc = m_omx->GetSTC();
+	int64_t stc = m_omx.GetSTC();
 	if (stc != OMX_INVALID_PTS)
 		m_lastStc = stc;
 	return m_lastStc & MAX33BIT;
@@ -529,51 +523,51 @@ uchar *cOmxDevice::GrabImage(int &Size, bool Jpeg, int Quality,
 void cOmxDevice::Clear(void)
 {
 	DBG("Clear()");
-	m_mutex->Lock();
+	m_mutex.Lock();
 
 	FlushStreams();
 	m_hasAudio = false;
 	m_hasVideo = false;
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 	cDevice::Clear();
 }
 
 void cOmxDevice::Play(void)
 {
 	DBG("Play()");
-	m_mutex->Lock();
+	m_mutex.Lock();
 
 	m_playbackSpeed = eNormal;
 	m_direction = eForward;
-	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
+	m_omx.SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 	cDevice::Play();
 }
 
 void cOmxDevice::Freeze(void)
 {
 	DBG("Freeze()");
-	m_mutex->Lock();
+	m_mutex.Lock();
 
-	m_omx->SetClockScale(s_playbackSpeeds[eForward][ePause]);
+	m_omx.SetClockScale(s_playbackSpeeds[eForward][ePause]);
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 	cDevice::Freeze();
 }
 
 #if APIVERSNUM >= 20103
 void cOmxDevice::TrickSpeed(int Speed, bool Forward)
 {
-	m_mutex->Lock();
+	m_mutex.Lock();
 	ApplyTrickSpeed(Speed, Forward);
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 }
 #else
 void cOmxDevice::TrickSpeed(int Speed)
 {
-	m_mutex->Lock();
+	m_mutex.Lock();
 	m_audioPts = 0;
 	m_videoPts = 0;
 	m_playDirection = 0;
@@ -584,7 +578,7 @@ void cOmxDevice::TrickSpeed(int Speed)
 	else
 		ApplyTrickSpeed(Speed, (Speed == 8 || Speed == 4 || Speed == 2));
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 }
 #endif
 
@@ -608,7 +602,7 @@ void cOmxDevice::ApplyTrickSpeed(int trickSpeed, bool forward)
 		trickSpeed == 48 ? eSlower  :
 		trickSpeed == 24 ? eSlow    : eNormal;
 
-	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
+	m_omx.SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
 
 	DBG("ApplyTrickSpeed(%s, %s)",
 			PlaybackSpeedStr(m_playbackSpeed), DirectionStr(m_direction));
@@ -638,10 +632,10 @@ bool cOmxDevice::HasIBPTrickSpeed(void)
 
 void cOmxDevice::AdjustLiveSpeed(void)
 {
-	if (m_timer->TimedOut())
+	if (m_timer.TimedOut())
 	{
 		int usedBuffers, usedAudioBuffers, usedVideoBuffers;
-		m_omx->GetBufferUsage(usedAudioBuffers, usedVideoBuffers);
+		m_omx.GetBufferUsage(usedAudioBuffers, usedVideoBuffers);
 		usedBuffers = m_hasAudio ? usedAudioBuffers : usedVideoBuffers;
 
 		if (usedBuffers < 5)
@@ -663,45 +657,45 @@ void cOmxDevice::AdjustLiveSpeed(void)
 				m_liveSpeed == ePosCorrection    ?  1 :
 				m_liveSpeed == ePosMaxCorrection ?  2 : 0);
 #endif
-		m_omx->SetClockScale(s_liveSpeeds[m_liveSpeed]);
-		m_timer->Set(1000);
+		m_omx.SetClockScale(s_liveSpeeds[m_liveSpeed]);
+		m_timer.Set(1000);
 	}
 }
 
 void cOmxDevice::HandleBufferStall()
 {
 	ELOG("buffer stall!");
-	m_mutex->Lock();
+	m_mutex.Lock();
 
 	FlushStreams(true);
-	m_omx->StopVideo();
+	m_omx.StopVideo();
 
 	m_hasAudio = false;
 	m_hasVideo = false;
 	m_videoCodec = cVideoCodec::eInvalid;
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 }
 
 void cOmxDevice::HandleEndOfStream()
 {
 	DBG("HandleEndOfStream()");
-	m_mutex->Lock();
+	m_mutex.Lock();
 
 	// flush pipes and restart clock after still image
 	FlushStreams();
-	m_omx->SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
-	m_omx->StartClock(m_hasVideo, m_hasAudio,
+	m_omx.SetClockScale(s_playbackSpeeds[m_direction][m_playbackSpeed]);
+	m_omx.StartClock(m_hasVideo, m_hasAudio,
 			Transferring() ? PRE_ROLL_LIVE : PRE_ROLL_PLAYBACK);
 
-	m_mutex->Unlock();
+	m_mutex.Unlock();
 }
 
 void cOmxDevice::HandleStreamStart()
 {
 	DBG("HandleStreamStart()");
 
-	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
+	const cVideoFrameFormat *format = m_omx.GetVideoFrameFormat();
 	DLOG("video stream started %dx%d@%d%s, PAR=%d/%d",
 			format->width, format->height, format->frameRate,
 			format->Interlaced() ? "i" : "p",
@@ -717,19 +711,19 @@ void cOmxDevice::HandleVideoSetupChanged()
 	{
 	default:
 	case cVideoFraming::eFrame:
-		m_omx->SetDisplayMode(false, false);
+		m_omx.SetDisplayMode(false, false);
 		break;
 
 	case cVideoFraming::eCut:
-		m_omx->SetDisplayMode(true, false);
+		m_omx.SetDisplayMode(true, false);
 		break;
 
 	case cVideoFraming::eStretch:
-		m_omx->SetDisplayMode(true, true);
+		m_omx.SetDisplayMode(true, true);
 		break;
 	}
 
-	const cVideoFrameFormat *format = m_omx->GetVideoFrameFormat();
+	const cVideoFrameFormat *format = m_omx.GetVideoFrameFormat();
 	double videoPAR = format->pixelHeight ?
 			(double)format->pixelWidth / format->pixelHeight : 1.0f;
 
@@ -744,7 +738,7 @@ void cOmxDevice::HandleVideoSetupChanged()
 	// ... and set video render format accordingly
 	cRational renderPAR = cRational(videoPAR / displayPAR);
 	renderPAR.Reduce(100);
-	m_omx->SetPixelAspectRatio(renderPAR.num, renderPAR.den);
+	m_omx.SetPixelAspectRatio(renderPAR.num, renderPAR.den);
 	DLOG("display PAR=%0.3f, setting video render PAR=%d/%d",
 			displayPAR, renderPAR.num, renderPAR.den);
 }
@@ -752,15 +746,15 @@ void cOmxDevice::HandleVideoSetupChanged()
 void cOmxDevice::FlushStreams(bool flushVideoRender)
 {
 	DBG("FlushStreams(%s)", flushVideoRender ? "flushVideoRender" : "");
-	m_omx->StopClock();
+	m_omx.StopClock();
 
 	if (m_hasVideo)
-		m_omx->FlushVideo(flushVideoRender);
+		m_omx.FlushVideo(flushVideoRender);
 
 	if (m_hasAudio)
-		m_audio->Reset();
+		m_audio.Reset();
 
-	m_omx->ResetClock();
+	m_omx.ResetClock();
 }
 
 void cOmxDevice::SetVolumeDevice(int Volume)
@@ -768,17 +762,17 @@ void cOmxDevice::SetVolumeDevice(int Volume)
 	DBG("SetVolume(%d)", Volume);
 	if (Volume)
 	{
-		m_omx->SetVolume(Volume);
-		m_omx->SetMute(false);
+		m_omx.SetVolume(Volume);
+		m_omx.SetMute(false);
 	}
 	else
-		m_omx->SetMute(true);
+		m_omx.SetMute(true);
 }
 
 bool cOmxDevice::Poll(cPoller &Poller, int TimeoutMs)
 {
 	cTimeMs timer(TimeoutMs);
-	while (!m_omx->PollVideo() || !m_audio->Poll())
+	while (!m_omx.PollVideo() || !m_audio.Poll())
 	{
 		if (timer.TimedOut())
 			return false;
