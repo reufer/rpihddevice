@@ -758,7 +758,9 @@ public:
 
 	virtual bool Execute(cEgl *egl) = 0;
 	virtual const char* Description(void) = 0;
+#ifdef DEBUG_OVGSTAT
 	virtual bool IsFlush(void) { return false; };
+#endif
 
 protected:
 
@@ -778,8 +780,9 @@ public:
 		cOvgCmd(target) { }
 
 	virtual const char* Description(void) { return "Flush"; }
+#ifdef DEBUG_OVGSTAT
 	virtual bool IsFlush(void) { return true; };
-
+#endif
 	virtual bool Execute(cEgl *egl)
 	{
 		if (!m_target->MakeCurrent(egl))
@@ -1653,8 +1656,7 @@ class cOvgThread : public cThread
 {
 public:
 
-	cOvgThread(int layer) :	cThread("ovgthread"),
-		m_wait(new cCondWait()), m_stalled(false), m_layer(layer)
+	cOvgThread(int layer) :	cThread("ovgthread"), m_layer(layer)
 	{
 		for (int i = 0; i < OVG_MAX_OSDIMAGES; i++)
 			m_images[i].used = false;
@@ -1665,31 +1667,21 @@ public:
 	virtual ~cOvgThread()
 	{
 		Cancel(-1);
-		DoCmd(new cOvgCmdReset(), true);
+		DoCmd(new cOvgCmdReset());
 
 		while (Active())
 			cCondWait::SleepMs(50);
-
-		delete m_wait;
 	}
 
-	void DoCmd(cOvgCmd* cmd, bool signal = false)
+	void DoCmd(cOvgCmd* cmd)
 	{
-		while (m_stalled)
-			cCondWait::SleepMs(10);
-
-		Lock();
+		m_commandsMutex.Lock();
+		while (m_commands.size() >= OVG_CMDQUEUE_SIZE)
+			m_commandsFull.Wait(m_commandsMutex);
+		if (m_commands.empty())
+			m_commandsEmpty.Broadcast();
 		m_commands.push(cmd);
-		Unlock();
-
-		if (m_commands.size() > OVG_CMDQUEUE_SIZE)
-		{
-			m_stalled = true;
-			ILOG("[OpenVG] command queue stalled!");
-		}
-
-		if (signal || m_stalled)
-			m_wait->Signal();
+		m_commandsMutex.Unlock();
 	}
 
 	virtual int StoreImageData(const cImage &image)
@@ -1721,7 +1713,7 @@ public:
 
 				tOvgImageRef *imageRef = GetImageRef(imageHandle);
 				DoCmd(new cOvgCmdStoreImage(imageRef,
-						image.Width(), image.Height(), argb), true);
+						image.Width(), image.Height(), argb));
 
 				cTimeMs timer(5000);
 				while (imageRef->used && imageRef->image == VG_INVALID_HANDLE
@@ -1872,17 +1864,19 @@ protected:
 			int commands = 0, flushes = 0;
 #endif
 
-			bool reset = false;
-			while (!reset)
+			m_commandsMutex.Lock();
+			for (;;)
 			{
 				if (m_commands.empty())
-					m_wait->Wait(20);
+				{
+					m_commandsFull.Broadcast();
+					m_commandsEmpty.Wait(m_commandsMutex);
+				}
 				else
 				{
-					Lock();
 					cOvgCmd* cmd = m_commands.front();
 					m_commands.pop();
-					Unlock();
+					m_commandsMutex.Unlock();
 
 #ifdef DEBUG_OVGSTAT
 					if (timer.TimedOut())
@@ -1900,20 +1894,23 @@ protected:
 					if (cmd->IsFlush())
 						flushes++;
 #endif
-					reset = cmd ? !cmd->Execute(&egl) : true;
+					bool reset = !cmd->Execute(&egl);
 
 					VGErrorCode err = vgGetError();
-					if (cmd && err != VG_NO_ERROR)
+					if (err != VG_NO_ERROR)
 						ELOG("[OpenVG] %s error: %s",
 								cmd->Description(), errStr(err));
 
 					//ELOG("[OpenVG] %s", cmd->Description());
 					delete cmd;
-
-					if (m_stalled && m_commands.size() < OVG_CMDQUEUE_SIZE / 2)
-						m_stalled = false;
+					m_commandsMutex.Lock();
+					if (m_commands.size() < OVG_CMDQUEUE_SIZE / 2)
+						m_commandsFull.Broadcast();
+					if (reset)
+						break;
 				}
 			}
+			m_commandsMutex.Unlock();
 
 			if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 					EGL_NO_CONTEXT) == EGL_FALSE)
@@ -1964,8 +1961,11 @@ private:
 	}
 
 	std::queue<cOvgCmd*> m_commands;
+	cMutex m_commandsMutex;
+	cCondVar m_commandsFull;
+	cCondVar m_commandsEmpty;
+
 	cCondWait *m_wait;
-	bool m_stalled;
 	int m_layer;
 
 	tOvgImageRef m_images[OVG_MAX_OSDIMAGES];
@@ -2390,7 +2390,7 @@ public:
 #endif
 		// create pixel buffer and wait until command has been completed
 		cOvgRenderTarget *buffer = new cOvgRenderTarget(width, height);
-		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer), true);
+		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer));
 
 		cTimeMs timer(10000);
 		while (!buffer->initialized && !timer.TimedOut())
@@ -2587,7 +2587,7 @@ public:
 					if (m_pixmaps[i]->Layer() == layer)
 						m_pixmaps[i]->RenderToTarget(m_surface, Left(), Top());
 #endif
-		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface));
 		return;
 	}
 
@@ -2693,7 +2693,7 @@ public:
 				}
 			}
 		}
-		m_ovg->DoCmd(new cOvgCmdFlush(m_surface), true);
+		m_ovg->DoCmd(new cOvgCmdFlush(m_surface));
 	}
 
 	virtual eOsdError SetAreas(const tArea *Areas, int NumAreas)
