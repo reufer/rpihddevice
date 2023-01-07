@@ -20,9 +20,6 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
-#include <vdr/thread.h>
-
-#include "tools.h"
 #include "omx.h"
 
 class cRpiAudioRender;

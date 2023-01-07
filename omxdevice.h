@@ -21,12 +21,7 @@
 #define OMX_DEVICE_H
 
 #include <vdr/device.h>
-
-#include "tools.h"
-
-class cOmx;
-class cRpiAudioDecoder;
-class cMutex;
+#include "audio.h"
 
 class cOmxDevice : cDevice
 {
@@ -175,10 +170,10 @@ private:
 
 	void AdjustLiveSpeed(void);
 
-	cOmx			 *m_omx;
-	cRpiAudioDecoder *m_audio;
-	cMutex			 *m_mutex;
-	cTimeMs 		 *m_timer;
+	cOmx			 m_omx;
+	cRpiAudioDecoder m_audio;
+	cMutex			 m_mutex;
+	cTimeMs 		 m_timer;
 
 	cVideoCodec::eCodec	m_videoCodec;
 
