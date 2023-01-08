@@ -2346,8 +2346,7 @@ public:
 
 		tArea area = { r.Left(), r.Top(), r.Right(), r.Bottom(), 32 };
 
-		for (int i = 0; i < m_pixmaps.Size(); i++)
-			m_pixmaps[i] = NULL;
+		memset(&m_pixmaps[0], 0, m_pixmaps.Size() * sizeof m_pixmaps[0]);
 
 		return cOsd::SetAreas(&area, 1);
 	}
