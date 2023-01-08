@@ -228,11 +228,12 @@ void cOmx::Action(void)
 		{
 			timer.Set(100);
 			Lock();
-			for (int i = BUFFERSTAT_FILTER_SIZE - 1; i > 0; i--)
-			{
-				m_usedAudioBuffers[i] = m_usedAudioBuffers[i - 1];
-				m_usedVideoBuffers[i] = m_usedVideoBuffers[i - 1];
-			}
+			memmove(m_usedAudioBuffers, m_usedAudioBuffers + 1,
+				(sizeof m_usedAudioBuffers) -
+				sizeof *m_usedAudioBuffers);
+			memmove(m_usedVideoBuffers, m_usedVideoBuffers + 1,
+				(sizeof m_usedVideoBuffers) -
+				sizeof *m_usedVideoBuffers);
 			Unlock();
 		}
 	}
@@ -240,20 +241,25 @@ void cOmx::Action(void)
 
 bool cOmx::PollVideo(void)
 {
-	return (m_usedVideoBuffers[0] * 100 / OMX_VIDEO_BUFFERS) < 90;
+	Lock();
+	int used = m_usedVideoBuffers[0];
+	Unlock();
+	return used < OMX_VIDEO_BUFFERS * 9 / 10;
 }
 
 void cOmx::GetBufferUsage(int &audio, int &video)
 {
 	audio = 0;
 	video = 0;
+	Lock();
 	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
 	{
 		audio += m_usedAudioBuffers[i];
 		video += m_usedVideoBuffers[i];
 	}
-	audio = audio / BUFFERSTAT_FILTER_SIZE / OMX_AUDIO_BUFFERS * 100;
-	video = video / BUFFERSTAT_FILTER_SIZE / OMX_VIDEO_BUFFERS * 100;
+	Unlock();
+	audio /= BUFFERSTAT_FILTER_SIZE * OMX_AUDIO_BUFFERS / 100;
+	video /= BUFFERSTAT_FILTER_SIZE * OMX_VIDEO_BUFFERS / 100;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
@@ -1029,8 +1035,7 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 
 	param.nBufferSize = OMX_VIDEO_BUFFERSIZE;
 	param.nBufferCountActual = OMX_VIDEO_BUFFERS;
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-		m_usedVideoBuffers[i] = 0;
+	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -1197,8 +1202,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 
 	param.nBufferSize = OMX_AUDIO_BUFFERSIZE;
 	param.nBufferCountActual = OMX_AUDIO_BUFFERS;
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-		m_usedAudioBuffers[i] = 0;
+	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
