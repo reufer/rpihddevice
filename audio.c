@@ -921,7 +921,6 @@ public:
 		if (!Ready())
 			return 0;
 
-		m_mutex.Lock();
 		int copied = 0;
 
 		if (sampleFormat == AV_SAMPLE_FMT_NONE)
@@ -996,25 +995,21 @@ public:
 			}
 #endif
 		}
-		m_mutex.Unlock();
 		return copied;
 	}
 
 	void Flush(void)
 	{
-		m_mutex.Lock();
 		if (m_running)
 			m_omx->StopAudio();
 		m_configured = false;
 		m_running = false;
 		m_pts = 0;
-		m_mutex.Unlock();
 	}
 
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int channels,
 			unsigned int samplingRate, unsigned int frameSize)
 	{
-		m_mutex.Lock();
 		if (codec != cAudioCodec::eInvalid && channels > 0)
 		{
 			m_inChannels = channels;
@@ -1057,7 +1052,6 @@ public:
 			m_resamplerConfigured = false;
 #endif
 		}
-		m_mutex.Unlock();
 	}
 
 	bool IsPassthrough(void)
@@ -1139,7 +1133,6 @@ private:
 	}
 #endif
 
-	cMutex		        m_mutex;
 	cOmx		        *m_omx;
 
 	cRpiAudioPort::ePort m_port;
