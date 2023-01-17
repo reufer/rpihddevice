@@ -167,7 +167,7 @@ public:
 
 	static void SetHDMIChannelMapping(bool passthrough, int channels);
 
-	static cRpiSetup* GetInstance(void);
+	static cRpiSetup* GetInstance(void) { return &s_instance; }
 	static void DropInstance(void);
 
 	class cMenuSetupPage* GetSetupPage(void);
@@ -181,8 +181,6 @@ public:
 	bool ProcessArgs(int argc, char *argv[]);
 	const char *CommandLineHelp(void);
 
-private:
-
 	cRpiSetup() :
 		m_mpeg2Enabled(false),
 		m_onAudioSetupChanged(0),
@@ -191,10 +189,9 @@ private:
 		m_onVideoSetupChangedData(0)
 	{ }
 
-	virtual ~cRpiSetup() { };
+	static cRpiSetup s_instance;
 
-	static cRpiSetup* s_instance;
-
+private:
 	AudioParameters  m_audio;
 	VideoParameters  m_video;
 	OsdParameters    m_osd;
