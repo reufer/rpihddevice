@@ -43,9 +43,7 @@ protected:
 	virtual void DropImageData(int ImageHandle);
 
 private:
-
-	cOvgThread *m_ovg;
-	static cRpiOsdProvider *s_instance;
+	static cOvgThread *s_ovg;
 };
 
 #endif

@@ -2769,42 +2769,40 @@ private:
 
 /* ------------------------------------------------------------------------- */
 
-cRpiOsdProvider* cRpiOsdProvider::s_instance = 0;
+cOvgThread* cRpiOsdProvider::s_ovg;
 
-cRpiOsdProvider::cRpiOsdProvider(int layer) :
-	cOsdProvider(),
-	m_ovg(0)
+cRpiOsdProvider::cRpiOsdProvider(int layer) : cOsdProvider()
 {
 	DLOG("new cOsdProvider()");
-	m_ovg = new cOvgThread(layer);
-	s_instance = this;
+	s_ovg = new cOvgThread(layer);
 }
 
 cRpiOsdProvider::~cRpiOsdProvider()
 {
 	DLOG("delete cOsdProvider()");
-	s_instance = 0;
-	delete m_ovg;
+	cOvgThread* ovg = s_ovg;
+	s_ovg = NULL;
+	delete ovg;
 }
 
 cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 {
 	if (cRpiSetup::IsHighLevelOsd())
-		return new cOvgOsd(Left, Top, Level, m_ovg);
+		return new cOvgOsd(Left, Top, Level, s_ovg);
 	else
-		return new cOvgRawOsd(Left, Top, Level, m_ovg);
+		return new cOvgRawOsd(Left, Top, Level, s_ovg);
 }
 
 int cRpiOsdProvider::StoreImageData(const cImage &Image)
 {
-	int id = cRpiSetup::IsHighLevelOsd() ? m_ovg->StoreImageData(Image) : 0;
+	int id = cRpiSetup::IsHighLevelOsd() ? s_ovg->StoreImageData(Image) : 0;
 	return id ? id : cOsdProvider::StoreImageData(Image);
 }
 
 void cRpiOsdProvider::DropImageData(int ImageHandle)
 {
 	if (ImageHandle < 0)
-		m_ovg->DropImageData(ImageHandle);
+		s_ovg->DropImageData(ImageHandle);
 	else
 		cOsdProvider::DropImageData(ImageHandle);
 }
@@ -2816,8 +2814,8 @@ const cImage *cRpiOsdProvider::GetImageData(int ImageHandle)
 
 void cRpiOsdProvider::ResetOsd(bool cleanup)
 {
-	if (s_instance)
-		s_instance->m_ovg->DoCmd(new cOvgCmdReset(cleanup));
+	if (s_ovg)
+		s_ovg->DoCmd(new cOvgCmdReset(cleanup));
 
 	UpdateOsdSize(true);
 }
