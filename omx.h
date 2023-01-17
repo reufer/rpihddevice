@@ -22,6 +22,7 @@
 
 #include <vdr/thread.h>
 #include "tools.h"
+#include <queue>
 
 extern "C"
 {
@@ -38,7 +39,6 @@ class cOmx : public cThread
 public:
 
 	cOmx();
-	virtual ~cOmx();
 	int Init(int display, int layer);
 	int DeInit(void);
 
@@ -115,6 +115,22 @@ public:
 	void GetBufferUsage(int &audio, int &video);
 
 private:
+	struct Event
+	{
+		enum eEvent {
+			eShutdown,
+			ePortSettingsChanged,
+			eConfigChanged,
+			eEndOfStream,
+			eBufferEmptied
+		};
+		Event(eEvent _event, int _data)
+			: event(_event), data(_data) { };
+		eEvent event;
+		int data;
+	};
+
+	void Add(const Event& event);
 
 	virtual void Action(void);
 
@@ -154,6 +170,7 @@ private:
 	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
 
+	cMutex m_mutex;
 #define BUFFERSTAT_FILTER_SIZE 64
 
 	int m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
@@ -165,7 +182,8 @@ private:
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
 
-	cOmxEvents *m_portEvents;
+	cCondVar m_portEventsAdded;
+	std::queue<Event> m_portEvents;
 	bool m_handlePortEvents;
 
 	void (*m_onBufferStall)(void*);
@@ -186,7 +204,7 @@ private:
 	static void OnBufferEmpty(void *instance, COMPONENT_T *comp);
 	static void OnPortSettingsChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
 	static void OnEndOfStream(void *instance, COMPONENT_T *comp, OMX_U32 data);
-	static void OnError(void *instance, COMPONENT_T *comp, OMX_U32 data);
+	static void OnError(void *, COMPONENT_T *, OMX_U32 data);
 	static void OnConfigChanged(void *instance, COMPONENT_T *comp, OMX_U32 data);
 
 };

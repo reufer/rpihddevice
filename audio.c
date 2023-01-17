@@ -19,7 +19,6 @@
 
 #include "audio.h"
 #include "setup.h"
-#include "omx.h"
 
 #include <vdr/tools.h>
 #include <vdr/remux.h>
@@ -75,7 +74,6 @@ extern "C" {
 #endif
 }
 
-#include <queue>
 #include <string.h>
 
 #define AVPKT_BUFFER_SIZE (KILOBYTE(256))
