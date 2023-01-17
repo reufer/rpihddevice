@@ -103,11 +103,10 @@ public:
 
 	static cOvgFont *Get(const char *name)
 	{
-		if (!s_fonts)
-			Init();
+		Init();
 
 		cOvgFont *font;
-		for (font = s_fonts->First(); font; font = s_fonts->Next(font))
+		for (font = s_fonts.First(); font; font = s_fonts.Next(font))
 			if (!strcmp(font->Name(), name))
 				return font;
 
@@ -120,7 +119,7 @@ public:
 			{
 				delete font;
 				font = 0;
-				s_fonts->Clear();
+				s_fonts.Clear();
 				if (!retry)
 				{
 					ELOG("[OpenVG] out of memory - failed to load font!");
@@ -130,14 +129,13 @@ public:
 				retry = false;
 			}
 		}
-		s_fonts->Add(font);
+		s_fonts.Add(font);
 		return font;
 	}
 
 	static void CleanUp(void)
 	{
-		delete s_fonts;
-		s_fonts = 0;
+		s_fonts.Clear();
 
 		if (FT_Done_FreeType(s_ftLib))
 			ELOG("failed to deinitialize FreeType library!");
@@ -249,8 +247,7 @@ private:
 
 	static void Init(void)
 	{
-		s_fonts = new cList<cOvgFont>;
-		if (FT_Init_FreeType(&s_ftLib))
+		if (!s_ftLib && FT_Init_FreeType(&s_ftLib))
 			ELOG("failed to initialize FreeType library!");
 	}
 
@@ -370,11 +367,11 @@ private:
 	FT_Face m_face;
 
 	static FT_Library s_ftLib;
-	static cList<cOvgFont> *s_fonts;
+	static cList<cOvgFont> s_fonts;
 };
 
 FT_Library cOvgFont::s_ftLib = 0;
-cList<cOvgFont> *cOvgFont::s_fonts = 0;
+cList<cOvgFont> cOvgFont::s_fonts;
 
 /* ------------------------------------------------------------------------- */
 
