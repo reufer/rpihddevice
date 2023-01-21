@@ -168,30 +168,15 @@ private:
 
 /* ------------------------------------------------------------------------- */
 
-cRpiSetup* cRpiSetup::s_instance = 0;
-
-cRpiSetup* cRpiSetup::GetInstance(void)
-{
-	if (!s_instance)
-		s_instance = new cRpiSetup();
-
-	return s_instance;
-}
+cRpiSetup cRpiSetup::s_instance;
 
 void cRpiSetup::DropInstance(void)
 {
-	delete s_instance;
-	s_instance = 0;
-
 	bcm_host_deinit();
 }
 
 bool cRpiSetup::HwInit(void)
 {
-	cRpiSetup* instance = GetInstance();
-	if (!instance)
-		return false;
-
 	bcm_host_init();
 
 	if (!vc_gencmd_send("codec_enabled MPG2"))
@@ -202,17 +187,24 @@ bool cRpiSetup::HwInit(void)
 			if (!strcasecmp(buffer,"MPG2=enabled"))
 				GetInstance()->m_mpeg2Enabled = true;
 		}
+		else
+			goto fail;
+	}
+	else
+	{
+fail:
+		ELOG("failed to get video port information!");
+		return false;
 	}
 
 	int width, height;
 	if (!cRpiDisplay::GetSize(width, height))
 	{
 		ILOG("HwInit() done, display size is %dx%d", width, height);
+		return true;
 	}
-	else
-		ELOG("failed to get video port information!");
 
-	return true;
+	goto fail;
 }
 
 void cRpiSetup::SetAudioSetupChangedCallback(void (*callback)(void*), void* data)

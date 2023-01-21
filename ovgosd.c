@@ -103,11 +103,10 @@ public:
 
 	static cOvgFont *Get(const char *name)
 	{
-		if (!s_fonts)
-			Init();
+		Init();
 
 		cOvgFont *font;
-		for (font = s_fonts->First(); font; font = s_fonts->Next(font))
+		for (font = s_fonts.First(); font; font = s_fonts.Next(font))
 			if (!strcmp(font->Name(), name))
 				return font;
 
@@ -120,7 +119,7 @@ public:
 			{
 				delete font;
 				font = 0;
-				s_fonts->Clear();
+				s_fonts.Clear();
 				if (!retry)
 				{
 					ELOG("[OpenVG] out of memory - failed to load font!");
@@ -130,14 +129,13 @@ public:
 				retry = false;
 			}
 		}
-		s_fonts->Add(font);
+		s_fonts.Add(font);
 		return font;
 	}
 
 	static void CleanUp(void)
 	{
-		delete s_fonts;
-		s_fonts = 0;
+		s_fonts.Clear();
 
 		if (FT_Done_FreeType(s_ftLib))
 			ELOG("failed to deinitialize FreeType library!");
@@ -249,8 +247,7 @@ private:
 
 	static void Init(void)
 	{
-		s_fonts = new cList<cOvgFont>;
-		if (FT_Init_FreeType(&s_ftLib))
+		if (!s_ftLib && FT_Init_FreeType(&s_ftLib))
 			ELOG("failed to initialize FreeType library!");
 	}
 
@@ -370,11 +367,11 @@ private:
 	FT_Face m_face;
 
 	static FT_Library s_ftLib;
-	static cList<cOvgFont> *s_fonts;
+	static cList<cOvgFont> s_fonts;
 };
 
 FT_Library cOvgFont::s_ftLib = 0;
-cList<cOvgFont> *cOvgFont::s_fonts = 0;
+cList<cOvgFont> cOvgFont::s_fonts;
 
 /* ------------------------------------------------------------------------- */
 
@@ -867,17 +864,17 @@ class cOvgCmdDestroySurface : public cOvgCmd
 {
 public:
 
-	cOvgCmdDestroySurface(cOvgRenderTarget *target) : cOvgCmd(target) { }
+	cOvgCmdDestroySurface(cOvgRenderTarget *&target)
+		: cOvgCmd(target), m_targetRef(target) {}
 
 	virtual const char* Description(void) { return "DestroySurface"; }
 
 	virtual bool Execute(cEgl *egl)
 	{
-		if (!cOvgRenderTarget::MakeDefault(egl))
-			return false;
+		bool ok = cOvgRenderTarget::MakeDefault(egl);
 
 		// only destroy pixel buffer surfaces
-		if (m_target->image != VG_INVALID_HANDLE)
+		if (ok && m_target->image != VG_INVALID_HANDLE)
 		{
 			if (eglDestroySurface(egl->display, m_target->surface) == EGL_FALSE)
 				ELOG("[EGL] failed to destroy surface: %s!",
@@ -886,8 +883,12 @@ public:
 			vgDestroyImage(m_target->image);
 		}
 		delete m_target;
-		return true;
+		m_targetRef = NULL;
+		return ok;
 	}
+
+private:
+	cOvgRenderTarget *&m_targetRef;
 };
 
 class cOvgCmdClear : public cOvgCmd
@@ -1662,15 +1663,24 @@ public:
 			m_images[i].used = false;
 
 		Start();
+
+		m_commandsMutex.Lock();
+		while (!MaxImageSize().Height())
+			m_commandsLoop.Wait(m_commandsMutex);
+		m_commandsMutex.Unlock();
 	}
 
 	virtual ~cOvgThread()
 	{
 		Cancel(-1);
 		DoCmd(new cOvgCmdReset());
+		m_commandsMutex.Lock();
+		while (!m_commands.empty())
+			m_commandsLoop.Wait(m_commandsMutex);
+		m_commandsMutex.Unlock();
 
 		while (Active())
-			cCondWait::SleepMs(50);
+			cCondWait::SleepMs(2);
 	}
 
 	void DoCmd(cOvgCmd* cmd)
@@ -1681,6 +1691,27 @@ public:
 		if (m_commands.empty())
 			m_commandsEmpty.Broadcast();
 		m_commands.push(cmd);
+		m_commandsMutex.Unlock();
+	}
+
+	bool CreateSurface(cOvgRenderTarget *buffer)
+	{
+		DoCmd(new cOvgCmdCreatePixelBuffer(buffer));
+		bool timeout = false;
+		m_commandsMutex.Lock();
+		while (!buffer->initialized &&
+		       !(timeout =
+			 !m_commandsLoop.TimedWait(m_commandsMutex, 10000)));
+		m_commandsMutex.Unlock();
+		return timeout;
+	}
+
+	void DestroySurface(cOvgRenderTarget *&buffer)
+	{
+		DoCmd(new cOvgCmdDestroySurface(buffer));
+		m_commandsMutex.Lock();
+		while (buffer)
+			m_commandsLoop.Wait(m_commandsMutex);
 		m_commandsMutex.Unlock();
 	}
 
@@ -1714,15 +1745,14 @@ public:
 				tOvgImageRef *imageRef = GetImageRef(imageHandle);
 				DoCmd(new cOvgCmdStoreImage(imageRef,
 						image.Width(), image.Height(), argb));
-
-				cTimeMs timer(5000);
-				while (imageRef->used && imageRef->image == VG_INVALID_HANDLE
-						&& !timer.TimedOut())
-					cCondWait::SleepMs(2);
-
+				bool timeout = false;
+				m_commandsMutex.Lock();
+				while (imageRef->used && imageRef->image == VG_INVALID_HANDLE &&
+				       !(timeout = m_commandsLoop.TimedWait(m_commandsMutex, 5000)));
+				m_commandsMutex.Unlock();
 				if (imageRef->image == VG_INVALID_HANDLE)
 				{
-					ELOG("failed to store OSD image! (%s)",	timer.TimedOut() ?
+					ELOG("failed to store OSD image! (%s)",	timeout ?
 							"timed out" : "allocation failed");
 					DropImageData(imageHandle);
 					imageHandle = 0;
@@ -1852,21 +1882,22 @@ protected:
 
 			egl.currentSurface = egl.surface;
 
-			m_maxImageSize.Set(vgGeti(VG_MAX_IMAGE_WIDTH),
-					vgGeti(VG_MAX_IMAGE_HEIGHT));
-
 			float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 			vgSetfv(VG_CLEAR_COLOR, 4, color);
 			vgClear(0, 0, egl.window.width, egl.window.height);
+
+			m_commandsMutex.Lock();
+			m_maxImageSize.Set(vgGeti(VG_MAX_IMAGE_WIDTH),
+					   vgGeti(VG_MAX_IMAGE_HEIGHT));
 
 #ifdef DEBUG_OVGSTAT
 			cTimeMs timer;
 			int commands = 0, flushes = 0;
 #endif
 
-			m_commandsMutex.Lock();
 			for (;;)
 			{
+				m_commandsLoop.Broadcast();
 				if (m_commands.empty())
 				{
 					m_commandsFull.Broadcast();
@@ -1963,6 +1994,7 @@ private:
 	std::queue<cOvgCmd*> m_commands;
 	cMutex m_commandsMutex;
 	cCondVar m_commandsFull;
+	cCondVar m_commandsLoop;
 	cCondVar m_commandsEmpty;
 
 	cCondWait *m_wait;
@@ -1991,7 +2023,7 @@ public:
 	virtual ~cOvgPixmap()
 	{
 		m_ovg->DoCmd(new cOvgCmdDropRegion(m_savedRegion));
-		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_buffer));
+		m_ovg->DestroySurface(m_buffer);
 	}
 
 	virtual void SetAlpha(int Alpha)
@@ -2326,15 +2358,12 @@ public:
 		m_ovg(ovg),
 		m_surface(new cOvgRenderTarget())
 	{
-		cTimeMs timer(10000);
-		while (!m_ovg->MaxImageSize().Height() && !timer.TimedOut())
-			cCondWait::SleepMs(100);
 	}
 
 	virtual ~cOvgOsd()
 	{
 		SetActive(false);
-		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
+		m_ovg->DestroySurface(m_surface);
 	}
 
 	virtual eOsdError SetAreas(const tArea *Areas, int NumAreas)
@@ -2346,8 +2375,7 @@ public:
 
 		tArea area = { r.Left(), r.Top(), r.Right(), r.Bottom(), 32 };
 
-		for (int i = 0; i < m_pixmaps.Size(); i++)
-			m_pixmaps[i] = NULL;
+		memset(&m_pixmaps[0], 0, m_pixmaps.Size() * sizeof m_pixmaps[0]);
 
 		return cOsd::SetAreas(&area, 1);
 	}
@@ -2390,13 +2418,9 @@ public:
 #endif
 		// create pixel buffer and wait until command has been completed
 		cOvgRenderTarget *buffer = new cOvgRenderTarget(width, height);
-		m_ovg->DoCmd(new cOvgCmdCreatePixelBuffer(buffer));
+		bool timeout = m_ovg->CreateSurface(buffer);
 
-		cTimeMs timer(10000);
-		while (!buffer->initialized && !timer.TimedOut())
-			cCondWait::SleepMs(2);
-
-		if (buffer->initialized && buffer->image != VG_INVALID_HANDLE)
+		if (buffer->image != VG_INVALID_HANDLE)
 		{
 			cOvgPixmap *pm = new cOvgPixmap(Layer, m_ovg, buffer,
 					ViewPort, DrawPort);
@@ -2415,8 +2439,8 @@ public:
 		else
 		{
 			ELOG("[OpenVG] failed to create pixmap! (%s)",
-					timer.TimedOut() ? "timed out" : "allocation failed");
-			m_ovg->DoCmd(new cOvgCmdDestroySurface(buffer));
+					timeout ? "timed out" : "allocation failed");
+			m_ovg->DestroySurface(buffer);
 		}
 		return NULL;
 	}
@@ -2634,7 +2658,7 @@ public:
 	virtual ~cOvgRawOsd()
 	{
 		SetActive(false);
-		m_ovg->DoCmd(new cOvgCmdDestroySurface(m_surface));
+		m_ovg->DestroySurface(m_surface);
 	}
 
 	virtual void Flush(void)
@@ -2742,42 +2766,40 @@ private:
 
 /* ------------------------------------------------------------------------- */
 
-cRpiOsdProvider* cRpiOsdProvider::s_instance = 0;
+cOvgThread* cRpiOsdProvider::s_ovg;
 
-cRpiOsdProvider::cRpiOsdProvider(int layer) :
-	cOsdProvider(),
-	m_ovg(0)
+cRpiOsdProvider::cRpiOsdProvider(int layer) : cOsdProvider()
 {
 	DLOG("new cOsdProvider()");
-	m_ovg = new cOvgThread(layer);
-	s_instance = this;
+	s_ovg = new cOvgThread(layer);
 }
 
 cRpiOsdProvider::~cRpiOsdProvider()
 {
 	DLOG("delete cOsdProvider()");
-	s_instance = 0;
-	delete m_ovg;
+	cOvgThread* ovg = s_ovg;
+	s_ovg = NULL;
+	delete ovg;
 }
 
 cOsd *cRpiOsdProvider::CreateOsd(int Left, int Top, uint Level)
 {
 	if (cRpiSetup::IsHighLevelOsd())
-		return new cOvgOsd(Left, Top, Level, m_ovg);
+		return new cOvgOsd(Left, Top, Level, s_ovg);
 	else
-		return new cOvgRawOsd(Left, Top, Level, m_ovg);
+		return new cOvgRawOsd(Left, Top, Level, s_ovg);
 }
 
 int cRpiOsdProvider::StoreImageData(const cImage &Image)
 {
-	int id = cRpiSetup::IsHighLevelOsd() ? m_ovg->StoreImageData(Image) : 0;
+	int id = cRpiSetup::IsHighLevelOsd() ? s_ovg->StoreImageData(Image) : 0;
 	return id ? id : cOsdProvider::StoreImageData(Image);
 }
 
 void cRpiOsdProvider::DropImageData(int ImageHandle)
 {
 	if (ImageHandle < 0)
-		m_ovg->DropImageData(ImageHandle);
+		s_ovg->DropImageData(ImageHandle);
 	else
 		cOsdProvider::DropImageData(ImageHandle);
 }
@@ -2789,8 +2811,8 @@ const cImage *cRpiOsdProvider::GetImageData(int ImageHandle)
 
 void cRpiOsdProvider::ResetOsd(bool cleanup)
 {
-	if (s_instance)
-		s_instance->m_ovg->DoCmd(new cOvgCmdReset(cleanup));
+	if (s_ovg)
+		s_ovg->DoCmd(new cOvgCmdReset(cleanup));
 
 	UpdateOsdSize(true);
 }

@@ -19,7 +19,6 @@
 
 #include "audio.h"
 #include "setup.h"
-#include "omx.h"
 
 #include <vdr/tools.h>
 #include <vdr/remux.h>
@@ -75,7 +74,6 @@ extern "C" {
 #endif
 }
 
-#include <queue>
 #include <string.h>
 
 #define AVPKT_BUFFER_SIZE (KILOBYTE(256))
@@ -101,29 +99,25 @@ public:
 
 	cAudioCodec::eCodec GetCodec(void)
 	{
-		if (!m_parsed)
-			Parse();
+		Parse();
 		return m_codec;
 	}
 
 	unsigned int GetChannels(void)
 	{
-		if (!m_parsed)
-			Parse();
+		Parse();
 		return m_channels;
 	}
 
 	unsigned int GetSamplingRate(void)
 	{
-		if (!m_parsed)
-			Parse();
+		Parse();
 		return m_samplingRate;
 	}
 
 	unsigned int GetFrameSize(void)
 	{
-		if (!m_parsed)
-			Parse();
+		Parse();
 		return m_packet.size;
 	}
 
@@ -146,8 +140,7 @@ public:
 
 	bool Empty(void)
 	{
-		if (!m_parsed)
-			Parse();
+		Parse();
 		return m_packet.size == 0;
 	}
 
@@ -244,7 +237,7 @@ public:
 
 		m_mutex.Unlock();
 	}
-	
+
 private:
 
 	cParser(const cParser&);
@@ -260,13 +253,15 @@ private:
 
 	void Parse()
 	{
-		m_mutex.Lock();
-
 		cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
 		unsigned int channels = 0;
 		unsigned int offset = 0;
 		unsigned int frameSize = 0;
 		unsigned int samplingRate = 0;
+
+		m_mutex.Lock();
+		if (m_parsed)
+			goto done;
 
 		while (m_size - offset >= 4)
 		{
@@ -352,8 +347,9 @@ private:
 		else
 			m_packet.size = 0;
 
-		m_mutex.Unlock();
 		m_parsed = true;
+	done:
+		m_mutex.Unlock();
 	}
 
 	struct Pts
@@ -923,7 +919,6 @@ public:
 		if (!Ready())
 			return 0;
 
-		m_mutex.Lock();
 		int copied = 0;
 
 		if (sampleFormat == AV_SAMPLE_FMT_NONE)
@@ -998,25 +993,21 @@ public:
 			}
 #endif
 		}
-		m_mutex.Unlock();
 		return copied;
 	}
 
 	void Flush(void)
 	{
-		m_mutex.Lock();
 		if (m_running)
 			m_omx->StopAudio();
 		m_configured = false;
 		m_running = false;
 		m_pts = 0;
-		m_mutex.Unlock();
 	}
 
 	void SetCodec(cAudioCodec::eCodec codec, unsigned int channels,
 			unsigned int samplingRate, unsigned int frameSize)
 	{
-		m_mutex.Lock();
 		if (codec != cAudioCodec::eInvalid && channels > 0)
 		{
 			m_inChannels = channels;
@@ -1059,7 +1050,6 @@ public:
 			m_resamplerConfigured = false;
 #endif
 		}
-		m_mutex.Unlock();
 	}
 
 	bool IsPassthrough(void)
@@ -1141,7 +1131,6 @@ private:
 	}
 #endif
 
-	cMutex		        m_mutex;
 	cOmx		        *m_omx;
 
 	cRpiAudioPort::ePort m_port;
