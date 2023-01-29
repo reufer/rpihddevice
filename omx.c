@@ -168,12 +168,16 @@ timeout:
 		if (timer.TimedOut())
 		{
 			timer.Set(100);
+			m_mutex.Unlock();
+			Lock();
 			memmove(m_usedAudioBuffers, m_usedAudioBuffers + 1,
 				(sizeof m_usedAudioBuffers) -
 				sizeof *m_usedAudioBuffers);
 			memmove(m_usedVideoBuffers, m_usedVideoBuffers + 1,
 				(sizeof m_usedVideoBuffers) -
 				sizeof *m_usedVideoBuffers);
+			Unlock();
+			m_mutex.Lock();
 		}
 	}
 	m_mutex.Unlock();
@@ -181,9 +185,9 @@ timeout:
 
 bool cOmx::PollVideo(void)
 {
-	m_mutex.Lock();
+	Lock();
 	int used = m_usedVideoBuffers[0];
-	m_mutex.Unlock();
+	Unlock();
 	return used < OMX_VIDEO_BUFFERS * 9 / 10;
 }
 
@@ -191,44 +195,46 @@ void cOmx::GetBufferUsage(int &audio, int &video)
 {
 	audio = 0;
 	video = 0;
-	m_mutex.Lock();
+	Lock();
 	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
 	{
 		audio += m_usedAudioBuffers[i];
 		video += m_usedVideoBuffers[i];
 	}
-	m_mutex.Unlock();
+	Unlock();
 	audio /= BUFFERSTAT_FILTER_SIZE * OMX_AUDIO_BUFFERS / 100;
 	video /= BUFFERSTAT_FILTER_SIZE * OMX_VIDEO_BUFFERS / 100;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
 {
-	m_mutex.Lock();
-
+	int* buf;
 	switch (component)
 	{
 	case eVideoDecoder:
-		m_usedVideoBuffers[0]--;
+		buf = &m_usedVideoBuffers[0];
 		break;
 
 	case eAudioRender:
-		m_usedAudioBuffers[0]--;
+		buf = &m_usedAudioBuffers[0];
 		break;
 
 	default:
 		ELOG("HandlePortBufferEmptied: invalid component!");
-		break;
+		return;
 	}
-	m_mutex.Unlock();
+	Lock();
+	--*buf;
+	Unlock();
 }
 
 void cOmx::HandlePortSettingsChanged(unsigned int portId)
 {
-	if (!m_handlePortEvents)
-		return;
-
 	Lock();
+
+	if (!m_handlePortEvents)
+		goto done;
+
 	DBG("HandlePortSettingsChanged(%d)", portId);
 
 	switch (portId)
@@ -349,6 +355,7 @@ void cOmx::HandlePortSettingsChanged(unsigned int portId)
 		break;
 	}
 
+done:
 	Unlock();
 }
 
@@ -626,6 +633,8 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio, int preRollMs)
 	cstate.eState = OMX_TIME_ClockStateRunning;
 	cstate.nOffset = ToOmxTicks(-1000LL * preRollMs);
 
+	Lock();
+
 	if (waitForVideo)
 	{
 		cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
@@ -642,6 +651,8 @@ void cOmx::StartClock(bool waitForVideo, bool waitForAudio, int preRollMs)
 	if (OMX_SetConfig(ILC_GET_HANDLE(m_comp[eClock]),
 			OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
 		ELOG("failed to start clock!");
+
+	Unlock();
 }
 
 void cOmx::StopClock(void)
@@ -658,6 +669,8 @@ void cOmx::StopClock(void)
 
 void cOmx::SetClockScale(OMX_S32 scale)
 {
+	// This is protected by cOmxDevice::m_mutex
+
 	if (scale != m_clockScale)
 	{
 		OMX_TIME_CONFIG_SCALETYPE scaleType;
@@ -715,6 +728,8 @@ unsigned int cOmx::GetAudioLatency(void)
 
 void cOmx::SetClockReference(eClockReference clockReference)
 {
+	Lock();
+
 	if (m_clockReference != clockReference)
 	{
 		OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE refClock;
@@ -734,6 +749,8 @@ void cOmx::SetClockReference(eClockReference clockReference)
 
 		m_clockReference = clockReference;
 	}
+
+	Unlock();
 }
 
 void cOmx::SetClockLatencyTarget(void)
@@ -909,10 +926,8 @@ void cOmx::SetVideoErrorConcealment(bool startWithValidFrame)
 		ELOG("failed to set video decode error concealment failed\n");
 }
 
-void cOmx::FlushAudio(void)
+inline void cOmx::FlushAudio(void)
 {
-	Lock();
-
 	if (OMX_SendCommand(ILC_GET_HANDLE(m_comp[eAudioRender]), OMX_CommandFlush, 100, NULL) != OMX_ErrorNone)
 		ELOG("failed to flush audio render!");
 
@@ -921,7 +936,6 @@ void cOmx::FlushAudio(void)
 		VCOS_EVENT_FLAGS_SUSPEND);
 
 	ilclient_flush_tunnels(&m_tun[eClockToAudioRender], 1);
-	Unlock();
 }
 
 void cOmx::FlushVideo(bool flushRender)
@@ -1019,8 +1033,6 @@ void cOmx::SetVideoDecoderExtraBuffers(int extraBuffers)
 int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		cRpiAudioPort::ePort audioPort, int samplingRate, int frameSize)
 {
-	Lock();
-
 	OMX_AUDIO_PARAM_PORTFORMATTYPE format;
 	OMX_INIT_STRUCT(format);
 	format.nPortIndex = 100;
@@ -1036,6 +1048,8 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 		outputFormat == cAudioCodec::eAAC  ? OMX_AUDIO_CodingAAC :
 		outputFormat == cAudioCodec::eDTS  ? OMX_AUDIO_CodingDTS :
 				OMX_AUDIO_CodingAutoDetect;
+
+	Lock();
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexParamAudioPortFormat, &format) != OMX_ErrorNone)
@@ -1337,14 +1351,13 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 	if (!buf)
 		return false;
 
-	Lock();
-	bool ret = true;
 #ifdef DEBUG_BUFFERS
 	DumpBuffer(buf, "A");
 #endif
+	Lock();
+	OMX_ERRORTYPE o = OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eAudioRender]), buf);
 
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eAudioRender]), buf)
-			!= OMX_ErrorNone)
+	if (o != OMX_ErrorNone)
 	{
 		ELOG("failed to empty OMX audio buffer");
 
@@ -1357,10 +1370,9 @@ bool cOmx::EmptyAudioBuffer(OMX_BUFFERHEADERTYPE *buf)
 		buf->nFilledLen = 0;
 		buf->pAppPrivate = m_spareAudioBuffers;
 		m_spareAudioBuffers = buf;
-		ret = false;
 	}
 	Unlock();
-	return ret;
+	return o == OMX_ErrorNone;
 }
 
 bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
@@ -1368,14 +1380,13 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 	if (!buf)
 		return false;
 
-	Lock();
-	bool ret = true;
 #ifdef DEBUG_BUFFERS
 	DumpBuffer(buf, "V");
 #endif
+	Lock();
+	OMX_ERRORTYPE o = OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf);
 
-	if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(m_comp[eVideoDecoder]), buf)
-			!= OMX_ErrorNone)
+	if (o != OMX_ErrorNone)
 	{
 		ELOG("failed to empty OMX video buffer");
 
@@ -1385,8 +1396,7 @@ bool cOmx::EmptyVideoBuffer(OMX_BUFFERHEADERTYPE *buf)
 		buf->nFilledLen = 0;
 		buf->pAppPrivate = m_spareVideoBuffers;
 		m_spareVideoBuffers = buf;
-		ret = false;
 	}
 	Unlock();
-	return ret;
+	return o == OMX_ErrorNone;
 }
