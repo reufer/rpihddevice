@@ -88,6 +88,10 @@ cOmxDevice::~cOmxDevice()
 
 int cOmxDevice::Init(void)
 {
+	m_omx.SetBufferStallCallback(&OnBufferStall, this);
+	m_omx.SetEndOfStreamCallback(&OnEndOfStream, this);
+	m_omx.SetStreamStartCallback(&OnStreamStart, this);
+
 	if (m_omx.Init(m_display, m_layer) < 0)
 	{
 		ELOG("failed to initialize OMX!");
@@ -98,10 +102,6 @@ int cOmxDevice::Init(void)
 		ELOG("failed to initialize audio!");
 		return -1;
 	}
-	m_omx.SetBufferStallCallback(&OnBufferStall, this);
-	m_omx.SetEndOfStreamCallback(&OnEndOfStream, this);
-	m_omx.SetStreamStartCallback(&OnStreamStart, this);
-
 	cRpiSetup::SetVideoSetupChangedCallback(&OnVideoSetupChanged, this);
 
 	return 0;
@@ -329,7 +329,6 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 				pts != OMX_INVALID_PTS ? m_audioPts : OMX_INVALID_PTS))
 			ret = 0;
 	}
-	m_mutex.Unlock();
 
 	if (Transferring() && !ret)
 		DBG("failed to write %d bytes of audio packet!", Length);
@@ -337,6 +336,7 @@ int cOmxDevice::PlayAudio(const uchar *Data, int Length, uchar Id)
 	if (ret && Transferring())
 		AdjustLiveSpeed();
 
+	m_mutex.Unlock();
 	return ret;
 }
 
@@ -438,7 +438,6 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 			pts = OMX_INVALID_PTS;
 		}
 	}
-	m_mutex.Unlock();
 
 	if (Transferring() && !ret)
 		DBG("failed to write %d bytes of video packet!", Length);
@@ -446,6 +445,7 @@ int cOmxDevice::PlayVideo(const uchar *Data, int Length, bool EndOfFrame)
 	if (ret && Transferring())
 		AdjustLiveSpeed();
 
+	m_mutex.Unlock();
 	return ret;
 }
 

@@ -87,7 +87,9 @@ public:
 	void SetVideoErrorConcealment(bool startWithValidFrame);
 	void SetVideoDecoderExtraBuffers(int extraBuffers);
 
-	void FlushAudio(void);
+private:
+	inline void FlushAudio(void);
+public:
 	void FlushVideo(bool flushRender = false);
 
 	int SetVideoCodec(cVideoCodec::eCodec codec);
@@ -96,6 +98,7 @@ public:
 			int samplingRate = 0, int frameSize = 0);
 
 	const cVideoFrameFormat *GetVideoFrameFormat(void) {
+		// FIXME: This is being accessed without holding any mutex!
 		return &m_videoFrameFormat;
 	}
 
@@ -164,34 +167,38 @@ private:
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
+	/* Updated by Action() thread;
+	read by callers of GetVideoFrameFormat() (without holding a mutex!) */
 	cVideoFrameFormat m_videoFrameFormat;
 
+	/* The following fields are protected by cThread::mutex */
 	bool m_setAudioStartTime;
 	bool m_setVideoStartTime;
 	bool m_setVideoDiscontinuity;
-
-	cMutex m_mutex;
 #define BUFFERSTAT_FILTER_SIZE 64
-
 	int m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
 	int m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
 
 	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
 	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers;
-
 	eClockReference	m_clockReference;
 	OMX_S32 m_clockScale;
+	bool m_handlePortEvents;
+
+	cMutex m_mutex;
 
 	cCondVar m_portEventsAdded;
 	std::queue<Event> m_portEvents;
-	bool m_handlePortEvents;
 
+	/** pointer to cOmxDevice::OnBufferStall(); constant after Init() */
 	void (*m_onBufferStall)(void*);
 	void *m_onBufferStallData;
 
+	/** pointer to cOmxDevice::OnEndOfStream(); constant after Init() */
 	void (*m_onEndOfStream)(void*);
 	void *m_onEndOfStreamData;
 
+	/** pointer to cOmxDevice::OnStreamStart(); constant after Init() */
 	void (*m_onStreamStart)(void*);
 	void *m_onStreamStartData;
 
