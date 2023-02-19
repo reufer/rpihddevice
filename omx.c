@@ -123,7 +123,7 @@ void cOmx::Action(void)
 	while (Running())
 	{
 		while (m_portEvents.empty())
-			if (m_portEventsAdded.TimedWait(m_mutex, 10))
+			if (!m_portEventsAdded.TimedWait(m_mutex, 10))
 				goto timeout;
 
 		{
@@ -168,64 +168,49 @@ timeout:
 		if (timer.TimedOut())
 		{
 			timer.Set(100);
-			m_mutex.Unlock();
-			Lock();
-			memmove(m_usedAudioBuffers, m_usedAudioBuffers + 1,
-				(sizeof m_usedAudioBuffers) -
-				sizeof *m_usedAudioBuffers);
-			memmove(m_usedVideoBuffers, m_usedVideoBuffers + 1,
-				(sizeof m_usedVideoBuffers) -
-				sizeof *m_usedVideoBuffers);
-			Unlock();
-			m_mutex.Lock();
+			m_bufferStat.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
 	m_mutex.Unlock();
 }
 
-bool cOmx::PollVideo(void)
+bool cOmx::PollVideo(void) const
 {
-	Lock();
-	int used = m_usedVideoBuffers[0];
-	Unlock();
+	unsigned i = GetCurrentStat();
+	int16_t used = m_usedVideoBuffers[i].load(std::memory_order_relaxed);
 	return used < OMX_VIDEO_BUFFERS * 9 / 10;
 }
 
-void cOmx::GetBufferUsage(int &audio, int &video)
+void cOmx::GetBufferUsage(int &audio, int &video) const
 {
 	audio = 0;
 	video = 0;
-	Lock();
-	for (size_t i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
-	{
-		audio += m_usedAudioBuffers[i];
-		video += m_usedVideoBuffers[i];
-	}
-	Unlock();
+	for (unsigned i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		audio += m_usedAudioBuffers[i].load(std::memory_order_relaxed);
+	for (unsigned i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+		video += m_usedVideoBuffers[i].load(std::memory_order_relaxed);
 	audio /= BUFFERSTAT_FILTER_SIZE * OMX_AUDIO_BUFFERS / 100;
 	video /= BUFFERSTAT_FILTER_SIZE * OMX_VIDEO_BUFFERS / 100;
 }
 
 void cOmx::HandlePortBufferEmptied(eOmxComponent component)
 {
-	int* buf;
+	std::atomic<int16_t> *buf;
 	switch (component)
 	{
 	case eVideoDecoder:
-		buf = &m_usedVideoBuffers[0];
+		buf = m_usedVideoBuffers;
 		break;
 
 	case eAudioRender:
-		buf = &m_usedAudioBuffers[0];
+		buf = m_usedAudioBuffers;
 		break;
 
 	default:
 		ELOG("HandlePortBufferEmptied: invalid component!");
 		return;
 	}
-	Lock();
-	--*buf;
-	Unlock();
+	buf[GetCurrentStat()].fetch_sub(1, std::memory_order_relaxed);
 }
 
 void cOmx::HandlePortSettingsChanged(unsigned int portId)
@@ -1220,8 +1205,8 @@ void cOmx::SetDisplay(int display, int layer)
 
 OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(int64_t pts)
 {
-	Lock();
 	OMX_BUFFERHEADERTYPE* buf = 0;
+	Lock();
 	if (m_spareAudioBuffers)
 	{
 		buf = m_spareAudioBuffers;
@@ -1233,7 +1218,7 @@ OMX_BUFFERHEADERTYPE* cOmx::GetAudioBuffer(int64_t pts)
 	{
 		buf = ilclient_get_input_buffer(m_comp[eAudioRender], 100, 0);
 		if (buf)
-			m_usedAudioBuffers[0]++;
+			m_usedAudioBuffers[GetCurrentStat()].fetch_add(1, std::memory_order_relaxed);
 	}
 
 	if (buf)
@@ -1270,7 +1255,7 @@ OMX_BUFFERHEADERTYPE* cOmx::GetVideoBuffer(int64_t pts)
 	{
 		buf = ilclient_get_input_buffer(m_comp[eVideoDecoder], 130, 0);
 		if (buf)
-			m_usedVideoBuffers[0]++;
+			m_usedVideoBuffers[GetCurrentStat()].fetch_add(1, std::memory_order_relaxed);
 	}
 
 	if (buf)
