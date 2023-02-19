@@ -163,7 +163,7 @@ private:
 		eNumTunnels
 	};
 
-	ILCLIENT_T 	*m_client;
+	ILCLIENT_T 	*m_client = nullptr;
 	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
 	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
 
@@ -172,18 +172,18 @@ private:
 	cVideoFrameFormat m_videoFrameFormat;
 
 	/* The following fields are protected by cThread::mutex */
-	bool m_setAudioStartTime;
-	bool m_setVideoStartTime;
-	bool m_setVideoDiscontinuity;
-#define BUFFERSTAT_FILTER_SIZE 64
+	bool m_setAudioStartTime = false;
+	bool m_setVideoStartTime = false;
+	bool m_setVideoDiscontinuity = false;
+	static constexpr size_t BUFFERSTAT_FILTER_SIZE = 64;
 	int m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
 	int m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
 
-	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers;
-	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers;
-	eClockReference	m_clockReference;
-	OMX_S32 m_clockScale;
-	bool m_handlePortEvents;
+	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers = nullptr;
+	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers = nullptr;
+	eClockReference	m_clockReference = eClockRefNone;
+	OMX_S32 m_clockScale = 0;
+	bool m_handlePortEvents = false;
 
 	cMutex m_mutex;
 
@@ -191,16 +191,16 @@ private:
 	std::queue<Event> m_portEvents;
 
 	/** pointer to cOmxDevice::OnBufferStall(); constant after Init() */
-	void (*m_onBufferStall)(void*);
-	void *m_onBufferStallData;
+	void (*m_onBufferStall)(void*) = nullptr;
+	void *m_onBufferStallData = nullptr;
 
 	/** pointer to cOmxDevice::OnEndOfStream(); constant after Init() */
-	void (*m_onEndOfStream)(void*);
-	void *m_onEndOfStreamData;
+	void (*m_onEndOfStream)(void*) = nullptr;
+	void *m_onEndOfStreamData = nullptr;
 
 	/** pointer to cOmxDevice::OnStreamStart(); constant after Init() */
-	void (*m_onStreamStart)(void*);
-	void *m_onStreamStartData;
+	void (*m_onStreamStart)(void*) = nullptr;
+	void *m_onStreamStartData = nullptr;
 
 	void HandlePortBufferEmptied(eOmxComponent component);
 	void HandlePortSettingsChanged(unsigned int portId);

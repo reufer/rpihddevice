@@ -196,7 +196,7 @@ void cOmx::GetBufferUsage(int &audio, int &video)
 	audio = 0;
 	video = 0;
 	Lock();
-	for (int i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
+	for (size_t i = 0; i < BUFFERSTAT_FILTER_SIZE; i++)
 	{
 		audio += m_usedAudioBuffers[i];
 		video += m_usedVideoBuffers[i];
@@ -400,34 +400,12 @@ void cOmx::OnError(void *, COMPONENT_T *, OMX_U32 data)
 		ELOG("OmxError(%s)", errStr((int)data));
 }
 
-cOmx::cOmx() :
-	cThread(),
-	m_client(NULL),
-	m_setAudioStartTime(false),
-	m_setVideoStartTime(false),
-	m_setVideoDiscontinuity(false),
-	m_spareAudioBuffers(0),
-	m_spareVideoBuffers(0),
-	m_clockReference(eClockRefNone),
-	m_clockScale(0),
-	m_portEvents(),
-	m_handlePortEvents(false),
-	m_onBufferStall(0),
-	m_onBufferStallData(0),
-	m_onEndOfStream(0),
-	m_onEndOfStreamData(0),
-	m_onStreamStart(0),
-	m_onStreamStartData(0)
+cOmx::cOmx()
 {
 	memset(m_tun, 0, sizeof(m_tun));
 	memset(m_comp, 0, sizeof(m_comp));
 	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
 	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
-
-	m_videoFrameFormat.width = 0;
-	m_videoFrameFormat.height = 0;
-	m_videoFrameFormat.frameRate = 0;
-	m_videoFrameFormat.scanMode = cScanMode::eProgressive;
 }
 
 int cOmx::Init(int display, int layer)
