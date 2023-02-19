@@ -22,6 +22,7 @@
 #include "setup.h"
 
 #include <vdr/tools.h>
+#include <sys/time.h>
 
 #include "bcm_host.h"
 
@@ -118,18 +119,37 @@ const char* cOmx::errStr(int err)
 
 void cOmx::Action(void)
 {
-	cTimeMs timer;
-	m_mutex.Lock();
+	timespec abstime;
+	{
+		timeval now;
+		gettimeofday(&now, nullptr);
+		abstime.tv_sec = now.tv_sec;
+		abstime.tv_nsec = now.tv_usec * 1000;
+	}
+	pthread_mutex_lock(&m_mutex);
+timeout_in_100ms:
+	abstime.tv_nsec += 100000000;
+	if (abstime.tv_nsec >= 1000000000)
+	{
+		abstime.tv_nsec -= 1000000000;
+		abstime.tv_sec++;
+	}
 	while (Running())
 	{
 		while (m_portEvents.empty())
-			if (!m_portEventsAdded.TimedWait(m_mutex, 10))
-				goto timeout;
+		{
+			if (pthread_cond_timedwait(&m_portEventsAdded,
+						   &m_mutex, &abstime))
+			{
+				m_bufferStat.fetch_add(1, std::memory_order_relaxed);
+				goto timeout_in_100ms;
+			}
+		}
 
 		{
 			const Event event = m_portEvents.front();
 			m_portEvents.pop();
-			m_mutex.Unlock();
+			pthread_mutex_unlock(&m_mutex);
 
 			switch (event.event)
 			{
@@ -161,17 +181,10 @@ void cOmx::Action(void)
 				HandlePortBufferEmptied((eOmxComponent)event.data);
 			}
 
-			m_mutex.Lock();
-		}
-
-timeout:
-		if (timer.TimedOut())
-		{
-			timer.Set(100);
-			m_bufferStat.fetch_add(1, std::memory_order_relaxed);
+			pthread_mutex_lock(&m_mutex);
 		}
 	}
-	m_mutex.Unlock();
+	pthread_mutex_unlock(&m_mutex);
 }
 
 bool cOmx::PollVideo(void) const
@@ -346,10 +359,10 @@ done:
 
 void cOmx::Add(const cOmx::Event& event)
 {
-	m_mutex.Lock();
-	m_portEventsAdded.Broadcast();
+	pthread_mutex_lock(&m_mutex);
+	pthread_cond_signal(&m_portEventsAdded);
 	m_portEvents.emplace(event);
-	m_mutex.Unlock();
+	pthread_mutex_unlock(&m_mutex);
 }
 
 void cOmx::OnBufferEmpty(void *instance, COMPONENT_T *comp)

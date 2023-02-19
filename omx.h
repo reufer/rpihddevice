@@ -187,9 +187,9 @@ private:
 	OMX_S32 m_clockScale = 0;
 	bool m_handlePortEvents = false;
 
-	cMutex m_mutex;
+	pthread_mutex_t m_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-	cCondVar m_portEventsAdded;
+	pthread_cond_t m_portEventsAdded = PTHREAD_COND_INITIALIZER;
 	std::queue<Event> m_portEvents;
 
 	/** pointer to cOmxDevice::OnBufferStall(); constant after Init() */
