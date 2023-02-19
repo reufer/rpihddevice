@@ -186,11 +186,7 @@ public:
 			memcpy(m_packet.data + m_size, data, length);
 			m_size += length;
 			memset(m_packet.data + m_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-#if __cplusplus >= 201101L
 			m_ptsQueue.emplace(Pts(pts, length));
-#else
-			m_ptsQueue.push(Pts(pts, length));
-#endif
 
 			m_parsed = false;
 		}

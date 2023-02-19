@@ -363,7 +363,7 @@ void cOmx::Add(const cOmx::Event& event)
 {
 	m_mutex.Lock();
 	m_portEventsAdded.Broadcast();
-	m_portEvents.push(event);
+	m_portEvents.emplace(event);
 	m_mutex.Unlock();
 }
 

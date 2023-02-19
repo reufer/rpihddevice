@@ -295,6 +295,7 @@ private:
 		{
 			short nextContour = *contour + 1;
 			bool firstTag = true;
+			VGubyte segment = VG_MOVE_TO;
 			char lastTag = 0;
 			short firstPoint = point;
 
@@ -303,48 +304,47 @@ private:
 				char tag = tags[point];
 				FT_Vector fpoint = points[point];
 				if (firstTag)
-				{
-					segments.push_back(VG_MOVE_TO);
 					firstTag = false;
-				}
 				else if (tag & 0x1)
 				{
 					if (lastTag & 0x1)
-						segments.push_back(VG_LINE_TO);
+						segment = VG_LINE_TO;
 					else if (lastTag & 0x2)
-						segments.push_back(VG_CUBIC_TO);
+						segment = VG_CUBIC_TO;
 					else
-						segments.push_back(VG_QUAD_TO);
+						segment = VG_QUAD_TO;
 				}
 				else
 				{
 					if (!(tag & 0x2) && !(lastTag & 0x1))
 					{
-						segments.push_back(VG_QUAD_TO);
+						segment = VG_QUAD_TO;
 						int coord_size = coord.size();
 
 						VGshort x = (coord[coord_size-2] + fpoint.x) >> 1;
 						VGshort y = (coord[coord_size-1] + fpoint.y) >> 1;
 
-						coord.push_back(x);
-						coord.push_back(y);
+						coord.emplace_back(x);
+						coord.emplace_back(y);
 					}
+					else
+						goto skip_segment;
 				}
+				segments.emplace_back(segment);
+			skip_segment:
 				lastTag = tag;
-				coord.push_back(fpoint.x);
-				coord.push_back(fpoint.y);
+				coord.emplace_back(fpoint.x);
+				coord.emplace_back(fpoint.y);
 			}
 			if (!(lastTag & 0x1))
 			{
-				if (lastTag & 0x2)
-					segments.push_back(VG_CUBIC_TO);
-				else
-					segments.push_back(VG_QUAD_TO);
-
-				coord.push_back(points[firstPoint].x);
-				coord.push_back(points[firstPoint].y);
+				segments.emplace_back(lastTag & 0x2
+						      ? VG_CUBIC_TO
+						      : VG_QUAD_TO);
+				coord.emplace_back(points[firstPoint].x);
+				coord.emplace_back(points[firstPoint].y);
 			}
-			segments.push_back(VG_CLOSE_PATH);
+			segments.emplace_back(VG_CLOSE_PATH);
 		}
 
 		VGPath path = vgCreatePath(VG_PATH_FORMAT_STANDARD,
@@ -391,13 +391,13 @@ public:
 				if (prevSym)
 				{
 					kerning = m_font->Kerning(g, prevSym);
-					m_kerning.push_back(kerning);
+					m_kerning.emplace_back(kerning);
 				}
 				m_width += g->AdvanceX() + kerning;
-				m_glyphIds.push_back(symbols[i]);
+				m_glyphIds.emplace_back(symbols[i]);
 				prevSym = symbols[i];
 			}
-		m_kerning.push_back(0.0f);
+		m_kerning.emplace_back(0.0f);
 	}
 
 	~cOvgString() { }
@@ -1690,7 +1690,7 @@ public:
 			m_commandsFull.Wait(m_commandsMutex);
 		if (m_commands.empty())
 			m_commandsEmpty.Broadcast();
-		m_commands.push(cmd);
+		m_commands.emplace(cmd);
 		m_commandsMutex.Unlock();
 	}
 
