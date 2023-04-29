@@ -203,16 +203,12 @@ public:
 class cVideoFrameFormat
 {
 public:
-
-	cVideoFrameFormat() : width(0), height(0), frameRate(0),
-		scanMode(cScanMode::eProgressive), pixelWidth(0), pixelHeight(0) { };
-
-	int width;
-	int height;
-	int frameRate;
-	cScanMode::eMode scanMode;
-	int pixelWidth;
-	int pixelHeight;
+	int width = 0;
+	int height = 0;
+	int frameRate = 0;
+	cScanMode::eMode scanMode = cScanMode::eProgressive;
+	int pixelWidth = 0;
+	int pixelHeight = 0;
 
 	bool Interlaced(void) const {
 		return cScanMode::Interlaced(scanMode);
@@ -224,6 +220,7 @@ class cRational
 public:
 
 	cRational(double d);
+	cRational() = delete;
 	cRational(int _num, int _den) : num(_num), den(_den) { }
 
 	bool Reduce(int max);
@@ -233,7 +230,6 @@ public:
 
 private:
 
-	cRational();
 	static int Gcd(int u, int v);
 };
 
