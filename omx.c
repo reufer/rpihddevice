@@ -398,14 +398,6 @@ void cOmx::OnError(void *, COMPONENT_T *, OMX_U32 data)
 		ELOG("OmxError(%s)", errStr((int)data));
 }
 
-cOmx::cOmx()
-{
-	memset(m_tun, 0, sizeof(m_tun));
-	memset(m_comp, 0, sizeof(m_comp));
-	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
-	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
-}
-
 int cOmx::Init(int display, int layer)
 {
 	m_client = ilclient_init();
@@ -966,7 +958,7 @@ int cOmx::SetVideoCodec(cVideoCodec::eCodec codec)
 
 	param.nBufferSize = OMX_VIDEO_BUFFERSIZE;
 	param.nBufferCountActual = OMX_VIDEO_BUFFERS;
-	memset(m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
+	memset((void*) m_usedVideoBuffers, 0, sizeof m_usedVideoBuffers);
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eVideoDecoder]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
@@ -1133,7 +1125,7 @@ int cOmx::SetupAudioRender(cAudioCodec::eCodec outputFormat, int channels,
 
 	param.nBufferSize = OMX_AUDIO_BUFFERSIZE;
 	param.nBufferCountActual = OMX_AUDIO_BUFFERS;
-	memset(m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
+	memset((void*) m_usedAudioBuffers, 0, sizeof m_usedAudioBuffers);
 
 	if (OMX_SetParameter(ILC_GET_HANDLE(m_comp[eAudioRender]),
 			OMX_IndexParamPortDefinition, &param) != OMX_ErrorNone)
