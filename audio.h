@@ -54,8 +54,8 @@ protected:
 
 	struct Codec
 	{
-		class AVCodec		 *codec;
-	    class AVCodecContext *context;
+		const class AVCodec	*codec;
+		class AVCodecContext	*context;
 	};
 
 private:

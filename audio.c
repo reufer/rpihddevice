@@ -51,6 +51,17 @@ extern "C" {
 		avresample_convert(ctx, dst, 0, out_cnt, (uint8_t**)src, 0, in_cnt)
 #endif
 
+#if LIBAVCODEC_VERSION_MAJOR > 58
+#  define avcodec_register_all()
+#endif
+#if LIBAVCODEC_VERSION_MAJOR == 58 && LIBAVCODEC_VERSION_MINOR > 9
+#  define avcodec_register_all()
+#endif
+
+#if LIBAVCODEC_VERSION_MAJOR < 56
+#  define av_packet_unref      av_free_packet
+#endif
+
 // legacy libavcodec
 #if LIBAVCODEC_VERSION_MAJOR < 55
 #  define av_frame_alloc       avcodec_alloc_frame
@@ -156,7 +167,7 @@ public:
 
 	int DeInit(void)
 	{
-		av_free_packet(&m_packet);
+		av_packet_unref(&m_packet);
 		return 0;
 	}
 
@@ -1297,6 +1308,10 @@ void cRpiAudioDecoder::Action(void)
 	unsigned int channels = 0;
 	unsigned int samplingRate = 0;
 	cAudioCodec::eCodec codec = cAudioCodec::eInvalid;
+#if LIBAVCODEC_VERSION_MAJOR >= 58
+	unsigned pending_len = 0;
+	int64_t pending_pts = OMX_INVALID_PTS;
+#endif
 
 	AVFrame *frame = av_frame_alloc();
 	if (!frame)
@@ -1358,20 +1373,17 @@ void cRpiAudioDecoder::Action(void)
 			// ... either pass through if render is ready
 			if (m_render->IsPassthrough())
 			{
-				if (m_render->Ready())
+				if (int len = m_render->WriteSamples(&m_parser->Packet()->data,
+						m_parser->Packet()->size, m_parser->GetPts()))
 				{
-					int len = m_render->WriteSamples(&m_parser->Packet()->data,
-							m_parser->Packet()->size, m_parser->GetPts());
-					if (len)
-					{
-						m_parser->Shrink(len);
-						continue;
-					}
+					m_parser->Shrink(len);
+					continue;
 				}
 			}
 			// ... or decode if there's no leftover
 			else if (!frame->nb_samples)
 			{
+#if LIBAVCODEC_VERSION_MAJOR < 58
 				int gotFrame = 0;
 				int len = avcodec_decode_audio4(m_codecs[codec].context,
 						frame, &gotFrame, m_parser->Packet());
@@ -1388,22 +1400,52 @@ void cRpiAudioDecoder::Action(void)
 					av_frame_unref(frame);
 					continue;
 				}
+#else
+				AVCodecContext * const ctx = m_codecs[codec].context;
+				AVPacket * const packet = m_parser->Packet();
+				bool do_sleep = false;
+				if (!pending_len &&
+				    (!(pending_len = packet->size) ||
+				     avcodec_send_packet(ctx, packet) < 0))
+				{
+					do_sleep = true;
+					goto done_with_packet;
+				}
+				else
+					pending_pts = m_parser->GetPts();
+
+				while (avcodec_receive_frame(ctx, frame) >= 0 &&
+				       frame->nb_samples)
+				{
+					if (!m_render->WriteSamples(frame->extended_data,
+								    frame->nb_samples,
+								    frame->pts =
+								    pending_pts,
+								    (AVSampleFormat)
+								    frame->format))
+					{
+						do_sleep = true;
+						break;
+					}
+				}
+			done_with_packet:
+				m_parser->Shrink(pending_len);
+				pending_len = 0;
+
+				if (!do_sleep)
+					continue;
+#endif
 			}
 		}
 		// if there's leftover, pass decoded audio data to render when ready
-		if (frame->nb_samples && m_render->Ready())
-		{
-			int len = m_render->WriteSamples(frame->extended_data,
-					frame->nb_samples, frame->pts,
-					(AVSampleFormat)frame->format);
-			if (len)
-			{
-				av_frame_unref(frame);
-				continue;
-			}
-		}
-		// nothing to be done...
-		m_wait.Wait(50);
+		if (frame->nb_samples &&
+		    m_render->WriteSamples(frame->extended_data,
+					   frame->nb_samples, frame->pts,
+					   (AVSampleFormat)frame->format))
+			av_frame_unref(frame);
+		else
+			// nothing to be done...
+			m_wait.Wait(50);
 	}
 
 	av_frame_free(&frame);
