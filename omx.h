@@ -38,8 +38,7 @@ class cOmx : public cThread
 {
 
 public:
-
-	cOmx();
+	cOmx() = default;
 	int Init(int display, int layer);
 	int DeInit(void);
 
@@ -165,8 +164,8 @@ private:
 	};
 
 	ILCLIENT_T 	*m_client = nullptr;
-	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1];
-	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1];
+	COMPONENT_T	*m_comp[cOmx::eNumComponents + 1] = {};
+	TUNNEL_T 	 m_tun[cOmx::eNumTunnels + 1] = {};
 
 	/* Updated by Action() thread;
 	read by callers of GetVideoFrameFormat() (without holding a mutex!) */
@@ -178,8 +177,8 @@ private:
 	bool m_setVideoDiscontinuity = false;
 	static constexpr size_t BUFFERSTAT_FILTER_SIZE = 64;
 	std::atomic<unsigned> m_bufferStat;
-	std::atomic<int16_t> m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE];
-	std::atomic<int16_t> m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE];
+	std::atomic<int16_t> m_usedAudioBuffers[BUFFERSTAT_FILTER_SIZE] = {};
+	std::atomic<int16_t> m_usedVideoBuffers[BUFFERSTAT_FILTER_SIZE] = {};
 
 	OMX_BUFFERHEADERTYPE* m_spareAudioBuffers = nullptr;
 	OMX_BUFFERHEADERTYPE* m_spareVideoBuffers = nullptr;
