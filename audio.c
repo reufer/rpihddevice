@@ -1405,7 +1405,7 @@ void cRpiAudioDecoder::Action(void)
 				AVPacket * const packet = m_parser->Packet();
 				bool do_sleep = false;
 				if (!pending_len &&
-				    (!(pending_len = packet->size) ||
+				    (!(pending_len = packet->size) || !ctx ||
 				     avcodec_send_packet(ctx, packet) < 0))
 				{
 					do_sleep = true;
